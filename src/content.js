@@ -35,7 +35,7 @@ function convertAnthropicMessages(messages) {
       const toolUses = blocks.filter((block) => block && block.type === 'tool_use');
       const toolCalls = toolUses.map((block) => {
         if (!block.id || knownToolUseIds.has(block.id)) {
-          throw new Error('Duplicate or missing tool_use id in conversation: ' + String(block.id || ''));
+          throw Object.assign(new Error('Duplicate or missing tool_use id in conversation: ' + String(block.id || '')), { statusCode: 400, type: 'invalid_request_error' });
         }
         knownToolUseIds.add(block.id);
         return {
@@ -62,7 +62,7 @@ function convertAnthropicMessages(messages) {
 
     for (const result of toolResults) {
       if (!knownToolUseIds.has(result.tool_use_id)) {
-        throw new Error('tool_result references an unknown tool_use_id: ' + result.tool_use_id);
+        throw Object.assign(new Error('tool_result references an unknown tool_use_id: ' + result.tool_use_id), { statusCode: 400, type: 'invalid_request_error' });
       }
       output.push({
         role: 'tool',
