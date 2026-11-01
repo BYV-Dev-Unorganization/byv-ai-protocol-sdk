@@ -54,16 +54,18 @@ Every ID returned by GET /v1/models resolves to a response profile. All profiles
 
 Included profiles:
 
-| Model ID | Profile intent |
-| --- | --- |
-| byv-default | Balanced BYV default |
-| claude-opus-5-5 | Deliberate, rigorous, deep execution |
-| claude-sonnet-5-5 | Balanced speed and practical execution |
-| claude-haiku-5-5 | Fast, concise, reliable focused work |
-| claude-mythos-5-1 | Defensive security review and threat analysis |
-| claude-fable-5.1 | Adaptive long-horizon and multi-step work |
+| Model ID | Display name | Profile intent |
+| --- | --- | --- |
+| byv-flash-v1 | BYV Flash V1 | Balanced, practical default |
+| claude-opus-5-5 | Opus 5.5 | Deliberate, rigorous, deep execution |
+| claude-sonnet-5-5 | Sonnet 5.5 | Balanced speed and practical execution |
+| claude-haiku-5-5 | Haiku 5.5 | Fast, concise, reliable focused work |
+| claude-mythos-5-1 | Mythos 5.1 | Defensive security review and threat analysis |
+| claude-fable-5.1 | Fable 5.1 | Adaptive long-horizon and multi-step work |
 
-The claude-* values are compatibility profile identifiers only. They do not connect to Anthropic or invoke Anthropic models. They are simply style presets applied to the one configured provider model.
+The previous `byv-default` ID remains accepted as a compatibility alias for `byv-flash-v1`, but only `byv-flash-v1` is listed in the model catalog.
+
+The `claude-*` values are compatibility profile identifiers only. They do not connect to Anthropic or invoke Anthropic models. They are simply style presets applied to the one configured provider model.
 
 The model profile is selected from the request model field. The upstream request always uses PROVIDER_MODEL.
 
