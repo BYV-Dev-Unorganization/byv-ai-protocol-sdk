@@ -4,7 +4,7 @@ const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL
 } = require('./config');
-const { listModels } = require('./model-profiles');
+const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages } = require('./handler');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateInputTokens } = require('./content');
@@ -84,6 +84,9 @@ function createServer(options = {}) {
     const validationError = validateMessagesRequest(body, { countTokens });
     if (validationError) {
       return jsonError(res, 400, validationError.type, validationError.message);
+    }
+    if (!isSupportedModel(body.model)) {
+      return jsonError(res, 400, 'invalid_request_error', 'Unsupported BYV model profile: ' + body.model, 'UNSUPPORTED_MODEL_PROFILE');
     }
 
     if (countTokens) {
