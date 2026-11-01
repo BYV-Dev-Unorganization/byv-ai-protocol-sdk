@@ -80,6 +80,33 @@ test('keeps DeepSeek auto tool choice in the provider default thinking mode', ()
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
+test('disables DeepSeek thinking for Anthropic any tool_choice mapped to required', () => {
+  const script = [
+    "const { buildPayload } = require('./src/provider/openai-compatible');",
+    "const { payload } = buildPayload([{ role: 'user', content: 'Call an available tool' }], {",
+    "  max_tokens: 256,",
+    "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: {} } }],",
+    "  tool_choice: { type: 'any' }",
+    "});",
+    "process.stdout.write(JSON.stringify(payload));"
+  ].join('\\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
+      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.tool_choice, 'required');
+  assert.deepEqual(payload.thinking, { type: 'disabled' });
+});
+
 test('omits provider-native tool fields when native function calling is disabled', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
