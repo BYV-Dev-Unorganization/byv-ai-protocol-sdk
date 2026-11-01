@@ -5,7 +5,7 @@ const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { validateToolCalls } = require('./tools/validator');
-const { estimateProviderInputTokens, estimateOutputTokens } = require('./content');
+const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls } = require('./provider/tool-calls');
 
@@ -26,63 +26,7 @@ function validateChoice(calls, force) {
   return { valid: true, error: null };
 }
 
-function latestUserText(messages) {
-  if (!Array.isArray(messages)) return '';
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (!message || message.role !== 'user') continue;
-    if (typeof message.content === 'string') return message.content;
-    if (Array.isArray(message.content)) {
-      return message.content
-        .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
-        .map((block) => block.text)
-        .join('\n');
-    }
-  }
-  return '';
-}
-
-function extractExactBashCommand(messages) {
-  const text = latestUserText(messages);
-  const patterns = [
-    /(?:jalankan|eksekusi)\s+persis\s+perintah\s*:\s*`([^`\r\n]+)`/i,
-    /(?:jalankan|eksekusi)\s+persis\s+perintah\s*:\s*([^\r\n]+)/i,
-    /run\s+exactly\s+(?:the\s+)?command\s*:\s*`([^`\r\n]+)`/i,
-    /run\s+exactly\s+(?:the\s+)?command\s*:\s*([^\r\n]+)/i,
-    /execute\s+exactly\s+(?:the\s+)?command\s*:\s*`([^`\r\n]+)`/i,
-    /execute\s+exactly\s+(?:the\s+)?command\s*:\s*([^\r\n]+)/i
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const command = String(match[1] || match[2] || '').trim();
-      if (command) return command;
-    }
-  }
-  return null;
-}
-
-function validateExactBashCommand(calls, expectedCommand) {
-  if (calls.length !== 1 || !calls[0] || calls[0].name !== 'Bash') {
-    return {
-      valid: false,
-      error: 'The user explicitly requested one Bash call with the exact command ' +
-        JSON.stringify(expectedCommand) + '. Return exactly one Bash invocation and no other tool calls.'
-    };
-  }
-  const actualCommand = calls[0].input && calls[0].input.command;
-  if (actualCommand !== expectedCommand) {
-    return {
-      valid: false,
-      error: 'The Bash command does not match the exact command supplied by the user. Expected command: ' +
-        JSON.stringify(expectedCommand) + '. Received command: ' + JSON.stringify(actualCommand) +
-        '. Return the expected command unchanged. Do not append, prepend, chain, or substitute commands.'
-    };
-  }
-  return { valid: true, error: null };
-}
-
-function validateToolCallRequest(calls, tools, force, exactBashCommand) {
+function validateToolCallRequest(calls, tools, force) {
   if (!Array.isArray(calls) || calls.length === 0) {
     return { valid: false, error: 'The model did not return a tool call.' };
   }
@@ -90,11 +34,22 @@ function validateToolCallRequest(calls, tools, force, exactBashCommand) {
   if (!validation.valid) return validation;
   validation = validateChoice(calls, force);
   if (!validation.valid) return validation;
-  if (exactBashCommand !== null) {
-    validation = validateExactBashCommand(calls, exactBashCommand);
-    if (!validation.valid) return validation;
-  }
   return { valid: true, error: null };
+}
+
+function detectToolLoop(messages, threshold = 3) {
+  if (threshold < 1 || !Array.isArray(messages)) return false;
+  const signatures = [];
+  for (const message of messages) {
+    if (!message || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block && block.type === 'tool_use') {
+        signatures.push(block.name + '|' + JSON.stringify(block.input || {}));
+      }
+    }
+  }
+  const tail = signatures.slice(-threshold);
+  return tail.length >= threshold && tail.every((signature) => signature === tail[0]);
 }
 
 function usageCount(usage, keys) {
@@ -245,11 +200,10 @@ async function handleMessages(body, options = {}) {
   const signal = options.signal;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
-  const force = parseToolChoice(body.tool_choice);
-  const exactBashCommand = tools.some((tool) => tool && tool.name === 'Bash')
-    ? extractExactBashCommand(body.messages)
-    : null;
-  const providerMessages = buildProviderMessages(body);
+  const repeatedToolLoop = detectToolLoop(body.messages, 3);
+  const force = repeatedToolLoop ? { mode: 'none' } : parseToolChoice(body.tool_choice);
+  const promptBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
+  const providerMessages = buildProviderMessages(promptBody);
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
@@ -266,7 +220,7 @@ async function handleMessages(body, options = {}) {
   let parsed = parsedResult.parsed;
   let calls = parsedResult.calls;
   let parseError = parsedResult.error;
-  let validation = validateToolCallRequest(calls, tools, force, exactBashCommand);
+  let validation = validateToolCallRequest(calls, tools, force);
   if (!validation.valid && parseError) {
     validation.error = parseError + ' ' + validation.error;
   }
@@ -301,8 +255,7 @@ async function handleMessages(body, options = {}) {
   } else if (tools.length > 0 && (
     parseError ||
     parsed.errors.length > 0 ||
-    (calls.length > 0 && !validation.valid) ||
-    (exactBashCommand !== null && calls.length === 0)
+    (calls.length > 0 && !validation.valid)
   )) {
     let recovered = false;
     let lastError = validation.error || parseError || 'Malformed BYV output.';
@@ -319,7 +272,7 @@ async function handleMessages(body, options = {}) {
       parsedResult = parseCompletionToolCalls(completion);
       parsed = parsedResult.parsed;
       calls = parsedResult.calls;
-      validation = validateToolCallRequest(calls, tools, force, exactBashCommand);
+      validation = validateToolCallRequest(calls, tools, force);
       if (!validation.valid && parsedResult.error) {
         validation.error = parsedResult.error + ' ' + validation.error;
       }
@@ -352,7 +305,7 @@ async function handleMessages(body, options = {}) {
         parsedResult = parseCompletionToolCalls(completion);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
-        validation = validateToolCallRequest(calls, tools, force, exactBashCommand);
+        validation = validateToolCallRequest(calls, tools, force);
         if (!validation.valid && parsedResult.error) {
           validation.error = parsedResult.error + ' ' + validation.error;
         }
@@ -371,7 +324,7 @@ async function handleMessages(body, options = {}) {
   }
 
   if (calls.length > 0) {
-    const finalValidation = validateToolCallRequest(calls, tools, force, exactBashCommand);
+    const finalValidation = validateToolCallRequest(calls, tools, force);
     if (!finalValidation.valid) {
       throw Object.assign(new Error('Tool calls were rejected: ' + finalValidation.error), {
         statusCode: 502, type: 'api_error', code: 'BYV_TOOL_VALIDATION_FAILED'
@@ -413,6 +366,7 @@ module.exports = {
   handleMessages,
   parseToolChoice,
   validateChoice,
+  detectToolLoop,
   normalizeUsage,
   hasProviderTokenTotals,
   enforceProviderBudget,
