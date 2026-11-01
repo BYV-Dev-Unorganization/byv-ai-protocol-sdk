@@ -136,6 +136,96 @@ test('recovers invalid BYV Format Block arguments using BYV protocol instruction
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
 });
+test('recovers when Bash changes an explicitly requested exact command', async () => {
+  let count = 0;
+  const seenMessages = [];
+  const exactRequest = [
+    'Gunakan Bash tepat satu kali.',
+    'Jalankan persis perintah: pwd',
+    'Jangan gunakan tool lain.'
+  ].join('\\n');
+  const bashTools = [{
+    name: 'Bash',
+    description: 'Run a shell command',
+    input_schema: {
+      type: 'object',
+      required: ['command'],
+      properties: { command: { type: 'string' } },
+      additionalProperties: false
+    }
+  }];
+  const call = (id, command) =>
+    '<|BYV| calls><|BYV| invoke name="Bash" id="' + id + '">' +
+    '<|BYV| parameter name="command" type="string">' + command +
+    '</|BYV| parameter></|BYV| invoke></|BYV| calls>';
+
+  const result = await handleMessages(body({
+    messages: [{ role: 'user', content: exactRequest }],
+    tools: bashTools,
+    tool_choice: 'auto'
+  }), {
+    provider: {
+      createChatCompletion: async (messages) => {
+        count++;
+        seenMessages.push(messages);
+        return {
+          text: count === 1
+            ? call('call_wrong_command', 'echo sukses > byv.txt && ls')
+            : call('call_exact_command', 'pwd'),
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.match(seenMessages[1].at(-1).content, /Expected command: "pwd"/);
+  assert.match(seenMessages[1].at(-1).content, /Do not append, prepend, chain, or substitute commands/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.toolCalls, [{
+    id: 'call_exact_command',
+    name: 'Bash',
+    input: { command: 'pwd' }
+  }]);
+});
+
+test('never forwards a modified exact Bash command when recovery also fails', async () => {
+  let count = 0;
+  const exactRequest = 'Jalankan persis perintah: pwd';
+  const bashTools = [{
+    name: 'Bash',
+    input_schema: {
+      type: 'object',
+      required: ['command'],
+      properties: { command: { type: 'string' } },
+      additionalProperties: false
+    }
+  }];
+  const badCall = '<|BYV| calls><|BYV| invoke name="Bash" id="call_bad_' +
+    'RETRY' + '"><|BYV| parameter name="command" type="string">' +
+    'echo sukses > byv.txt && ls</|BYV| parameter></|BYV| invoke></|BYV| calls>';
+
+  await assert.rejects(
+    handleMessages(body({
+      messages: [{ role: 'user', content: exactRequest }],
+      tools: bashTools,
+      tool_choice: 'auto'
+    }), {
+      provider: {
+        createChatCompletion: async () => {
+          count++;
+          return { text: badCall.replace('RETRY', String(count)), finish_reason: 'stop', usage: null };
+        }
+      }
+    }),
+    (error) => error.code === 'BYV_TOOL_CALL_RECOVERY_FAILED' &&
+      /Expected command: "pwd"/.test(error.message)
+  );
+
+  assert.equal(count, 3);
+});
+
 test('rejects mixed native function calls and BYV markup as an ambiguous response', async () => {
   await assert.rejects(
     handleMessages(body(), {
