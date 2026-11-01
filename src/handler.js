@@ -34,16 +34,18 @@ function normalizeUsage(providerUsage, inputEstimate, outputEstimate) {
   return { input_tokens: input, output_tokens: output };
 }
 
-async function requestCompletion(messages, body, signal) {
+async function requestCompletion(messages, body, signal, provider = {}) {
   const options = {
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
     stop_sequences: body.stop_sequences
   };
+  const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
+  const normalCall = provider.createChatCompletion || createChatCompletion;
   return body.stream === true
-    ? createStreamingChatCompletion(messages, options, signal)
-    : createChatCompletion(messages, options, signal);
+    ? streamCall(messages, options, signal)
+    : normalCall(messages, options, signal);
 }
 
 async function handleMessages(body, options = {}) {
@@ -53,7 +55,8 @@ async function handleMessages(body, options = {}) {
   const force = parseToolChoice(body.tool_choice);
   const inputTokens = estimateInputTokens(body);
   const providerMessages = buildProviderMessages(body);
-  let completion = await requestCompletion(providerMessages, body, signal);
+  const provider = options.provider || {};
+  let completion = await requestCompletion(providerMessages, body, signal, provider);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
@@ -84,7 +87,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text')
       }]);
-      completion = await requestCompletion(retryMessages, body, signal);
+      completion = await requestCompletion(retryMessages, body, signal, provider);
       parsed = parseBYVOutput(completion.text);
       if (!parsed.hasProtocol && parsed.calls.length === 0 && parsed.errors.length === 0) {
         calls = [];
@@ -106,7 +109,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool')
       }]);
-      completion = await requestCompletion(retryMessages, body, signal);
+      completion = await requestCompletion(retryMessages, body, signal, provider);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
@@ -142,7 +145,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool')
         }]);
-        completion = await requestCompletion(retryMessages, body, signal);
+        completion = await requestCompletion(retryMessages, body, signal, provider);
         parsed = parseBYVOutput(completion.text);
         calls = parsed.calls;
         validation = calls.length ? validateToolCalls(calls, tools) : { valid: false, error: 'No invocation returned.' };
