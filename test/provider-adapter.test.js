@@ -1,0 +1,223 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const ENV_KEYS = [
+  'PROVIDER_BASE_URL',
+  'PROVIDER_API_KEY',
+  'PROVIDER_MODEL',
+  'PROVIDER_TIMEOUT_MS'
+];
+
+function loadProvider(t, overrides = {}) {
+  const previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+  const previousFetch = global.fetch;
+  Object.assign(process.env, {
+    PROVIDER_BASE_URL: 'https://provider.example/v1',
+    PROVIDER_API_KEY: 'provider-test-secret',
+    PROVIDER_MODEL: 'model-test',
+    PROVIDER_TIMEOUT_MS: '300000',
+    ...overrides
+  });
+
+  const configPath = require.resolve('../src/config');
+  const providerPath = require.resolve('../src/provider/openai-compatible');
+  delete require.cache[providerPath];
+  delete require.cache[configPath];
+  const provider = require(providerPath);
+
+  t.after(() => {
+    global.fetch = previousFetch;
+    for (const key of ENV_KEYS) {
+      if (previousEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = previousEnv[key];
+    }
+    delete require.cache[providerPath];
+    delete require.cache[configPath];
+  });
+  return provider;
+}
+
+function response({ status = 200, payload = {}, raw, jsonError } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      if (jsonError) throw jsonError;
+      return payload;
+    },
+    async text() {
+      return raw === undefined ? JSON.stringify(payload) : raw;
+    }
+  };
+}
+
+test('builds the exact OpenAI-compatible request payload and normalizes provider output', async (t) => {
+  const provider = loadProvider(t);
+  let captured;
+  global.fetch = async (url, init) => {
+    captured = { url, init, payload: JSON.parse(init.body) };
+    return response({
+      payload: {
+        model: 'provider/actual-model',
+        choices: [{
+          finish_reason: 'stop',
+          message: {
+            content: [{ type: 'text', text: 'Hello ' }, { type: 'text', text: 'from provider.' }],
+            reasoning_content: 'brief reasoning'
+          }
+        }],
+        usage: { prompt_tokens: 20, completion_tokens: 4 }
+      }
+    });
+  };
+
+  const result = await provider.createChatCompletion(
+    [{ role: 'system', content: 'stable prompt' }, { role: 'user', content: 'Hi' }],
+    { max_tokens: 128, temperature: 0.2, top_p: 0.9, stop_sequences: ['END'] }
+  );
+
+  assert.equal(captured.url, 'https://provider.example/v1/chat/completions');
+  assert.equal(captured.init.method, 'POST');
+  assert.equal(captured.init.headers.Authorization, 'Bearer provider-test-secret');
+  assert.deepEqual(captured.payload, {
+    model: 'model-test',
+    messages: [
+      { role: 'system', content: 'stable prompt' },
+      { role: 'user', content: 'Hi' }
+    ],
+    max_tokens: 128,
+    stream: false,
+    temperature: 0.2,
+    top_p: 0.9,
+    stop: ['END']
+  });
+  assert.deepEqual(result, {
+    text: 'Hello from provider.',
+    reasoning: 'brief reasoning',
+    finish_reason: 'stop',
+    usage: { prompt_tokens: 20, completion_tokens: 4 },
+    provider_model: 'provider/actual-model'
+  });
+});
+
+test('maps upstream HTTP errors without leaking provider credentials', async (t) => {
+  const provider = loadProvider(t);
+  global.fetch = async () => response({
+    status: 429,
+    payload: { error: { message: 'rate limit reached' } }
+  });
+
+  await assert.rejects(
+    provider.createChatCompletion([{ role: 'user', content: 'Hi' }], { max_tokens: 16 }),
+    (error) => error.code === 'UPSTREAM_HTTP_429' &&
+      error.statusCode === 502 &&
+      /rate limit reached/.test(error.message) &&
+      !error.message.includes('provider-test-secret')
+  );
+});
+
+test('rejects invalid JSON and structurally invalid provider responses', async (t) => {
+  const provider = loadProvider(t);
+  global.fetch = async () => response({ jsonError: new SyntaxError('Unexpected token') });
+  await assert.rejects(
+    provider.createChatCompletion([], { max_tokens: 16 }),
+    (error) => error.code === 'PROVIDER_INVALID_JSON'
+  );
+
+  global.fetch = async () => response({ payload: { choices: [] } });
+  await assert.rejects(
+    provider.createChatCompletion([], { max_tokens: 16 }),
+    (error) => error.code === 'PROVIDER_INVALID_RESPONSE'
+  );
+});
+
+test('maps connection failures to a stable provider error', async (t) => {
+  const provider = loadProvider(t);
+  global.fetch = async () => { throw new TypeError('network unavailable'); };
+  await assert.rejects(
+    provider.createChatCompletion([], { max_tokens: 16 }),
+    (error) => error.code === 'PROVIDER_CONNECTION_FAILED' && error.statusCode === 502
+  );
+});
+
+test('aborts upstream requests when the client disconnects', async (t) => {
+  const provider = loadProvider(t);
+  global.fetch = async (_url, init) => {
+    if (init.signal.aborted) throw new Error('aborted');
+    return new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
+  };
+  const controller = new AbortController();
+  controller.abort(new Error('client disconnected'));
+
+  await assert.rejects(
+    provider.createChatCompletion([], { max_tokens: 16 }, controller.signal),
+    (error) => error.code === 'CLIENT_DISCONNECTED' && error.statusCode === 499
+  );
+});
+
+test('enforces the configured provider timeout', async (t) => {
+  const provider = loadProvider(t, { PROVIDER_TIMEOUT_MS: '1000' });
+  global.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new Error('timeout abort')), { once: true });
+  });
+
+  await assert.rejects(
+    provider.createChatCompletion([], { max_tokens: 16 }),
+    (error) => error.code === 'PROVIDER_TIMEOUT' && error.statusCode === 504
+  );
+});
+
+test('parses provider SSE chunks, finish reasons, reasoning, and final usage', async (t) => {
+  const provider = loadProvider(t);
+  const encoder = new TextEncoder();
+  const chunks = [
+    'data: {"choices":[{"delta":{"content":"hello "},"finish_reason":null}]}\n\n',
+    'data: {"choices":[{"delta":{"reasoning_content":"thinking"},"finish_reason":null}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"world"},"finish_reason":"stop"}]}\n\n',
+    'data: {"choices":[],"usage":{"prompt_tokens":30,"completion_tokens":2}}\n\n',
+    'data: [DONE]\n\n'
+  ];
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+        controller.close();
+      }
+    })
+  });
+
+  const result = await provider.createStreamingChatCompletion(
+    [{ role: 'user', content: 'Hi' }],
+    { max_tokens: 16 }
+  );
+  assert.equal(result.text, 'hello world');
+  assert.equal(result.reasoning, 'thinking');
+  assert.equal(result.finish_reason, 'stop');
+  assert.deepEqual(result.usage, { prompt_tokens: 30, completion_tokens: 2 });
+  assert.equal(result.provider_model, 'model-test');
+});
+
+test('rejects malformed JSON in an upstream SSE event', async (t) => {
+  const provider = loadProvider(t);
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: not-json\n\n'));
+        controller.close();
+      }
+    })
+  });
+
+  await assert.rejects(
+    provider.createStreamingChatCompletion([], { max_tokens: 16 }),
+    (error) => error.code === 'PROVIDER_INVALID_STREAM' && error.statusCode === 502
+  );
+});

@@ -181,6 +181,74 @@ main().catch(console.error);
 
 The SDK appends /v1/messages; do not include /v1 in the baseURL.
 
+## Live client compatibility smoke tests
+
+The repository includes two opt-in integration smoke tests for real client compatibility. They call the running BYV gateway and its configured upstream provider, so they are not part of `npm test` or the GitHub Actions unit-test job. They may consume provider quota.
+
+Install dependencies (the Anthropic SDK is included as a development dependency):
+
+~~~sh
+npm install
+~~~
+
+Start BYV in one terminal:
+
+~~~sh
+npm start
+~~~
+
+The smoke scripts use `http://127.0.0.1:8787` and read `.byv-gateway-token` automatically for the default local gateway. For a different endpoint or token, set `BYV_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` (or `GATEWAY_API_KEY`) in the test terminal. The base URL is the gateway root, without `/v1`; the scripts also normalize a trailing `/v1`.
+
+### Anthropic SDK smoke test
+
+In a second terminal, run:
+
+~~~sh
+npm run test:sdk
+~~~
+
+This uses the official `@anthropic-ai/sdk` and checks:
+
+- A normal non-streaming Messages request.
+- The SDK `messages.countTokens()` call against BYV's local estimate endpoint.
+- A text SSE stream parsed by the SDK.
+- A non-streaming `tool_use` request and stateless `tool_result` round trip.
+- A streamed `tool_use` block, including accumulated `input_json_delta` fragments.
+
+The tool fixture requests a harmless echo command, but the smoke test **never executes it**. It sends a synthetic tool result back to verify the Anthropic conversation contract.
+
+Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
+
+### Claude Code CLI smoke test
+
+Install and authenticate Claude Code CLI separately, make sure the `claude` command is available on `PATH`, then run:
+
+~~~sh
+npm run test:claude-code
+~~~
+
+The script launches Claude Code in non-interactive `stream-json` mode against the BYV gateway. It requires Claude Code to use these six tools sequentially and wait for each result:
+
+1. `Read` — inspect a fixture `package.json`.
+2. `Glob` — find fixture text files.
+3. `Grep` — find a known marker.
+4. `Edit` — modify a fixture file.
+5. `Write` — create a fixture file.
+6. `Bash(pwd)` — run only the `pwd` command.
+
+The test creates an isolated temporary workspace, applies a narrow tool/permission allowlist, verifies tool results and the Edit/Write changes, and removes the workspace afterward. It does not grant arbitrary shell execution and does not modify the repository. It tests client-to-gateway tool orchestration; the gateway itself does not execute client tools.
+
+Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000).
+
+These live integration tests are intentionally separate from:
+
+~~~sh
+npm test
+npm run check
+~~~
+
+The regular suite remains deterministic and does not require a running provider, a gateway token, the Anthropic SDK runtime, or Claude Code CLI.
+
 ## Tool calls
 
 The gateway injects the exact tools and input schemas from each request into the BYV system prompt. The model must answer with the BYV format defined in system/BYV_SYSTEM_PROMPT_TEMPLATE_v0.1.txt.
