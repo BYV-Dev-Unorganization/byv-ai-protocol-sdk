@@ -80,3 +80,13 @@ test('rejects multiple outer calls blocks and incomplete protocol markup', () =>
   assert.match(parseBYVOutput(twice).errors[0], /Only one outer/);
   assert.match(parseBYVOutput('<|BYV| calls>').errors[0], /incomplete/);
 });
+test('accepts valid BYV header attributes regardless of order', () => {
+  const source = '<|BYV| calls><|BYV| invoke id="call_1" name="Read">' +
+    '<|BYV| parameter type="string" name="file_path">README.md</|BYV| parameter>' +
+    '</|BYV| invoke></|BYV| calls>';
+  const parsed = parseBYVOutput(source);
+  assert.equal(parsed.errors.length, 0);
+  assert.deepEqual(parsed.calls, [
+    { id: 'call_1', name: 'Read', input: { file_path: 'README.md' } }
+  ]);
+});

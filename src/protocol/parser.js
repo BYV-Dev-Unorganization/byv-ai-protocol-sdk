@@ -33,14 +33,19 @@ function parseOrderedAttributes(raw, expectedNames, context) {
     cursor = pattern.lastIndex;
   }
   if (raw.slice(cursor).trim()) throw new Error(context + ' contains invalid trailing attribute syntax.');
-  if (attributes.length !== expectedNames.length) {
-    throw new Error(context + ' must declare exactly ' + expectedNames.join(' then ') + '.');
+
+  const names = attributes.map(([name]) => name);
+  if (names.length !== expectedNames.length || new Set(names).size !== names.length) {
+    throw new Error(context + ' must declare exactly these attributes: ' + expectedNames.join(', ') + '.');
   }
-  for (let i = 0; i < expectedNames.length; i++) {
-    if (attributes[i][0] !== expectedNames[i]) {
-      throw new Error(context + ' attributes must appear in order: ' + expectedNames.join(', ') + '.');
-    }
+  const unexpected = names.filter((name) => !expectedNames.includes(name));
+  const missing = expectedNames.filter((name) => !names.includes(name));
+  if (unexpected.length || missing.length) {
+    throw new Error(context + ' attributes must be ' + expectedNames.join(', ') + '.');
   }
+
+  // Attribute order is semantically irrelevant in markup. Accept either order
+  // so models that emit valid BYV with reordered attributes do not get rejected.
   return Object.fromEntries(attributes);
 }
 
