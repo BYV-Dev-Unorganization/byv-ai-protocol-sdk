@@ -16,7 +16,8 @@ const PROMPT_ARTIFACT_PATH = path.join(
 
 test('active prompt is embedded in prompts.js and the system file is a matching documentation artifact', () => {
   const artifact = fs.readFileSync(PROMPT_ARTIFACT_PATH, 'utf8');
-  assert.equal(artifact, BASE_TEMPLATE);
+  const normalizeLineEndings = (value) => value.replace(/\r\n?/g, '\n');
+  assert.equal(normalizeLineEndings(artifact), normalizeLineEndings(BASE_TEMPLATE));
   assert.match(BASE_TEMPLATE, /^# BYV SYSTEM INSTRUCTIONS/m);
   assert.doesNotMatch(BASE_TEMPLATE, /^#{1,6}\s+\d+[.)]/m);
 });
