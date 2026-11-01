@@ -47,3 +47,33 @@ test('limits the number of calls in a batch', () => {
   }));
   assert.match(validateToolCalls(calls, tools, { maxCalls: 2 }).error, /maximum of 2/);
 });
+
+test('validates JSON Schema Draft 2020-12 and enforces unevaluatedProperties', () => {
+  const draft2020Tools = [{
+    name: 'Read',
+    input_schema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object',
+      allOf: [{
+        properties: {
+          file_path: { type: 'string', minLength: 1 }
+        }
+      }],
+      required: ['file_path'],
+      unevaluatedProperties: false
+    }
+  }];
+
+  assert.deepEqual(validateToolCalls([{
+    id: 'draft2020-valid',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  }], draft2020Tools), { valid: true, error: null });
+
+  const invalid = validateToolCalls([{
+    id: 'draft2020-extra',
+    name: 'Read',
+    input: { file_path: 'README.md', unexpected: true }
+  }], draft2020Tools);
+  assert.match(invalid.error, /unevaluated properties/);
+});
