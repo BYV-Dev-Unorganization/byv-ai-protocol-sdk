@@ -331,7 +331,7 @@ BYV performs best-effort model metadata discovery using the configured provider'
 
 OpenAI-compatible APIs do not standardize context-window metadata. When the provider does not publish a limit in its model metadata, set PROVIDER_CONTEXT_WINDOW_TOKENS, PROVIDER_MAX_INPUT_TOKENS, and/or PROVIDER_MAX_OUTPUT_TOKENS explicitly. Explicit environment values override discovered values. BYV never infers a context window from the model name. An unknown limit remains unknown rather than being guessed.
 
-Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the BYV system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate conversation history or quietly lower max_tokens. If limits are unknown, the regular body and prompt size limits still apply.
+Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the BYV system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate or compact conversation history, and it does not quietly lower max_tokens. If limits are unknown, the regular body and system-prompt size limits still apply.\n\n`MAX_PROMPT_CHARS` is a character-based safety ceiling for the assembled system prompt only; it is not a token limit or a substitute for provider context budgeting. The default is 4,000,000 characters and the configurable range is 8,192–8,000,000 characters. The complete provider-shaped input is still subject to the discovered or explicitly configured provider token limits.
 
 These local counts are conservative estimates, not counts from the provider's exact tokenizer. /v1/messages/count_tokens returns the provider-shaped input estimate and is always marked X-Token-Usage-Estimated: true. Actual prompt_tokens and completion_tokens from the provider take precedence in Messages usage.
 
@@ -379,7 +379,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
 | MAX_BODY_BYTES | 10485760 | Maximum inbound JSON request body |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
-| MAX_PROMPT_CHARS | 120000 | Maximum generated system prompt size |
+| MAX_PROMPT_CHARS | 4000000 | Maximum generated system prompt size in characters (configurable up to 8000000) |
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |
 | MAX_RECOVERY_ATTEMPTS | 2 | Maximum tool-call or text-only recovery attempts |
 | CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
