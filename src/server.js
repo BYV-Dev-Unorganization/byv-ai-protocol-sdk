@@ -10,7 +10,7 @@ const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('
 const { estimateInputTokens } = require('./content');
 const { sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
-const { approxTokens, uuid } = require('./config');
+const { uuid } = require('./config');
 
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
@@ -104,22 +104,20 @@ function createServer(options = {}) {
       if (!res.writableEnded) controller.abort(new Error('Client disconnected.'));
     };
     res.once('close', onClose);
-    res.setHeader('X-Token-Usage-Estimated', 'true');
-    if (isStream) {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        Connection: 'keep-alive',
-        'X-Accel-Buffering': 'no'
-      });
-      if (typeof res.flushHeaders === 'function') res.flushHeaders();
-    }
 
     const startedAt = Date.now();
     try {
       const result = await runHandler(body, { signal: controller.signal });
       if (res.destroyed || res.writableEnded) return;
+      if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
       if (isStream) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no'
+        });
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
         sendAnthropicStream(res, result, body.model, result.usage.input_tokens);
         res.end();
       } else {
@@ -161,7 +159,7 @@ function createServer(options = {}) {
         message: String(error.message || error).slice(0, 500),
         duration_ms: Date.now() - startedAt
       }));
-      if (isStream) {
+      if (isStream && res.headersSent) {
         sendEvent(res, 'error', {
           type: 'error',
           error: {
