@@ -150,3 +150,35 @@ test('count_tokens accepts the canonical BYV Flash V1 model ID without invoking 
   assert.equal(response.headers.get('x-token-usage-estimated'), 'true');
   assert.equal(called, false);
 });
+
+
+test('exposes provider context and token limits through an authenticated capability endpoint', async (t) => {
+  let forceRefresh = false;
+  const base = await withServer(t, {
+    getProviderCapabilities: async (options) => {
+      forceRefresh = options.forceRefresh === true;
+      return {
+        provider_model: 'provider/model-1m',
+        metadata_status: 'available',
+        context_window_tokens: 1000000,
+        max_input_tokens: 900000,
+        max_output_tokens: 64000,
+        supports_prompt_caching: true
+      };
+    }
+  });
+  const rejected = await fetch(base + '/v1/provider/capabilities');
+  assert.equal(rejected.status, 401);
+
+  const response = await fetch(base + '/v1/provider/capabilities?refresh=1', {
+    headers: authHeaders()
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const result = await response.json();
+  assert.equal(result.context_window_tokens, 1000000);
+  assert.equal(result.max_input_tokens, 900000);
+  assert.equal(result.max_output_tokens, 64000);
+  assert.equal(result.supports_prompt_caching, true);
+  assert.equal(forceRefresh, true);
+});

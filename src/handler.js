@@ -1,11 +1,12 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, uuid } = require('./config');
+const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, uuid } = require('./config');
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { validateToolCalls } = require('./tools/validator');
-const { estimateInputTokens, estimateOutputTokens } = require('./content');
+const { estimateProviderInputTokens, estimateOutputTokens } = require('./content');
+const { getModelCapabilities } = require('./provider/capabilities');
 
 function parseToolChoice(choice) {
   if (!choice) return { mode: 'auto' };
@@ -24,17 +25,90 @@ function validateChoice(calls, force) {
   return { valid: true, error: null };
 }
 
-function normalizeUsage(providerUsage, inputEstimate, outputEstimate) {
-  const input = providerUsage && Number.isInteger(providerUsage.prompt_tokens)
-    ? providerUsage.prompt_tokens
-    : inputEstimate;
-  const output = providerUsage && Number.isInteger(providerUsage.completion_tokens)
-    ? providerUsage.completion_tokens
-    : outputEstimate;
-  return { input_tokens: input, output_tokens: output };
+function usageCount(usage, keys) {
+  if (!usage || typeof usage !== 'object') return null;
+  for (const key of keys) {
+    if (Number.isSafeInteger(usage[key]) && usage[key] >= 0) return usage[key];
+  }
+  return null;
 }
 
-async function requestCompletion(messages, body, signal, provider = {}) {
+function normalizeUsage(providerUsage, inputEstimate, outputEstimate) {
+  const prompt = usageCount(providerUsage, ['prompt_tokens', 'input_tokens']);
+  const output = usageCount(providerUsage, ['completion_tokens', 'output_tokens']);
+  const promptDetails = providerUsage && (
+    providerUsage.prompt_tokens_details || providerUsage.input_tokens_details ||
+    providerUsage.prompt_token_details || providerUsage.input_token_details
+  );
+  const cacheRead = usageCount(providerUsage, ['cache_read_input_tokens']) ??
+    usageCount(promptDetails, ['cached_tokens', 'cache_read_tokens', 'cache_read_input_tokens']);
+  const cacheCreation = usageCount(providerUsage, ['cache_creation_input_tokens']) ??
+    usageCount(promptDetails, ['cache_write_tokens', 'cache_creation_tokens', 'cache_creation_input_tokens']);
+
+  const input = prompt !== null
+    ? Math.max(0, prompt - (cacheRead || 0) - (cacheCreation || 0))
+    : inputEstimate;
+  const result = {
+    input_tokens: input,
+    output_tokens: output !== null ? output : outputEstimate
+  };
+  if (cacheCreation !== null) result.cache_creation_input_tokens = cacheCreation;
+  if (cacheRead !== null) result.cache_read_input_tokens = cacheRead;
+  return result;
+}
+
+function hasProviderTokenTotals(providerUsage) {
+  return usageCount(providerUsage, ['prompt_tokens', 'input_tokens']) !== null &&
+    usageCount(providerUsage, ['completion_tokens', 'output_tokens']) !== null;
+}
+
+function enforceProviderBudget(capabilities, estimatedInputTokens, requestedOutputTokens) {
+  if (!capabilities) return;
+
+  const maxOutput = capabilities.max_output_tokens;
+  if (Number.isSafeInteger(maxOutput) && maxOutput > 0 && requestedOutputTokens > maxOutput) {
+    throw Object.assign(new Error(
+      'Requested max_tokens=' + requestedOutputTokens +
+      ' exceeds the provider model output limit of ' + maxOutput + ' tokens.'
+    ), {
+      statusCode: 400,
+      type: 'invalid_request_error',
+      code: 'PROVIDER_MAX_OUTPUT_EXCEEDED'
+    });
+  }
+
+  const inputLimits = [];
+  if (Number.isSafeInteger(capabilities.max_input_tokens) && capabilities.max_input_tokens > 0) {
+    inputLimits.push(capabilities.max_input_tokens);
+  }
+  if (Number.isSafeInteger(capabilities.context_window_tokens) && capabilities.context_window_tokens > 0) {
+    inputLimits.push(Math.max(0,
+      capabilities.context_window_tokens - requestedOutputTokens - CONTEXT_WINDOW_SAFETY_TOKENS
+    ));
+  }
+
+  if (!inputLimits.length) return;
+  const maxAllowedInput = Math.min(...inputLimits);
+  if (estimatedInputTokens > maxAllowedInput) {
+    const contextDescription = Number.isSafeInteger(capabilities.context_window_tokens)
+      ? ' within the ' + capabilities.context_window_tokens + '-token context window'
+      : '';
+    throw Object.assign(new Error(
+      'Estimated provider input is ' + estimatedInputTokens +
+      ' tokens, above the allowed ' + maxAllowedInput + ' tokens' + contextDescription +
+      ' after reserving max_tokens=' + requestedOutputTokens +
+      ' and a ' + CONTEXT_WINDOW_SAFETY_TOKENS + '-token safety margin. Reduce conversation history, tools, or max_tokens.'
+    ), {
+      statusCode: 400,
+      type: 'invalid_request_error',
+      code: 'PROVIDER_CONTEXT_WINDOW_EXCEEDED'
+    });
+  }
+}
+
+async function requestCompletion(messages, body, signal, provider = {}, capabilities = null) {
+  const estimatedInputTokens = estimateProviderInputTokens(messages);
+  enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
   const options = {
     max_tokens: body.max_tokens,
     temperature: body.temperature,
@@ -56,7 +130,7 @@ async function requestCompletion(messages, body, signal, provider = {}) {
       statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
     });
   }
-  return result;
+  return { ...result, input_tokens_estimated: estimatedInputTokens };
 }
 
 async function handleMessages(body, options = {}) {
@@ -64,10 +138,12 @@ async function handleMessages(body, options = {}) {
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const force = parseToolChoice(body.tool_choice);
-  const inputTokens = estimateInputTokens(body);
   const providerMessages = buildProviderMessages(body);
   const provider = options.provider || {};
-  let completion = await requestCompletion(providerMessages, body, signal, provider);
+  const providerCapabilities = typeof provider.getModelCapabilities === 'function'
+    ? await provider.getModelCapabilities()
+    : await getModelCapabilities();
+  let completion = await requestCompletion(providerMessages, body, signal, provider, providerCapabilities);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
@@ -98,7 +174,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text')
       }]);
-      completion = await requestCompletion(retryMessages, body, signal, provider);
+      completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
       parsed = parseBYVOutput(completion.text);
       if (!parsed.hasProtocol && parsed.calls.length === 0 && parsed.errors.length === 0) {
         calls = [];
@@ -120,7 +196,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool')
       }]);
-      completion = await requestCompletion(retryMessages, body, signal, provider);
+      completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
@@ -156,7 +232,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool')
         }]);
-        completion = await requestCompletion(retryMessages, body, signal, provider);
+        completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
         parsed = parseBYVOutput(completion.text);
         calls = parsed.calls;
         validation = calls.length ? validateToolCalls(calls, tools) : { valid: false, error: 'No invocation returned.' };
@@ -215,11 +291,16 @@ async function handleMessages(body, options = {}) {
   if (!result.content.length) result.content.push({ type: 'text', text: '' });
 
   const outputEstimate = estimateOutputTokens(result);
-  result.usage = normalizeUsage(completion.usage, inputTokens, outputEstimate);
-  result.usage_estimated = !(completion.usage &&
-    Number.isInteger(completion.usage.prompt_tokens) &&
-    Number.isInteger(completion.usage.completion_tokens));
+  result.usage = normalizeUsage(completion.usage, completion.input_tokens_estimated, outputEstimate);
+  result.usage_estimated = !hasProviderTokenTotals(completion.usage);
   return result;
 }
 
-module.exports = { handleMessages, parseToolChoice, validateChoice, normalizeUsage };
+module.exports = {
+  handleMessages,
+  parseToolChoice,
+  validateChoice,
+  normalizeUsage,
+  hasProviderTokenTotals,
+  enforceProviderBudget
+};

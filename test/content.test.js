@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { convertAnthropicMessages } = require('../src/content');
+const { convertAnthropicMessages, estimateProviderInputTokens } = require('../src/content');
 
 test('converts Anthropic tool_use and tool_result blocks to OpenAI-compatible messages', () => {
   const messages = convertAnthropicMessages([
@@ -48,4 +48,14 @@ test('rejects duplicate tool_result blocks for the same invocation', () => {
       { type: 'tool_result', tool_use_id: 'call_once', content: 'second' }
     ] }
   ]), /Duplicate tool_result/);
+});
+
+
+test('estimates the provider-shaped payload including UTF-8 content and message overhead', () => {
+  const estimate = estimateProviderInputTokens([
+    { role: 'system', content: 'BYV system prompt' },
+    { role: 'user', content: 'Halo 世界 👋' }
+  ]);
+  assert.ok(Number.isInteger(estimate));
+  assert.ok(estimate > 1);
 });

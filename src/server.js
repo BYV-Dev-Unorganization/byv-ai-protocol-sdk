@@ -6,8 +6,10 @@ const {
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages } = require('./handler');
+const { buildProviderMessages } = require('./prompts');
+const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
-const { estimateInputTokens } = require('./content');
+const { estimateProviderInputTokens } = require('./content');
 const { sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
@@ -15,6 +17,7 @@ const { uuid } = require('./config');
 
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
+  const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
   const rateLimiter = options.rateLimiter || createRateLimiter({
     limit: 30,
     windowMs: 60_000
@@ -93,6 +96,14 @@ function createServer(options = {}) {
       }));
     }
 
+    if (req.method === 'GET' && route === '/v1/provider/capabilities') {
+      const capabilities = await readProviderCapabilities({
+        forceRefresh: requestUrl.searchParams.get('refresh') === '1'
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      return res.end(JSON.stringify(capabilities));
+    }
+
     if (req.method !== 'POST' ||
         (route !== '/v1/messages' && route !== '/v1/messages/' && route !== '/v1/messages/count_tokens')) {
       return jsonError(res, 404, 'not_found_error', 'Unknown endpoint: ' + route);
@@ -117,7 +128,13 @@ function createServer(options = {}) {
     }
 
     if (countTokens) {
-      const estimated = estimateInputTokens(body);
+      let estimated;
+      try {
+        estimated = estimateProviderInputTokens(buildProviderMessages(body));
+      } catch (error) {
+        return jsonError(res, error.statusCode || 400, error.type || 'invalid_request_error',
+          error.message || 'Could not estimate provider input tokens.', error.code || 'TOKEN_ESTIMATION_FAILED');
+      }
       res.setHeader('X-Token-Usage-Estimated', 'true');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ input_tokens: estimated }));
@@ -175,7 +192,11 @@ function createServer(options = {}) {
         tool_calls: result.toolCalls.length,
         stop_reason: result.stop_reason,
         duration_ms: Date.now() - startedAt,
-        usage_estimated: result.usage_estimated
+        usage_estimated: result.usage_estimated,
+        input_tokens: result.usage.input_tokens,
+        output_tokens: result.usage.output_tokens,
+        cache_read_input_tokens: result.usage.cache_read_input_tokens ?? null,
+        cache_creation_input_tokens: result.usage.cache_creation_input_tokens ?? null
       }));
     } catch (error) {
       if (res.destroyed || res.writableEnded || controller.signal.aborted) return;

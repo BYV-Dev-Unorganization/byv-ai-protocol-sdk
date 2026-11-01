@@ -17,6 +17,17 @@ function boundedInteger(name, fallback, min, max) {
   return value;
 }
 
+function optionalBoundedInteger(name, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    console.warn('[config] invalid ' + name + '; ignoring the value');
+    return null;
+  }
+  return value;
+}
+
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PORT = boundedInteger('PORT', 8787, 1, 65535);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -24,6 +35,12 @@ const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
 const PROVIDER_TIMEOUT_MS = boundedInteger('PROVIDER_TIMEOUT_MS', 300000, 1000, 3600000);
+const PROVIDER_MODEL_METADATA_TIMEOUT_MS = boundedInteger('PROVIDER_MODEL_METADATA_TIMEOUT_MS', 5000, 500, 30000);
+const PROVIDER_CAPABILITIES_CACHE_MS = boundedInteger('PROVIDER_CAPABILITIES_CACHE_MS', 300000, 1000, 86400000);
+const PROVIDER_CONTEXT_WINDOW_TOKENS = optionalBoundedInteger('PROVIDER_CONTEXT_WINDOW_TOKENS', 1, 10000000);
+const PROVIDER_MAX_INPUT_TOKENS = optionalBoundedInteger('PROVIDER_MAX_INPUT_TOKENS', 1, 10000000);
+const PROVIDER_MAX_OUTPUT_TOKENS = optionalBoundedInteger('PROVIDER_MAX_OUTPUT_TOKENS', 1, 10000000);
+const CONTEXT_WINDOW_SAFETY_TOKENS = boundedInteger('CONTEXT_WINDOW_SAFETY_TOKENS', 1024, 0, 1000000);
 const MAX_BODY_BYTES = boundedInteger('MAX_BODY_BYTES', 10 * 1024 * 1024, 1024, 100 * 1024 * 1024);
 const MAX_OUTPUT_CHARS = boundedInteger('MAX_OUTPUT_CHARS', 2 * 1024 * 1024, 1024, 20 * 1024 * 1024);
 const MAX_PROMPT_CHARS = boundedInteger('MAX_PROMPT_CHARS', 120000, 8192, 1000000);
@@ -64,6 +81,12 @@ module.exports = {
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
   PROVIDER_TIMEOUT_MS,
+  PROVIDER_MODEL_METADATA_TIMEOUT_MS,
+  PROVIDER_CAPABILITIES_CACHE_MS,
+  PROVIDER_CONTEXT_WINDOW_TOKENS,
+  PROVIDER_MAX_INPUT_TOKENS,
+  PROVIDER_MAX_OUTPUT_TOKENS,
+  CONTEXT_WINDOW_SAFETY_TOKENS,
   MAX_BODY_BYTES,
   MAX_OUTPUT_CHARS,
   MAX_PROMPT_CHARS,

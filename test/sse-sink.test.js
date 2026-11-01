@@ -23,3 +23,28 @@ test('emits Anthropic SSE message and tool_use block events', () => {
   assert.ok(events.some((event) => event.data.content_block && event.data.content_block.type === 'tool_use'));
   assert.equal(events.find((event) => event.data.delta && event.data.delta.stop_reason).data.delta.stop_reason, 'tool_use');
 });
+
+test('includes provider cache usage in the Anthropic streaming message_start usage', () => {
+  const chunks = [];
+  const response = { destroyed: false, writableEnded: false, write(value) { chunks.push(value); return true; } };
+  sendAnthropicStream(response, {
+    text: 'Cached response.',
+    toolCalls: [],
+    stop_reason: 'end_turn',
+    usage: {
+      input_tokens: 20,
+      output_tokens: 6,
+      cache_read_input_tokens: 80,
+      cache_creation_input_tokens: 12
+    }
+  }, 'claude-sonnet-5-5', 20);
+
+  const start = chunks.find((chunk) => chunk.startsWith('event: message_start'));
+  const payload = JSON.parse(start.split('data: ')[1]);
+  assert.deepEqual(payload.message.usage, {
+    input_tokens: 20,
+    output_tokens: 0,
+    cache_creation_input_tokens: 12,
+    cache_read_input_tokens: 80
+  });
+});

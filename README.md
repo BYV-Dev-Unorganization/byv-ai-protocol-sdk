@@ -123,7 +123,7 @@ All application API routes require the gateway key using either Authorization: B
 | --- | --- | --- |
 | HEAD | /api/hello | Unauthenticated connection-warming probe for Claude Code |
 | GET | /health | Authenticated health and provider-configuration status |
-| GET | /v1/models | Discover available BYV response profiles |
+| GET | /v1/models | Discover available BYV response profiles |\n| GET | /v1/provider/capabilities | Inspect detected upstream context/input/output/cache capabilities |
 | POST | /v1/messages | Anthropic Messages-compatible request |
 | POST | /v1/messages/count_tokens | Local input-size estimate |
 
@@ -284,7 +284,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
-| PROVIDER_TIMEOUT_MS | 300000 | Upstream request and stream timeout |
+| PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |\n| PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |\n| PROVIDER_MAX_INPUT_TOKENS | unset | Optional exact model input-token limit override |\n| PROVIDER_MAX_OUTPUT_TOKENS | unset | Optional exact model output-token limit override |\n| PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |\n| PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |\n| CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
 | MAX_BODY_BYTES | 10485760 | Maximum inbound JSON request body |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
 | MAX_PROMPT_CHARS | 120000 | Maximum generated system prompt size |

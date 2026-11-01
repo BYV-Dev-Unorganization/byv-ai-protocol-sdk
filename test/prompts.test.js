@@ -37,18 +37,32 @@ test('gateway prompt precedence places client instructions below core and runtim
   });
 
   const coreIndex = prompt.indexOf('### Instruction authority and precedence');
+  const toolsIndex = prompt.indexOf('"name": "Read"');
   const clientIndex = prompt.indexOf('=== CLIENT-SUPPLIED SYSTEM / DEVELOPER INSTRUCTIONS (LOWER PRECEDENCE) ===');
   const profileIndex = prompt.indexOf('=== MODEL RESPONSE PROFILE ===');
   const effortIndex = prompt.indexOf('=== RESPONSE EFFORT ===');
   const runtimeIndex = prompt.indexOf('=== ACTIVE GATEWAY RUNTIME OVERLAY (AUTHORITATIVE FOR TOOL CHOICE) ===');
 
   assert.ok(coreIndex >= 0);
-  assert.ok(coreIndex < clientIndex);
+  assert.ok(coreIndex < toolsIndex);
+  assert.ok(toolsIndex < clientIndex);
   assert.ok(clientIndex < profileIndex);
   assert.ok(profileIndex < effortIndex);
   assert.ok(effortIndex < runtimeIndex);
+  assert.ok(prompt.includes('The complete request-specific tool allowlist is appended after this stable BYV core prompt.'));
   assert.match(prompt, /authoritative over general tool-use guidance and client-supplied instructions/);
   assert.match(prompt, /Tools are disabled for this turn/);
+});
+
+test('request-specific tool definitions follow the complete invariant prompt for prefix-cache reuse', () => {
+  const prompt = buildSystemPrompt({
+    model: 'byv-flash-v1',
+    tools: [{ name: 'Read', input_schema: { type: 'object' } }]
+  });
+  const stableEnd = prompt.indexOf('## 3. Instructions after tool results');
+  const toolDefinition = prompt.indexOf('"name": "Read"');
+  assert.ok(stableEnd >= 0);
+  assert.ok(toolDefinition > stableEnd);
 });
 
 test('tool choice overlays enforce none, any, and a specific tool', () => {

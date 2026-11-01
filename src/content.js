@@ -88,6 +88,16 @@ function estimateInputTokens(body) {
   return Math.max(1, Math.ceil(source.length / 4));
 }
 
+// Estimate the exact message payload shape sent to the provider, including the
+// BYV system prompt, request-specific tools, converted history, and tool results.
+// This is intentionally conservative and remains an estimate, not a tokenizer.
+function estimateProviderInputTokens(messages) {
+  const source = JSON.stringify(Array.isArray(messages) ? messages : []);
+  const bytes = Buffer.byteLength(source, 'utf8');
+  const messageOverhead = Array.isArray(messages) ? messages.length * 4 : 0;
+  return Math.max(1, Math.ceil(bytes / 3.5) + messageOverhead);
+}
+
 function estimateOutputTokens(result) {
   const value = JSON.stringify({
     text: result.text || '',
@@ -112,6 +122,7 @@ module.exports = {
   renderToolResultContent,
   convertAnthropicMessages,
   estimateInputTokens,
+  estimateProviderInputTokens,
   estimateOutputTokens,
   truncateMessages
 };

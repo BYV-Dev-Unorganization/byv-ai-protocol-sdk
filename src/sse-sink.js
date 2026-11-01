@@ -20,7 +20,14 @@ function sendAnthropicStream(res, result, model, inputTokens) {
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: inputTokens, output_tokens: 0 }
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: 0,
+        ...(Number.isInteger(result.usage && result.usage.cache_creation_input_tokens)
+          ? { cache_creation_input_tokens: result.usage.cache_creation_input_tokens } : {}),
+        ...(Number.isInteger(result.usage && result.usage.cache_read_input_tokens)
+          ? { cache_read_input_tokens: result.usage.cache_read_input_tokens } : {})
+      }
     }
   });
 

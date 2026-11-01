@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { handleMessages } = require('../src/handler');
+const { handleMessages, normalizeUsage } = require('../src/handler');
 
 function body(options = {}) {
   return {
@@ -97,4 +97,72 @@ test('maps upstream max-token finish reasons to Anthropic max_tokens', async () 
     }
   });
   assert.equal(result.stop_reason, 'max_tokens');
+});
+
+
+test('rejects requests above the provider model output limit before upstream invocation', async () => {
+  let called = false;
+  await assert.rejects(
+    handleMessages(body(), {
+      provider: {
+        getModelCapabilities: async () => ({ max_output_tokens: 128 }),
+        createChatCompletion: async () => {
+          called = true;
+          return { text: 'should not run', finish_reason: 'stop' };
+        }
+      }
+    }),
+    (error) => error.code === 'PROVIDER_MAX_OUTPUT_EXCEEDED'
+  );
+  assert.equal(called, false);
+});
+
+test('rejects an estimated input that cannot fit the discovered context window', async () => {
+  let called = false;
+  await assert.rejects(
+    handleMessages(body({ max_tokens: 64 }), {
+      provider: {
+        getModelCapabilities: async () => ({
+          context_window_tokens: 2048,
+          max_output_tokens: 1024
+        }),
+        createChatCompletion: async () => {
+          called = true;
+          return { text: 'should not run', finish_reason: 'stop' };
+        }
+      }
+    }),
+    (error) => error.code === 'PROVIDER_CONTEXT_WINDOW_EXCEEDED'
+  );
+  assert.equal(called, false);
+});
+
+test('maps provider cached prompt tokens to Anthropic cache usage fields', () => {
+  const usage = normalizeUsage({
+    prompt_tokens: 100,
+    completion_tokens: 7,
+    prompt_tokens_details: { cached_tokens: 80 }
+  }, 120, 12);
+
+  assert.deepEqual(usage, {
+    input_tokens: 20,
+    output_tokens: 7,
+    cache_read_input_tokens: 80
+  });
+});
+
+test('maps reported cache creation tokens without inventing cache metrics', () => {
+  const usage = normalizeUsage({
+    prompt_tokens: 100,
+    completion_tokens: 7,
+    cache_creation_input_tokens: 30,
+    cache_read_input_tokens: 20
+  }, 120, 12);
+
+  assert.deepEqual(usage, {
+    input_tokens: 50,
+    output_tokens: 7,
+    cache_creation_input_tokens: 30,
+    cache_read_input_tokens: 20
+  });
 });

@@ -82,7 +82,15 @@ function toolChoicePrompt(choice, tools) {
 function buildSystemPrompt(body) {
   const requestSystem = flattenText(body.system);
   const tools = Array.isArray(body.tools) ? body.tools : [];
-  const sections = [BASE_TEMPLATE.replace('{{AVAILABLE_TOOLS}}', toolsToPrompt(tools))];
+  const stableCore = BASE_TEMPLATE.replace(
+    '{{AVAILABLE_TOOLS}}',
+    'The complete request-specific tool allowlist is appended after this stable BYV core prompt.'
+  );
+  const sections = [stableCore];
+
+  // Keep all request-variant material after the invariant core so provider-side
+  // automatic prefix caching can reuse the longest stable prompt prefix.
+  sections.push(toolsToPrompt(tools));
 
   if (requestSystem) {
     sections.push([
