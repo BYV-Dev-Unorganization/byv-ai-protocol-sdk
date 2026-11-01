@@ -155,6 +155,24 @@ function parseInvocationBlock(raw) {
   return calls;
 }
 
+
+function findOuterCallsClose(source, fromIndex) {
+  let cursor = fromIndex;
+  while (cursor < source.length) {
+    if (source.startsWith(OPEN_PARAMETER, cursor)) {
+      const headerEnd = source.indexOf('>', cursor);
+      if (headerEnd < 0) return -1;
+      const parameterClose = findUnescaped(source, CLOSE_PARAMETER, headerEnd + 1);
+      if (parameterClose < 0) return -1;
+      cursor = parameterClose + CLOSE_PARAMETER.length;
+      continue;
+    }
+    if (source.startsWith(CLOSE_CALLS, cursor)) return cursor;
+    cursor++;
+  }
+  return -1;
+}
+
 function parseBYVOutput(text) {
   const source = String(text || '');
   const openCount = source.split(OPEN_CALLS).length - 1;
@@ -173,7 +191,7 @@ function parseBYVOutput(text) {
     };
   }
 
-  const end = findUnescaped(source, CLOSE_CALLS, start + OPEN_CALLS.length);
+  const end = findOuterCallsClose(source, start + OPEN_CALLS.length);
   if (end < 0) {
     return { text: source.slice(0, start).trim(), calls: [], errors: ['BYV calls block is incomplete.'], hasProtocol: true };
   }
