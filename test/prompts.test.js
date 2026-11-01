@@ -50,6 +50,10 @@ test('core prompt requires explicit available tools and completion of multi-step
   assert.match(BASE_TEMPLATE, /TOOL SELECTION AND EXPLICIT TOOL INTENT/);
   assert.match(BASE_TEMPLATE, /When the user explicitly requests a specific tool/);
   assert.match(BASE_TEMPLATE, /MULTI-STEP TASK EXECUTION/);
+  assert.match(BASE_TEMPLATE, /EXACT COMMAND AND ARGUMENT PRESERVATION/);
+  assert.match(BASE_TEMPLATE, /set the Bash `command` parameter to exactly that command string/);
+  assert.match(BASE_TEMPLATE, /invoke Bash exactly once/);
+  assert.match(BASE_TEMPLATE, /Do not add another command, shell separator/);
   assert.match(BASE_TEMPLATE, /Do not stop after a partial result/);
   assert.match(BASE_TEMPLATE, /Continue until the requested outcome is verified/);
 });
