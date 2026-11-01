@@ -28,12 +28,23 @@ function optionalBoundedInteger(name, min, max) {
   return value;
 }
 
+function booleanFlag(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === '') return fallback;
+  const value = String(raw).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true;
+  if (['0', 'false', 'no', 'off'].includes(value)) return false;
+  console.warn('[config] invalid ' + name + '; using default ' + fallback);
+  return fallback;
+}
+
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PORT = boundedInteger('PORT', 8787, 1, 65535);
 const HOST = process.env.HOST || '127.0.0.1';
 const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
+const PROVIDER_NATIVE_TOOL_CALLING = booleanFlag('PROVIDER_NATIVE_TOOL_CALLING', true);
 const PROVIDER_TIMEOUT_MS = boundedInteger('PROVIDER_TIMEOUT_MS', 300000, 1000, 3600000);
 const PROVIDER_MAX_REQUESTS_PER_MINUTE = boundedInteger('PROVIDER_MAX_REQUESTS_PER_MINUTE', 0, 0, 1000000);
 const PROVIDER_MAX_CONCURRENT_REQUESTS = boundedInteger('PROVIDER_MAX_CONCURRENT_REQUESTS', 0, 0, 128);
@@ -82,6 +93,7 @@ module.exports = {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
+  PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_TIMEOUT_MS,
   PROVIDER_MAX_REQUESTS_PER_MINUTE,
   PROVIDER_MAX_CONCURRENT_REQUESTS,
