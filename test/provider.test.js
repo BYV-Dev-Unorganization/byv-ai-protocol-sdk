@@ -62,7 +62,7 @@ test('keeps DeepSeek auto tool choice in the provider default thinking mode', ()
     "  tool_choice: 'auto'",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
