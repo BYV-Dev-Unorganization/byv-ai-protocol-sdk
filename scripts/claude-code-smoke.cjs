@@ -178,6 +178,9 @@ async function main() {
   fs.writeFileSync(path.join(workspace, 'fixture-edit.txt'), 'EDIT_BEFORE\n');
 
   fs.writeFileSync(settingsPath, JSON.stringify({
+    modelOverrides: {
+      'claude-sonnet-4-5-20250929': MODEL
+    },
     permissions: {
       allow: [
         'Read(./**)',

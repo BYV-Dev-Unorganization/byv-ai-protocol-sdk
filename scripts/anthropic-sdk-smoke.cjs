@@ -27,6 +27,7 @@ function isLocalGateway(value) {
   try {
     const url = new URL(value);
     return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) &&
+      Number(url.port || 80) === 8787 &&
       (url.pathname === '' || url.pathname === '/');
   } catch {
     return false;
