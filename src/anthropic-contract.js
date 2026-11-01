@@ -90,6 +90,10 @@ function validateMessagesRequest(body, options = {}) {
     if (!validString && !validObject) {
       return { type: 'invalid_request_error', message: 'Field tool_choice is invalid.' };
     }
+    if ((choice === 'any' || (isPlainObject(choice) && choice.type === 'any')) &&
+        (!Array.isArray(body.tools) || body.tools.length === 0)) {
+      return { type: 'invalid_request_error', message: 'tool_choice any requires at least one declared tool.' };
+    }
     if (isPlainObject(choice) && choice.type === 'tool' &&
         (!Array.isArray(body.tools) || !body.tools.some((tool) => tool.name === choice.name))) {
       return { type: 'invalid_request_error', message: 'tool_choice references an unavailable tool: ' + choice.name };
