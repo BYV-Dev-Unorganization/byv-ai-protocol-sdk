@@ -224,7 +224,7 @@ async function handleMessages(body, options = {}) {
         statusCode: 502, type: 'api_error', code: 'BYV_TEXT_RECOVERY_FAILED'
       });
     }
-  } else if (tools.length > 0 && (parsed.errors.length > 0 || (calls.length > 0 && !validation.valid))) {
+  } else if (tools.length > 0 && (parseError || parsed.errors.length > 0 || (calls.length > 0 && !validation.valid))) {
     let recovered = false;
     let lastError = validation.error || parseError || 'Malformed BYV output.';
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
@@ -267,7 +267,7 @@ async function handleMessages(body, options = {}) {
       for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
         const retryMessages = providerMessages.concat([{
           role: 'user',
-          content: buildRecoveryMessage(lastError, attempt, 'tool')
+          content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
         }]);
         completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
         parsedResult = parseCompletionToolCalls(completion);
