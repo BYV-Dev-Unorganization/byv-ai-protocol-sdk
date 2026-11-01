@@ -434,7 +434,7 @@ async function main() {
     console.log('PASS Edit and Write changed only the temporary workspace');
     console.log('PASS Bash command restricted to pwd');
     if (finalText) console.log('\nClaude Code final response:\n' + finalText);
-    if (run.stderr.trim()) console.log('\nClaude Code diagnostics:\n' + run.stderr.trim().slice(-3000));
+    if (allStderr.length) console.log('\nClaude Code diagnostics:\n' + allStderr.join('\n').slice(-3000));
     if (parsed.otherLines.length) {
       console.log('\nAdditional CLI output:\n' + parsed.otherLines.join('\n').slice(-2000));
     }
