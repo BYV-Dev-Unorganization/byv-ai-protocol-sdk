@@ -1,0 +1,19 @@
+{
+  "name": "byv-ai-protocol-sdk",
+  "version": "0.1.0",
+  "description": "BYV protocol runtime and Anthropic Messages-compatible gateway for OpenAI-compatible providers.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/model-profiles.js && node --check src/anthropic-contract.js && node --check src/content.js && node --check src/prompts.js && node --check src/protocol/parser.js && node --check src/tools/validator.js && node --check src/provider/openai-compatible.js && node --check src/sse-sink.js && node --check src/handler.js && node --check src/http-utils.js && node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "license": "MIT"
+}
