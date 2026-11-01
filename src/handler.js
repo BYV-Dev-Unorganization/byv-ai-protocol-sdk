@@ -1,6 +1,6 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, uuid, approxTokens } = require('./config');
+const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, uuid } = require('./config');
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
@@ -43,9 +43,20 @@ async function requestCompletion(messages, body, signal, provider = {}) {
   };
   const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
   const normalCall = provider.createChatCompletion || createChatCompletion;
-  return body.stream === true
-    ? streamCall(messages, options, signal)
-    : normalCall(messages, options, signal);
+  const result = body.stream === true
+    ? await streamCall(messages, options, signal)
+    : await normalCall(messages, options, signal);
+  if (!result || typeof result.text !== 'string') {
+    throw Object.assign(new Error('Provider completion did not contain text output.'), {
+      statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
+    });
+  }
+  if (result.text.length > MAX_OUTPUT_CHARS) {
+    throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
+      statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+    });
+  }
+  return result;
 }
 
 async function handleMessages(body, options = {}) {
@@ -186,7 +197,7 @@ async function handleMessages(body, options = {}) {
     model,
     content: [],
     stop_reason: calls.length ? 'tool_use' :
-      (completion.finish_reason === 'length' ? 'max_tokens' : 'end_turn'),
+      (['length', 'max_tokens'].includes(completion.finish_reason) ? 'max_tokens' : 'end_turn'),
     stop_sequence: null,
     text: parsed.text,
     toolCalls: calls.map((call) => ({ id: call.id, name: call.name, input: call.input })),
