@@ -14,8 +14,8 @@ function providerToolChoice(choice) {
 function providerFunctionTools(tools) {
   if (!Array.isArray(tools) || tools.length === 0) return [];
   return tools.map((tool) => {
-    if (!tool || typeof tool.name !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(tool.name)) {
-      throw new TypeError('Tool names sent to the provider must match [A-Za-z0-9_-] and be at most 128 characters.');
+    if (!tool || typeof tool.name !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.name)) {
+      throw new TypeError('Tool names sent to the provider must match [A-Za-z0-9_-] and be at most 64 characters.');
     }
     const schema = tool.input_schema && typeof tool.input_schema === 'object'
       ? tool.input_schema
