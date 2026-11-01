@@ -20,7 +20,7 @@ test('builds native function tools and maps tool_choice into the provider reques
     "  tool_choice: { type: 'tool', name: 'Read' }",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
@@ -61,7 +61,7 @@ test('omits provider-native tool fields when native function calling is disabled
     "  tool_choice: 'auto'",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
