@@ -12,7 +12,7 @@ test('system template has exactly one tools placeholder and runtime prompt repla
   });
   assert.doesNotMatch(prompt, /\{\{AVAILABLE_TOOLS\}\}/);
   assert.match(prompt, /"name": "Read"/);
-  assert.match(prompt, /<\\|BYV\\| parameter name/);
+  assert.ok(prompt.includes('<|BYV| parameter name'));
 });
 
 test('no-tool prompt explicitly disables protocol calls', () => {
