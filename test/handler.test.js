@@ -85,3 +85,16 @@ test('fails explicitly when a required tool call cannot be recovered', async () 
     (error) => error.code === 'BYV_REQUIRED_TOOL_MISSING'
   );
 });
+
+test('maps upstream max-token finish reasons to Anthropic max_tokens', async () => {
+  const result = await handleMessages(body({ tools: [] }), {
+    provider: {
+      createChatCompletion: async () => ({
+        text: 'A deliberately short answer.',
+        finish_reason: 'max_tokens',
+        usage: null
+      })
+    }
+  });
+  assert.equal(result.stop_reason, 'max_tokens');
+});
