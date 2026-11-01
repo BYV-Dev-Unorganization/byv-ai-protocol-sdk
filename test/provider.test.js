@@ -50,7 +50,8 @@ test('builds native function tools and maps tool_choice into the provider reques
     type: 'function',
     function: { name: 'Read' }
   });
-  assert.deepEqual(payload.thinking, { type: 'disabled' });
+  assert.equal(payload.reasoning_effort, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
 test('keeps DeepSeek auto tool choice in the provider default thinking mode', () => {
@@ -104,7 +105,8 @@ test('disables DeepSeek thinking for Anthropic any tool_choice mapped to require
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.tool_choice, 'required');
-  assert.deepEqual(payload.thinking, { type: 'disabled' });
+  assert.equal(payload.reasoning_effort, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
 test('omits provider-native tool fields when native function calling is disabled', () => {
