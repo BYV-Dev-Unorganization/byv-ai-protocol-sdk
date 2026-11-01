@@ -83,6 +83,11 @@ function canonicalModelId(model) {
   return MODEL_PROFILE_ALIASES[model] || model || 'byv-default';
 }
 
+function isSupportedModel(model) {
+  const canonical = canonicalModelId(model);
+  return Object.prototype.hasOwnProperty.call(MODEL_PROFILES, canonical);
+}
+
 function modelProfilePrompt(model) {
   const canonical = canonicalModelId(model);
   const profile = MODEL_PROFILES[canonical] || MODEL_PROFILES['byv-default'];
@@ -120,4 +125,4 @@ function listModels() {
   }));
 }
 
-module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, canonicalModelId, modelProfilePrompt, listModels };
+module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
