@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { resolveProviderModel } = require('./provider-model-fixture');
 
 const ENV_KEYS = [
   'PROVIDER_BASE_URL',
@@ -13,12 +14,14 @@ const ENV_KEYS = [
 function loadProvider(t, overrides = {}) {
   const previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const previousFetch = global.fetch;
+  const model = resolveProviderModel(overrides);
   Object.assign(process.env, {
     PROVIDER_BASE_URL: 'https://provider.example/v1',
     PROVIDER_API_KEY: 'provider-test-secret',
-    PROVIDER_MODEL: 'model-test',
+    PROVIDER_MODEL: model,
     PROVIDER_TIMEOUT_MS: '300000',
-    ...overrides
+    ...overrides,
+    PROVIDER_MODEL: model
   });
 
   const configPath = require.resolve('../src/config');
@@ -36,7 +39,7 @@ function loadProvider(t, overrides = {}) {
     delete require.cache[providerPath];
     delete require.cache[configPath];
   });
-  return provider;
+  return { provider, model };
 }
 
 function response({ status = 200, payload = {}, raw, jsonError } = {}) {
@@ -53,14 +56,14 @@ function response({ status = 200, payload = {}, raw, jsonError } = {}) {
   };
 }
 
-test('builds the exact OpenAI-compatible request payload and normalizes provider output', async (t) => {
-  const provider = loadProvider(t);
+test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and normalizes output', async (t) => {
+  const { provider, model } = loadProvider(t);
   let captured;
   global.fetch = async (url, init) => {
     captured = { url, init, payload: JSON.parse(init.body) };
     return response({
       payload: {
-        model: 'provider/actual-model',
+        model,
         choices: [{
           finish_reason: 'stop',
           message: {
@@ -82,7 +85,7 @@ test('builds the exact OpenAI-compatible request payload and normalizes provider
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.headers.Authorization, 'Bearer provider-test-secret');
   assert.deepEqual(captured.payload, {
-    model: 'model-test',
+    model,
     messages: [
       { role: 'system', content: 'stable prompt' },
       { role: 'user', content: 'Hi' }
@@ -98,12 +101,12 @@ test('builds the exact OpenAI-compatible request payload and normalizes provider
     reasoning: 'brief reasoning',
     finish_reason: 'stop',
     usage: { prompt_tokens: 20, completion_tokens: 4 },
-    provider_model: 'provider/actual-model'
+    provider_model: model
   });
 });
 
 test('maps upstream HTTP errors without leaking provider credentials', async (t) => {
-  const provider = loadProvider(t);
+  const { provider } = loadProvider(t);
   global.fetch = async () => response({
     status: 429,
     payload: { error: { message: 'rate limit reached' } }
@@ -119,7 +122,7 @@ test('maps upstream HTTP errors without leaking provider credentials', async (t)
 });
 
 test('rejects invalid JSON and structurally invalid provider responses', async (t) => {
-  const provider = loadProvider(t);
+  const { provider } = loadProvider(t);
   global.fetch = async () => response({ jsonError: new SyntaxError('Unexpected token') });
   await assert.rejects(
     provider.createChatCompletion([], { max_tokens: 16 }),
@@ -134,7 +137,7 @@ test('rejects invalid JSON and structurally invalid provider responses', async (
 });
 
 test('maps connection failures to a stable provider error', async (t) => {
-  const provider = loadProvider(t);
+  const { provider } = loadProvider(t);
   global.fetch = async () => { throw new TypeError('network unavailable'); };
   await assert.rejects(
     provider.createChatCompletion([], { max_tokens: 16 }),
@@ -143,7 +146,7 @@ test('maps connection failures to a stable provider error', async (t) => {
 });
 
 test('aborts upstream requests when the client disconnects', async (t) => {
-  const provider = loadProvider(t);
+  const { provider } = loadProvider(t);
   global.fetch = async (_url, init) => {
     if (init.signal.aborted) throw new Error('aborted');
     return new Promise((_resolve, reject) => {
@@ -160,7 +163,7 @@ test('aborts upstream requests when the client disconnects', async (t) => {
 });
 
 test('enforces the configured provider timeout', async (t) => {
-  const provider = loadProvider(t, { PROVIDER_TIMEOUT_MS: '1000' });
+  const { provider } = loadProvider(t, { PROVIDER_TIMEOUT_MS: '1000' });
   global.fetch = async (_url, init) => new Promise((_resolve, reject) => {
     init.signal.addEventListener('abort', () => reject(new Error('timeout abort')), { once: true });
   });
@@ -172,7 +175,7 @@ test('enforces the configured provider timeout', async (t) => {
 });
 
 test('parses provider SSE chunks, finish reasons, reasoning, and final usage', async (t) => {
-  const provider = loadProvider(t);
+  const { provider, model } = loadProvider(t);
   const encoder = new TextEncoder();
   const chunks = [
     'data: {"choices":[{"delta":{"content":"hello "},"finish_reason":null}]}\n\n',
@@ -200,11 +203,11 @@ test('parses provider SSE chunks, finish reasons, reasoning, and final usage', a
   assert.equal(result.reasoning, 'thinking');
   assert.equal(result.finish_reason, 'stop');
   assert.deepEqual(result.usage, { prompt_tokens: 30, completion_tokens: 2 });
-  assert.equal(result.provider_model, 'model-test');
+  assert.equal(result.provider_model, model);
 });
 
 test('rejects malformed JSON in an upstream SSE event', async (t) => {
-  const provider = loadProvider(t);
+  const { provider } = loadProvider(t);
   global.fetch = async () => ({
     ok: true,
     status: 200,

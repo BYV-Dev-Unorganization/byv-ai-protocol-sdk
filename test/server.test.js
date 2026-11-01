@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
-const { GATEWAY_API_KEY } = require('../src/config');
+const { GATEWAY_API_KEY, PROVIDER_MODEL } = require('../src/config');
 
 async function withServer(t, options) {
   const server = createServer(options);
@@ -151,14 +151,13 @@ test('count_tokens accepts the canonical BYV Flash V1 model ID without invoking 
   assert.equal(called, false);
 });
 
-
 test('exposes provider context and token limits through an authenticated capability endpoint', async (t) => {
   let forceRefresh = false;
   const base = await withServer(t, {
     getProviderCapabilities: async (options) => {
       forceRefresh = options.forceRefresh === true;
       return {
-        provider_model: 'provider/model-1m',
+        provider_model: PROVIDER_MODEL || null,
         metadata_status: 'available',
         context_window_tokens: 1000000,
         max_input_tokens: 900000,
@@ -176,6 +175,7 @@ test('exposes provider context and token limits through an authenticated capabil
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const result = await response.json();
+  assert.equal(result.provider_model, PROVIDER_MODEL || null);
   assert.equal(result.context_window_tokens, 1000000);
   assert.equal(result.max_input_tokens, 900000);
   assert.equal(result.max_output_tokens, 64000);

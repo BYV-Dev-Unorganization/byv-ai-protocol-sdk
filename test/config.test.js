@@ -12,6 +12,7 @@ function loadConfig(env) {
     "const c = require('./src/config');",
     "process.stdout.write(JSON.stringify({",
     "PORT: c.PORT,",
+    "PROVIDER_MODEL: c.PROVIDER_MODEL,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
     "PROVIDER_MODEL_METADATA_TIMEOUT_MS: c.PROVIDER_MODEL_METADATA_TIMEOUT_MS,",
     "PROVIDER_CAPABILITIES_CACHE_MS: c.PROVIDER_CAPABILITIES_CACHE_MS,",
@@ -35,9 +36,10 @@ function loadConfig(env) {
   return JSON.parse(result.stdout);
 }
 
-test('accepts valid bounded configuration values', () => {
+test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bounded configuration', () => {
   const config = loadConfig({
     PORT: '8877',
+    PROVIDER_MODEL: 'configured-model-from-env',
     PROVIDER_TIMEOUT_MS: '120000',
     PROVIDER_MODEL_METADATA_TIMEOUT_MS: '7000',
     PROVIDER_CAPABILITIES_CACHE_MS: '60000',
@@ -54,6 +56,7 @@ test('accepts valid bounded configuration values', () => {
 
   assert.deepEqual(config, {
     PORT: 8877,
+    PROVIDER_MODEL: 'configured-model-from-env',
     PROVIDER_TIMEOUT_MS: 120000,
     PROVIDER_MODEL_METADATA_TIMEOUT_MS: 7000,
     PROVIDER_CAPABILITIES_CACHE_MS: 60000,
@@ -69,9 +72,10 @@ test('accepts valid bounded configuration values', () => {
   });
 });
 
-test('falls back or ignores invalid, fractional, and out-of-range values', () => {
+test('falls back or ignores invalid, fractional, and out-of-range configuration values', () => {
   const config = loadConfig({
     PORT: '0',
+    PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_TIMEOUT_MS: '300000.5',
     PROVIDER_MODEL_METADATA_TIMEOUT_MS: '999999',
     PROVIDER_CAPABILITIES_CACHE_MS: '-1',
@@ -88,6 +92,7 @@ test('falls back or ignores invalid, fractional, and out-of-range values', () =>
 
   assert.deepEqual(config, {
     PORT: 8787,
+    PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_TIMEOUT_MS: 300000,
     PROVIDER_MODEL_METADATA_TIMEOUT_MS: 5000,
     PROVIDER_CAPABILITIES_CACHE_MS: 300000,

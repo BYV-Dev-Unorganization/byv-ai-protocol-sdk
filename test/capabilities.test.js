@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { resolveProviderModel } = require('./provider-model-fixture');
 const {
   apiRootUrl,
   modelMetadataUrls,
@@ -9,28 +10,30 @@ const {
   mergeCapabilityValues
 } = require('../src/provider/capabilities');
 
+const PROVIDER_MODEL = resolveProviderModel();
+
 test('builds model metadata endpoints from OpenAI-compatible base URLs', () => {
   assert.equal(apiRootUrl('https://provider.example/v1').toString(), 'https://provider.example/v1');
-  assert.deepEqual(modelMetadataUrls('https://provider.example/v1', 'org/model-x'), {
-    detail: 'https://provider.example/v1/models/org%2Fmodel-x',
+  assert.deepEqual(modelMetadataUrls('https://provider.example/v1', PROVIDER_MODEL), {
+    detail: 'https://provider.example/v1/models/' + encodeURIComponent(PROVIDER_MODEL),
     collection: 'https://provider.example/v1/models'
   });
   assert.equal(
-    modelMetadataUrls('https://provider.example/custom/chat/completions', 'model-x').detail,
-    'https://provider.example/custom/models/model-x'
+    modelMetadataUrls('https://provider.example/custom/chat/completions', PROVIDER_MODEL).detail,
+    'https://provider.example/custom/models/' + encodeURIComponent(PROVIDER_MODEL)
   );
 });
 
-test('extracts context, input, output, and cache capabilities from model metadata', () => {
+test('extracts context, input, output, and cache capabilities for the configured provider model', () => {
   const metadata = extractModelMetadata({
     data: [{
-      id: 'provider/model-x',
+      id: PROVIDER_MODEL,
       context_length: 1000000,
       top_provider: { max_completion_tokens: 64000 },
       max_input_tokens: 900000,
       supports_prompt_caching: true
     }]
-  }, 'provider/model-x');
+  }, PROVIDER_MODEL);
 
   assert.deepEqual(metadata, {
     context_window_tokens: 1000000,
@@ -59,21 +62,20 @@ test('prefers explicit environment limits over provider-discovered values', () =
   assert.equal(merged.field_sources.max_input_tokens, 'provider_metadata');
 });
 
-test('does not guess context limits when the provider omits them', () => {
-  assert.equal(extractModelMetadata({ id: 'model-x', object: 'model' }, 'model-x'), null);
+test('does not guess context limits when the configured provider model omits them', () => {
+  assert.equal(extractModelMetadata({ id: PROVIDER_MODEL, object: 'model' }, PROVIDER_MODEL), null);
 });
 
-
-test('recognizes OpenAgentic context_limit in its model catalog records', () => {
+test('recognizes context_limit in the configured provider model catalog record', () => {
   const metadata = extractModelMetadata({
     object: 'list',
     data: [{
-      id: 'deepseek-v4.1-flash-free',
-      name: 'DeepSeek V4.1 Flash Free',
+      id: PROVIDER_MODEL,
+      name: 'Configured provider model',
       context_limit: 1000000,
-      provider: 'deepseek'
+      provider: 'test-provider'
     }]
-  }, 'deepseek-v4.1-flash-free');
+  }, PROVIDER_MODEL);
 
   assert.deepEqual(metadata, {
     context_window_tokens: 1000000,

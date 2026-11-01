@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { resolveProviderModel } = require('./provider-model-fixture');
 
 const ENV_KEYS = [
   'PROVIDER_BASE_URL',
@@ -17,16 +18,18 @@ const ENV_KEYS = [
 function loadCapabilities(t, overrides = {}) {
   const previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
   const previousFetch = global.fetch;
+  const model = resolveProviderModel(overrides);
   Object.assign(process.env, {
     PROVIDER_BASE_URL: 'https://provider.example/v1',
     PROVIDER_API_KEY: 'metadata-test-secret',
-    PROVIDER_MODEL: 'model-x',
+    PROVIDER_MODEL: model,
     PROVIDER_MODEL_METADATA_TIMEOUT_MS: '5000',
     PROVIDER_CAPABILITIES_CACHE_MS: '60000',
     PROVIDER_CONTEXT_WINDOW_TOKENS: '',
     PROVIDER_MAX_INPUT_TOKENS: '',
     PROVIDER_MAX_OUTPUT_TOKENS: '',
-    ...overrides
+    ...overrides,
+    PROVIDER_MODEL: model
   });
 
   const configPath = require.resolve('../src/config');
@@ -44,7 +47,7 @@ function loadCapabilities(t, overrides = {}) {
     delete require.cache[capabilitiesPath];
     delete require.cache[configPath];
   });
-  return capabilities;
+  return { capabilities, model };
 }
 
 function jsonResponse(payload, status = 200) {
@@ -55,15 +58,15 @@ function jsonResponse(payload, status = 200) {
   };
 }
 
-test('discovers exact-model metadata from the model detail endpoint', async (t) => {
-  const capabilities = loadCapabilities(t);
+test('discovers metadata from the configured provider model detail endpoint', async (t) => {
+  const { capabilities, model } = loadCapabilities(t);
   let requestedUrl = '';
   let authorization = '';
   global.fetch = async (url, init) => {
     requestedUrl = url;
     authorization = init.headers.Authorization;
     return jsonResponse({
-      id: 'model-x',
+      id: model,
       context_length: 1000000,
       max_input_tokens: 900000,
       max_output_tokens: 64000
@@ -71,8 +74,9 @@ test('discovers exact-model metadata from the model detail endpoint', async (t) 
   };
 
   const result = await capabilities.getModelCapabilities({ forceRefresh: true });
-  assert.equal(requestedUrl, 'https://provider.example/v1/models/model-x');
+  assert.equal(requestedUrl, 'https://provider.example/v1/models/' + encodeURIComponent(model));
   assert.equal(authorization, 'Bearer metadata-test-secret');
+  assert.equal(result.provider_model, model);
   assert.equal(result.metadata_status, 'available');
   assert.equal(result.context_window_tokens, 1000000);
   assert.equal(result.max_input_tokens, 900000);
@@ -81,36 +85,39 @@ test('discovers exact-model metadata from the model detail endpoint', async (t) 
 });
 
 test('falls back to the model catalog and selects only the exact configured model ID', async (t) => {
-  const capabilities = loadCapabilities(t);
+  const { capabilities, model } = loadCapabilities(t);
   const requested = [];
   global.fetch = async (url) => {
     requested.push(url);
-    if (url.endsWith('/models/model-x')) return jsonResponse({ error: 'not found' }, 404);
+    if (url.endsWith('/models/' + encodeURIComponent(model))) {
+      return jsonResponse({ error: 'not found' }, 404);
+    }
     return jsonResponse({
       object: 'list',
       data: [
-        { id: 'another-model', context_limit: 2000000 },
-        { id: 'model-x', context_limit: 1000000, provider: 'test' }
+        { id: model + '-unconfigured-record', context_limit: 2000000 },
+        { id: model, context_limit: 1000000, provider: 'test-provider' }
       ]
     });
   };
 
   const result = await capabilities.getModelCapabilities({ forceRefresh: true });
   assert.deepEqual(requested, [
-    'https://provider.example/v1/models/model-x',
+    'https://provider.example/v1/models/' + encodeURIComponent(model),
     'https://provider.example/v1/models'
   ]);
+  assert.equal(result.provider_model, model);
   assert.equal(result.metadata_status, 'available');
   assert.equal(result.context_window_tokens, 1000000);
 });
 
 test('caches discoveries, shares concurrent refresh work, and honors force refresh', async (t) => {
-  const capabilities = loadCapabilities(t);
+  const { capabilities, model } = loadCapabilities(t);
   let calls = 0;
   global.fetch = async () => {
     calls++;
     await Promise.resolve();
-    return jsonResponse({ id: 'model-x', context_length: 1000000 });
+    return jsonResponse({ id: model, context_length: 1000000 });
   };
 
   const [first, concurrent] = await Promise.all([
@@ -118,6 +125,7 @@ test('caches discoveries, shares concurrent refresh work, and honors force refre
     capabilities.getModelCapabilities()
   ]);
   assert.equal(first.context_window_tokens, 1000000);
+  assert.equal(first.provider_model, model);
   assert.deepEqual(concurrent, first);
   assert.equal(calls, 1);
 
@@ -129,10 +137,11 @@ test('caches discoveries, shares concurrent refresh work, and honors force refre
 });
 
 test('does not guess limits when provider metadata is unavailable', async (t) => {
-  const capabilities = loadCapabilities(t);
+  const { capabilities, model } = loadCapabilities(t);
   global.fetch = async () => { throw new Error('provider unavailable'); };
 
   const result = await capabilities.getModelCapabilities({ forceRefresh: true });
+  assert.equal(result.provider_model, model);
   assert.equal(result.metadata_status, 'unknown');
   assert.equal(result.context_window_tokens, null);
   assert.equal(result.max_input_tokens, null);
