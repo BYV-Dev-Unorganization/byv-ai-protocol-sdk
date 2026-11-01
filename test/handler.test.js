@@ -109,7 +109,7 @@ test('converts streamed native provider function calls into Anthropic tool_use b
   });
 });
 
-test('recovers invalid native function arguments using the native tool interface', async () => {
+test('recovers invalid BYV Format Block arguments using BYV protocol instructions', async () => {
   let count = 0;
   const seenMessages = [];
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
@@ -119,34 +119,23 @@ test('recovers invalid native function arguments using the native tool interface
         seenMessages.push({ messages, options });
         return count === 1
           ? {
-              text: '',
-              tool_calls: [{
-                id: 'call_bad_native',
-                type: 'function',
-                function: { name: 'Read', arguments: '{"path":"README.md"}' }
-              }],
-              finish_reason: 'tool_calls'
+              text: '<|BYV| calls><|BYV| invoke name="Read" id="call_bad_byv"><|BYV| parameter name="path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+              finish_reason: 'stop'
             }
           : {
-              text: '',
-              tool_calls: [{
-                id: 'call_good_native',
-                type: 'function',
-                function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
-              }],
-              finish_reason: 'tool_calls'
+              text: '<|BYV| calls><|BYV| invoke name="Read" id="call_good_byv"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+              finish_reason: 'stop'
             };
       }
     }
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].messages.at(-1).content, /native function-calling interface/);
+  assert.match(seenMessages[1].messages.at(-1).content, /Output exactly one complete BYV calls block/);
   assert.equal(seenMessages[1].options.tool_choice, 'auto');
-  assert.equal(result.toolCalls[0].id, 'call_good_native');
+  assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
 });
-
 test('rejects mixed native function calls and BYV markup as an ambiguous response', async () => {
   await assert.rejects(
     handleMessages(body(), {
