@@ -1,8 +1,8 @@
 'use strict';
 
 const MODEL_PROFILES = Object.freeze({
-  'byv-default': {
-    display_name: 'BYV Default',
+  'byv-flash-v1': {
+    display_name: 'BYV Flash V1',
     line: 'default',
     instructions: [
       'Work style: practical, balanced, technically precise, and outcome-oriented.',
@@ -12,7 +12,7 @@ const MODEL_PROFILES = Object.freeze({
     ]
   },
   'claude-opus-5-5': {
-    display_name: 'Opus Profile',
+    display_name: 'Opus 5.5',
     line: 'opus',
     instructions: [
       'Work style: deliberate, rigorous, and outcome-oriented for complex tasks, consequential decisions, and long-running workflows.',
@@ -25,7 +25,7 @@ const MODEL_PROFILES = Object.freeze({
     ]
   },
   'claude-sonnet-5-5': {
-    display_name: 'Sonnet Profile',
+    display_name: 'Sonnet 5.5',
     line: 'sonnet',
     instructions: [
       'Work style: balanced speed, practical reasoning, and focused execution.',
@@ -36,7 +36,7 @@ const MODEL_PROFILES = Object.freeze({
     ]
   },
   'claude-haiku-5-5': {
-    display_name: 'Haiku Profile',
+    display_name: 'Haiku 5.5',
     line: 'haiku',
     instructions: [
       'Work style: fast, practical, warm, and reliable for focused tasks and high-volume interactions.',
@@ -48,7 +48,7 @@ const MODEL_PROFILES = Object.freeze({
     ]
   },
   'claude-mythos-5-1': {
-    display_name: 'Mythos Profile',
+    display_name: 'Mythos 5.1',
     line: 'opus',
     instructions: [
       'Work style: security-first, threat-informed, precise, and evidence-driven. This is a response profile, not a different native model capability.',
@@ -60,7 +60,7 @@ const MODEL_PROFILES = Object.freeze({
     ]
   },
   'claude-fable-5.1': {
-    display_name: 'Fable Profile',
+    display_name: 'Fable 5.1',
     line: 'sonnet',
     instructions: [
       'Work style: flexible, adaptive, and outcome-oriented across different kinds of demanding work. Choose the approach that fits the user goal instead of forcing one fixed persona.',
@@ -73,14 +73,15 @@ const MODEL_PROFILES = Object.freeze({
 });
 
 const MODEL_PROFILE_ALIASES = Object.freeze({
+  'byv': 'byv-flash-v1',
+  'byv-default': 'byv-flash-v1',
   'claude-mythos-5.1': 'claude-mythos-5-1',
   'claude-mythos-5-1': 'claude-mythos-5-1',
-  'claude-fable-5-1': 'claude-fable-5.1',
-  'byv': 'byv-default'
+  'claude-fable-5-1': 'claude-fable-5.1'
 });
 
 function canonicalModelId(model) {
-  return MODEL_PROFILE_ALIASES[model] || model || 'byv-default';
+  return MODEL_PROFILE_ALIASES[model] || model || 'byv-flash-v1';
 }
 
 function isSupportedModel(model) {
@@ -90,7 +91,7 @@ function isSupportedModel(model) {
 
 function modelProfilePrompt(model) {
   const canonical = canonicalModelId(model);
-  const profile = MODEL_PROFILES[canonical] || MODEL_PROFILES['byv-default'];
+  const profile = MODEL_PROFILES[canonical] || MODEL_PROFILES['byv-flash-v1'];
   return [
     '=== MODEL RESPONSE PROFILE ===',
     'Apply this profile as response-style and work-habit guidance only.',
