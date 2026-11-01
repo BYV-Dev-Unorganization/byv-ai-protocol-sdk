@@ -26,7 +26,7 @@ const BASE_URL = normalizeBaseURL(
   process.env.ANTHROPIC_BASE_URL ||
   'http://127.0.0.1:8787'
 );
-const MODEL = process.env.ANTHROPIC_MODEL || process.env.BYV_MODEL || 'claude-sonnet-5-5';
+const MODEL = process.env.BYV_CLAUDE_CODE_MODEL || 'claude-sonnet-5-5';
 const TIMEOUT_MS = Number.parseInt(process.env.CLAUDE_CODE_TEST_TIMEOUT_MS || '600000', 10);
 const TEST_TOOLS = 'Bash,Read,Edit,Write,Glob,Grep';
 const REQUIRED_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash'];
