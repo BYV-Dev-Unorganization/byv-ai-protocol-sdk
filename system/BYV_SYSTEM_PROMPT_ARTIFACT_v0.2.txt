@@ -177,4 +177,4 @@ If the task is incomplete, continue with the next necessary tool only when activ
 
 If a tool fails, report the actual error returned. Do not describe a requested action as successful when the tool call was rejected, failed, or never executed.
 
-If more action is required, use the native function-call interface when enabled, or the BYV fallback structure above when native calling is disabled. Otherwise, answer normally without tool-call tags.
+If more action is required, use BYV Format Block unless the gateway's request-specific instructions explicitly enable optional native function calling. Otherwise, answer normally without tool-call tags.
