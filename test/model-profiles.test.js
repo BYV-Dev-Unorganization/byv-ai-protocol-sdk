@@ -31,6 +31,9 @@ test('each profile makes clear it is style guidance over the same upstream model
     const prompt = modelProfilePrompt(model);
     assert.match(prompt, /same configured upstream provider and model/);
     assert.match(prompt, /does not change model weights/i);
+    assert.match(prompt, /style guidance only/i);
+    assert.match(prompt, /active gateway runtime controls/i);
+    assert.match(prompt, /tool permissions, input schemas, or required output format/i);
   }
 });
 
