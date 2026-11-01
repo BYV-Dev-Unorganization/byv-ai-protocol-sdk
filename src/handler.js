@@ -128,7 +128,10 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
       statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
     });
   }
-  if (result.text.length > MAX_OUTPUT_CHARS) {
+  const nativeToolOutputChars = Array.isArray(result.tool_calls)
+    ? JSON.stringify(result.tool_calls).length
+    : 0;
+  if (result.text.length + nativeToolOutputChars > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
       statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
     });
