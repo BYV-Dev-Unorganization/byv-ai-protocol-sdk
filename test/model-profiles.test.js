@@ -20,7 +20,7 @@ test('each profile makes clear it is style guidance over the same upstream model
   for (const model of Object.keys(MODEL_PROFILES)) {
     const prompt = modelProfilePrompt(model);
     assert.match(prompt, /same configured upstream provider and model/);
-    assert.match(prompt, /do not change model weights/i);
+    assert.match(prompt, /does not change model weights/i);
   }
 });
 
