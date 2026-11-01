@@ -24,6 +24,14 @@ function authHeaders(extra = {}) {
   };
 }
 
+test('answers Claude Code HEAD /api/hello connection probe without authentication', async (t) => {
+  const base = await withServer(t);
+  const response = await fetch(base + '/api/hello', { method: 'HEAD' });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(await response.text(), '');
+});
+
 test('requires gateway authentication and exposes BYV Flash V1 in model discovery', async (t) => {
   const base = await withServer(t);
   const rejected = await fetch(base + '/v1/models');
