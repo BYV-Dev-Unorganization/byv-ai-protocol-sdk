@@ -10,10 +10,15 @@ const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('
 const { estimateInputTokens } = require('./content');
 const { sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
+const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
 
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
+  const rateLimiter = options.rateLimiter || createRateLimiter({
+    limit: 30,
+    windowMs: 60_000
+  });
   let activeRequests = 0;
 
   return http.createServer(async (req, res) => {
@@ -55,6 +60,18 @@ function createServer(options = {}) {
 
     if (!checkAuth(req)) {
       return jsonError(res, 401, 'authentication_error', 'Invalid gateway API key.');
+    }
+
+    const rateLimit = rateLimiter.consume(clientAddress(req));
+    setRateLimitHeaders(res, rateLimit);
+    if (!rateLimit.allowed) {
+      return jsonError(
+        res,
+        429,
+        'rate_limit_error',
+        'Rate limit exceeded. Try again after the Retry-After interval.',
+        'RATE_LIMITED'
+      );
     }
 
     if (req.method === 'GET' && route === '/health') {
