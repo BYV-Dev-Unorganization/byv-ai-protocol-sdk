@@ -1,20 +1,13 @@
 'use strict';
 
-const Ajv = require('ajv');
 const { isPlainObject } = require('../anthropic-contract');
-
-const ajv = new Ajv({
-  allErrors: true,
-  strict: false,
-  allowUnionTypes: true,
-  validateSchema: true
-});
+const { compileJsonSchema } = require('./json-schema');
 const compiledSchemas = new WeakMap();
 
 function compileSchema(schema) {
   if (!isPlainObject(schema)) throw new Error('Tool input_schema must be a JSON Schema object.');
   if (compiledSchemas.has(schema)) return compiledSchemas.get(schema);
-  const validate = ajv.compile(schema);
+  const validate = compileJsonSchema(schema);
   compiledSchemas.set(schema, validate);
   return validate;
 }
