@@ -321,7 +321,7 @@ async function main() {
     '1. Read: read package.json and identify its top-level name.',
     '2. Glob: find all files matching **/*.txt in the current workspace.',
     '3. Grep: search for the exact string BYV_GREP_MATCH in **/*.txt.',
-    '4. Edit: in fixture-edit.txt replace EDIT_BEFORE with EDIT_AFTER.',
+    '4. Read + Edit: use Read to read fixture-edit.txt in this same conversation, then use Edit to replace EDIT_BEFORE with EDIT_AFTER.',
     '5. Write: create smoke-created.txt with exactly WRITE_OK as its contents.',
     '6. Bash: execute exactly the one command pwd. Do not chain commands.',
     'Do not run any other shell command, do not access files outside the current workspace, and do not use other tools.',
@@ -332,7 +332,7 @@ async function main() {
     Read: 'Use the Read tool exactly once to read package.json in the current workspace. Do not call any other tool. After the tool returns, state the package name.',
     Glob: 'Use the Glob tool exactly once to find all files matching **/*.txt in the current workspace. Do not call any other tool. After the tool returns, list the matching paths.',
     Grep: 'Call the built-in Grep tool now. This tool call is mandatory. Set pattern to the exact literal BYV_GREP_MATCH, path to ., glob to **/*.txt, and output_mode to files_with_matches. Search the current workspace only. Do not use Bash, Read, Glob, Edit, Write, or any other tool. Do not respond with prose until the Grep tool has returned. Then state the matching file.',
-    Edit: 'Use the Edit tool exactly once on fixture-edit.txt in the current workspace, replacing EDIT_BEFORE with EDIT_AFTER. Do not call any other tool. After the tool returns, confirm the edit.',
+    Edit: 'First, use the Read tool exactly once to read the absolute file path ' + JSON.stringify(path.join(workspace, 'fixture-edit.txt')) + '. Wait for its successful tool result. Then use the Edit tool exactly once on that same absolute file path, replacing the exact text EDIT_BEFORE with EDIT_AFTER. Do not call any other tool. After the Edit tool returns, confirm the edit.',
     Write: 'Use the Write tool exactly once to create smoke-created.txt in the current workspace with exactly WRITE_OK as its contents. Do not call any other tool. After the tool returns, confirm the file was written.',
     Bash: 'Use the Bash tool exactly once to execute exactly the command pwd in the current workspace. Do not run any other command and do not call any other tool. After the tool returns, report its output.'
   };
@@ -369,13 +369,23 @@ async function main() {
       const isolatedUses = findObjects(isolatedParsed.events, (item) =>
         item.type === 'tool_use' && typeof item.name === 'string'
       );
-      const unexpectedUses = isolatedUses.filter((item) => item.name !== name);
+      const allowedPrerequisiteTools = name === 'Edit' ? ['Read'] : [];
+      const allowedToolNames = new Set([name, ...allowedPrerequisiteTools]);
+      const unexpectedUses = isolatedUses.filter((item) => !allowedToolNames.has(item.name));
       assert.equal(
         unexpectedUses.length,
         0,
         'Isolated ' + name + ' check invoked unexpected tools: ' +
         unexpectedUses.map((item) => item.name).join(', ')
       );
+      for (const prerequisite of allowedPrerequisiteTools) {
+        const prerequisiteCalls = isolatedUses.filter((item) => item.name === prerequisite);
+        assert.equal(
+          prerequisiteCalls.length,
+          1,
+          'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.'
+        );
+      }
       const requestedCalls = isolatedUses.filter((item) => item.name === name);
       if (requestedCalls.length !== 1) {
         const finalResponses = isolatedParsed.events
@@ -426,8 +436,18 @@ async function main() {
     assert.deepEqual(missingResults, [], 'one or more tool calls did not receive a result');
 
     const edited = fs.readFileSync(path.join(workspace, 'fixture-edit.txt'), 'utf8');
-    assert.match(edited, /EDIT_AFTER/);
-    assert.doesNotMatch(edited, /EDIT_BEFORE/);
+    if (!edited.includes('EDIT_AFTER') || edited.includes('EDIT_BEFORE')) {
+      const editCall = toolUses.find((item) => item.name === 'Edit');
+      const editResult = editCall && editCall.id
+        ? toolResults.find((item) => item.tool_use_id === editCall.id)
+        : null;
+      throw new Error(
+        'Edit tool did not produce the expected fixture change.' +
+        '\\nActual file contents: ' + JSON.stringify(edited) +
+        '\\nEdit input: ' + JSON.stringify(editCall && editCall.input || null) +
+        '\\nEdit tool result: ' + JSON.stringify(editResult && editResult.content || editResult || null)
+      );
+    }
 
     const writtenPath = path.join(workspace, 'smoke-created.txt');
     assert.ok(fs.existsSync(writtenPath), 'Write did not create smoke-created.txt');
