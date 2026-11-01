@@ -2,7 +2,8 @@
 
 const http = require('node:http');
 const {
-  PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL
+  PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
+  PROVIDER_NATIVE_TOOL_CALLING
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages } = require('./handler');
@@ -237,6 +238,9 @@ function start() {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
+    console.log('Tool transport: ' + (PROVIDER_NATIVE_TOOL_CALLING
+      ? 'provider-native function calling (explicit opt-in)'
+      : 'BYV Format Block (default)'));
     console.log('Gateway auth source: ' + GATEWAY_API_KEY_SOURCE);
     console.log('Gateway API key: ' + (GATEWAY_API_KEY_SOURCE === 'environment'
       ? 'provided through GATEWAY_API_KEY'
