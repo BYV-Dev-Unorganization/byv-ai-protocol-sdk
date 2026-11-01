@@ -385,6 +385,12 @@ async function main() {
           1,
           'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.'
         );
+        const prerequisiteIndex = isolatedUses.findIndex((item) => item.name === prerequisite);
+        const requestedIndex = isolatedUses.findIndex((item) => item.name === name);
+        assert.ok(
+          prerequisiteIndex >= 0 && prerequisiteIndex < requestedIndex,
+          'Isolated ' + name + ' check must invoke ' + prerequisite + ' before ' + name + '.'
+        );
       }
       const requestedCalls = isolatedUses.filter((item) => item.name === name);
       if (requestedCalls.length !== 1) {
@@ -443,9 +449,9 @@ async function main() {
         : null;
       throw new Error(
         'Edit tool did not produce the expected fixture change.' +
-        '\\nActual file contents: ' + JSON.stringify(edited) +
-        '\\nEdit input: ' + JSON.stringify(editCall && editCall.input || null) +
-        '\\nEdit tool result: ' + JSON.stringify(editResult && editResult.content || editResult || null)
+        '\nActual file contents: ' + JSON.stringify(edited) +
+        '\nEdit input: ' + JSON.stringify(editCall && editCall.input || null) +
+        '\nEdit tool result: ' + JSON.stringify(editResult && editResult.content || editResult || null)
       );
     }
 
