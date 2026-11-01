@@ -45,7 +45,7 @@ test('maps Anthropic tool_choice values to provider-native function tool choices
 test('rejects function names that the OpenAI-compatible tool contract cannot represent', () => {
   assert.throws(
     () => providerFunctionTools([{ name: 'Read.file', input_schema: { type: 'object' } }]),
-    /Tool names sent to the provider/
+    /at most 64 characters/
   );
 });
 
