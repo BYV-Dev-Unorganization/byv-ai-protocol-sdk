@@ -62,22 +62,35 @@ test('forces a text response after three identical tool calls', async () => {
       }
     ])
   ];
-  let providerMessages;
-  let providerOptions;
+  const providerMessages = [];
+  const providerOptions = [];
   const result = await handleMessages(body({
     messages,
     tool_choice: 'auto'
   }), {
     provider: {
       createChatCompletion: async (messages, options) => {
-        providerMessages = messages;
-        providerOptions = options;
-        return { text: 'The same command has already been repeated; no further tool call is needed.', finish_reason: 'stop', usage: null };
+        providerMessages.push(messages);
+        providerOptions.push(options);
+        if (providerOptions.length === 1) {
+          return {
+            text: '<|BYV| calls><|BYV| invoke name="Read" id="call_loop_retry"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+            finish_reason: 'stop',
+            usage: null
+          };
+        }
+        return {
+          text: 'The same command has already been repeated; no further tool call is needed.',
+          finish_reason: 'stop',
+          usage: null
+        };
       }
     }
   });
-  assert.match(providerMessages[0].content, /STOP: DO NOT CALL TOOLS/);
-  assert.equal(providerOptions.tool_choice, 'none');
+  assert.match(providerMessages[0][0].content, /STOP: DO NOT CALL TOOLS/);
+  assert.match(providerMessages[1].at(-1).content, /RECOVERY REQUIRED/);
+  assert.equal(providerOptions.length, 2);
+  assert.ok(providerOptions.every((options) => options.tool_choice === 'none'));
   assert.equal(result.stop_reason, 'end_turn');
   assert.equal(result.toolCalls.length, 0);
 });
@@ -246,6 +259,24 @@ test('recovers to plain text when tools are disabled but model emits BYV markup'
   assert.equal(result.stop_reason, 'end_turn');
   assert.equal(result.toolCalls.length, 0);
   assert.match(result.text, /cannot access files/);
+});
+
+test('recovers an initially empty response when tools are disabled', async () => {
+  let count = 0;
+  const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    provider: {
+      createChatCompletion: async () => {
+        count++;
+        return count === 1
+          ? { text: '', finish_reason: 'stop' }
+          : { text: 'No tool is available for this request.', finish_reason: 'stop' };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.match(result.text, /No tool is available/);
 });
 
 test('text-only recovery rejects an empty response and retries with plain text', async () => {
