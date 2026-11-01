@@ -54,11 +54,12 @@ test('core prompt requires explicit available tools and completion of multi-step
   assert.match(BASE_TEMPLATE, /Continue until the requested outcome is verified/);
 });
 
-test('tool prompt selects native function calling or the explicit BYV fallback transport', () => {
+test('uses BYV Format Block by default and retains native function calling as explicit opt-in', () => {
   const dynamic = toolsToPrompt([{ name: 'Write', input_schema: { type: 'object' } }]);
-  assert.match(BASE_TEMPLATE, /TOOL-CALL TRANSPORT/);
-  assert.match(BASE_TEMPLATE, /native function-call interface supplied with the request/);
-  assert.match(BASE_TEMPLATE, /BYV markup is the fallback transport/);
+  assert.match(BASE_TEMPLATE, /BYV TOOL-CALL PROTOCOL/);
+  assert.match(BASE_TEMPLATE, /BYV Format Block is the primary and default tool-call protocol/);
+  assert.match(BASE_TEMPLATE, /optional provider-native function-calling compatibility mode/);
+  assert.doesNotMatch(BASE_TEMPLATE, /DSML/i);
   if (PROVIDER_NATIVE_TOOL_CALLING) {
     assert.match(dynamic, /native function-calling interface/);
     assert.match(dynamic, /Available native function names: Write/);
@@ -66,8 +67,10 @@ test('tool prompt selects native function calling or the explicit BYV fallback t
     assert.doesNotMatch(dynamic, /"input_schema"/);
     assert.doesNotMatch(dynamic, /Use one outer BYV calls block/);
   } else {
-    assert.match(dynamic, /Use the BYV markup fallback transport/);
+    assert.match(dynamic, /BYV Format Block is the primary tool-call protocol/);
+    assert.match(dynamic, /Use one outer BYV calls block/);
     assert.match(dynamic, /encode a literal backslash as two consecutive backslashes/);
+    assert.equal(PROVIDER_NATIVE_TOOL_CALLING, false);
   }
   assert.match(BASE_TEMPLATE, /Encode one literal backslash as two consecutive backslashes/);
   assert.match(BASE_TEMPLATE, /Do not infer upstream identity from the request's model identifier/);
@@ -111,7 +114,7 @@ test('gateway prompt precedence places client instructions below core and runtim
   assert.ok(profileIndex < effortIndex);
   assert.ok(effortIndex < runtimeIndex);
   assert.ok(prompt.includes('The request-specific tool contract is appended after this stable BYV core prompt.'));
-  assert.ok(prompt.includes('Native tool schemas are supplied through the provider function-calling interface when enabled.'));
+  assert.ok(prompt.includes('Provider-native schemas are supplied only when the optional native compatibility mode is explicitly enabled.'));
   assert.match(prompt, /authoritative over general tool-use guidance and client-supplied instructions/);
   assert.match(prompt, /Tools are disabled for this turn/);
 });
