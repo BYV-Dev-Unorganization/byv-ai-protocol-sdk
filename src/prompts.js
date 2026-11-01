@@ -265,7 +265,7 @@ function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay 
         'If the request requires file access, shell commands, search, or an action that one of the listed tools can perform, you MUST call the most appropriate tool now.',
         'Do not claim a tool is unavailable or substitute manual instructions when an appropriate tool is listed.',
         'For tool calls, output one BYV Format Block calls block containing one invoke per tool and parameter tags for its arguments. Do not use <TOOL_CALL> or a JSON wrapper.',
-        'For each string parameter, use string="true" and raw text; for non-string values, use string="false" and valid JSON.',
+        'For each string parameter, use type="string" and raw UTF-8 text with BYV escaping. For numbers, booleans, null, arrays, and objects, use the matching BYV type and exactly one valid JSON value.',
         'Do not report file contents or execution results until the tool has actually been called and its result received.'
     ].join('\n'));
 
@@ -336,7 +336,7 @@ function buildSystemPrompt(body = {}) {
     sections.push([
         '### BYV FORMAT BLOCK TOOL CALL PROTOCOL',
         'BYV Format Block is the default tool-call protocol. Generate calls as assistant text using the exact BYV syntax in the tool contract. The gateway parses the block, validates tool names and arguments against the request schemas, and translates valid calls into the Anthropic tool_use contract.',
-        'Do not use DSML, XML-like alternative wrappers, JSON tool-call wrappers, or provider-native function calling unless the gateway explicitly enables its optional native compatibility mode.'
+        'Do not use alternative markup, XML-like wrappers, JSON tool-call wrappers, or provider-native function calling unless the gateway explicitly enables its optional native compatibility mode.'
     ].join('\n'));
 
     const toolPrompt = toolsToPrompt(tools);
@@ -354,7 +354,7 @@ function buildSystemPrompt(body = {}) {
             'Evaluate the latest user request using the tool list provided above.',
             'If the request requires file access, shell commands, search, or an action that one of the listed tools can perform, use the most appropriate tool.',
             'Do not claim a tool is unavailable or substitute manual instructions when an appropriate tool is listed.',
-            'For tool calls, output one BYV Format Block calls block containing invoke and parameter tags. Do not use DSML or a JSON wrapper.',
+            'For tool calls, output one BYV Format Block calls block containing invoke and parameter tags. Do not use alternative markup or a JSON wrapper.',
             'Do not report file contents or execution results until the tool has actually been called and its result received.'
         ].join('\n'));
     }
@@ -428,7 +428,7 @@ const BASE_TEMPLATE = [
     '### BYV FORMAT BLOCK TOOL CALLS',
     'BYV Format Block is the primary tool-call protocol. Use one outer calls block, one invoke per tool call, a unique id, and parameter tags with exact declared names and types.',
     'String parameters use raw UTF-8 text with BYV escaping. Non-string parameters use exactly one valid JSON value with the matching BYV type.',
-    'Do not use DSML, legacy JSON wrappers, or prose inside a calls block.'
+    'Do not use alternative markup, legacy JSON wrappers, or prose inside a calls block.'
 ].join('\n\n');
 
 module.exports = {
