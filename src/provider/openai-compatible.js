@@ -62,6 +62,12 @@ function providerConfiguration() {
   };
 }
 
+function requiresNonThinkingToolChoice(choice) {
+  if (typeof choice === 'string') return ['any', 'required'].includes(choice);
+  return Boolean(choice && typeof choice === 'object' &&
+    ['any', 'required', 'tool'].includes(choice.type));
+}
+
 function buildPayload(messages, options = {}) {
   const config = providerConfiguration();
   const payload = {
@@ -79,6 +85,12 @@ function buildPayload(messages, options = {}) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
+      // DeepSeek Chat Completions rejects "required" and named tool choices in
+      // thinking mode. Its default is thinking-enabled, so disable thinking
+      // only for forced-tool requests; ordinary "auto" calls keep the default.
+      if (/^deepseek-/i.test(config.model) && requiresNonThinkingToolChoice(options.tool_choice)) {
+        payload.thinking = { type: 'disabled' };
+      }
     } catch (error) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
     }

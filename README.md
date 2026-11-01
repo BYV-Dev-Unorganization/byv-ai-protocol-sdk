@@ -275,6 +275,8 @@ BYV translates Anthropic Messages tool definitions into OpenAI-compatible functi
 | `none` | `none` |
 | `{ type: "tool", name: "Read" }` | `{ type: "function", function: { name: "Read" } }` |
 
+For DeepSeek Chat Completions models, the adapter automatically sets `thinking: { type: "disabled" }` on forced-tool requests (`tool_choice: any` or a specific tool). DeepSeek documents that `required` and named tool choices return HTTP 400 in thinking mode. This override is limited to forced-tool requests; ordinary `auto` calls retain the provider's default thinking behavior.
+
 The gateway reads native `message.tool_calls` responses and streaming `delta.tool_calls` fragments. It parses JSON arguments, assigns a safe invocation ID if the provider omits one, validates tool names against the original Anthropic allowlist, and validates every argument against its declared JSON Schema before returning Anthropic `tool_use` blocks. The provider's invocation ID is preserved when present.
 
 The provider-native function-call path is primary. Set `PROVIDER_NATIVE_TOOL_CALLING=false` only when the configured provider does not support OpenAI-compatible function tools. In that fallback mode, BYV places tool schemas in the system prompt and accepts the BYV markup format below. BYV markup is not sent when native function calling is enabled.
