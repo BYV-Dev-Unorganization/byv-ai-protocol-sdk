@@ -196,19 +196,52 @@ function parseCompletionToolCalls(completion) {
   };
 }
 
+function validateTextOnlyCompletion(completion) {
+  const result = parseCompletionToolCalls(completion);
+
+  if (result.error) {
+    return { valid: false, parsed: result.parsed, error: result.error };
+  }
+  if (result.calls.length > 0) {
+    return {
+      valid: false,
+      parsed: result.parsed,
+      error: 'The model attempted a native tool call while tool use was disabled.'
+    };
+  }
+  if (result.parsed.hasProtocol || result.parsed.errors.length > 0) {
+    return {
+      valid: false,
+      parsed: result.parsed,
+      error: result.parsed.errors[0] || 'The model emitted BYV protocol markup while tool use was disabled.'
+    };
+  }
+  if (typeof result.parsed.text !== 'string' || !result.parsed.text.trim()) {
+    return {
+      valid: false,
+      parsed: result.parsed,
+      error: 'The text-only recovery returned an empty response.'
+    };
+  }
+
+  return { valid: true, parsed: result.parsed, error: null };
+}
+
 async function handleMessages(body, options = {}) {
   const signal = options.signal;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
   const force = repeatedToolLoop ? { mode: 'none' } : parseToolChoice(body.tool_choice);
-  const promptBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
-  const providerMessages = buildProviderMessages(promptBody);
+  // Enforce loop prevention at both layers: the system prompt and provider API.
+  // Reuse this effective body for every retry so recovery cannot re-enable tools.
+  const requestBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
+  const providerMessages = buildProviderMessages(requestBody);
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
     : await getModelCapabilities();
-  let completion = await requestCompletion(providerMessages, body, signal, provider, providerCapabilities);
+  let completion = await requestCompletion(providerMessages, requestBody, signal, provider, providerCapabilities);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
@@ -238,14 +271,16 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text')
       }]);
-      completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
-      parsed = parseBYVOutput(completion.text);
-      if (!parsed.hasProtocol && parsed.calls.length === 0 && parsed.errors.length === 0) {
+      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+      const textRecovery = validateTextOnlyCompletion(completion);
+      parsed = textRecovery.parsed;
+      if (textRecovery.valid) {
         calls = [];
+        parseError = null;
         recovered = true;
         break;
       }
-      lastError = parsed.errors[0] || 'The model attempted to call a tool while tool use was disabled.';
+      lastError = textRecovery.error;
     }
     if (!recovered) {
       throw Object.assign(new Error('Model continued to emit BYV tool markup while tool use was disabled. No tool call was forwarded.'), {
@@ -264,7 +299,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
       }]);
-      completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
+      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
@@ -301,7 +336,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
         }]);
-        completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
+        completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
         parsedResult = parseCompletionToolCalls(completion);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
