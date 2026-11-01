@@ -24,7 +24,7 @@ function authHeaders(extra = {}) {
   };
 }
 
-test('requires gateway authentication for model discovery', async (t) => {
+test('requires gateway authentication and exposes BYV Flash V1 in model discovery', async (t) => {
   const base = await withServer(t);
   const rejected = await fetch(base + '/v1/models');
   assert.equal(rejected.status, 401);
@@ -33,7 +33,8 @@ test('requires gateway authentication for model discovery', async (t) => {
   assert.equal(accepted.status, 200);
   const body = await accepted.json();
   assert.equal(body.data.length, 6);
-  assert.equal(body.data[0].id, 'byv-default');
+  assert.equal(body.data[0].id, 'byv-flash-v1');
+  assert.equal(body.data[0].display_name, 'BYV Flash V1');
 });
 
 test('rejects unsupported model profile IDs before invoking the handler', async (t) => {
@@ -91,7 +92,7 @@ test('returns an Anthropic Messages envelope from the injected runtime', async (
   assert.deepEqual(result.usage, { input_tokens: 9, output_tokens: 6 });
 });
 
-test('count_tokens responds with a local estimate without invoking the model runtime', async (t) => {
+test('count_tokens accepts the canonical BYV Flash V1 model ID without invoking model runtime', async (t) => {
   let called = false;
   const base = await withServer(t, {
     handleMessages: async () => {
@@ -103,7 +104,7 @@ test('count_tokens responds with a local estimate without invoking the model run
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
-      model: 'byv-default',
+      model: 'byv-flash-v1',
       messages: [{ role: 'user', content: 'Count these tokens.' }]
     })
   });
