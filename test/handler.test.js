@@ -143,7 +143,7 @@ test('recovers when Bash changes an explicitly requested exact command', async (
     'Gunakan Bash tepat satu kali.',
     'Jalankan persis perintah: pwd',
     'Jangan gunakan tool lain.'
-  ].join('\\n');
+  ].join('\n');
   const bashTools = [{
     name: 'Bash',
     description: 'Run a shell command',
