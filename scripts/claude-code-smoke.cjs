@@ -380,16 +380,28 @@ async function main() {
       );
       for (const prerequisite of allowedPrerequisiteTools) {
         const prerequisiteCalls = isolatedUses.filter((item) => item.name === prerequisite);
+        const prerequisiteIndex = isolatedUses.findIndex((item) => item.name === prerequisite);
+        const requestedIndex = isolatedUses.findIndex((item) => item.name === name);
+        const finalResponses = isolatedParsed.events
+          .filter((event) => event.type === 'result')
+          .map((event) => event.result || '')
+          .join('\\n');
+        const diagnostics = [
+          'Observed tools: ' + (isolatedUses.map((item) => item.name).join(', ') || '(none)'),
+          'Claude Code final response:\\n' + (finalResponses || '(none)'),
+          'STDERR (tail):\\n' + (isolatedRun.stderr || '(empty)').slice(-3000),
+          'STDOUT (tail):\\n' + isolatedRun.stdout.slice(-10000)
+        ].join('\\n\\n');
         assert.equal(
           prerequisiteCalls.length,
           1,
-          'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.'
+          'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.\\n' +
+          diagnostics
         );
-        const prerequisiteIndex = isolatedUses.findIndex((item) => item.name === prerequisite);
-        const requestedIndex = isolatedUses.findIndex((item) => item.name === name);
         assert.ok(
           prerequisiteIndex >= 0 && prerequisiteIndex < requestedIndex,
-          'Isolated ' + name + ' check must invoke ' + prerequisite + ' before ' + name + '.'
+          'Isolated ' + name + ' check must invoke ' + prerequisite + ' before ' + name + '.\\n' +
+          diagnostics
         );
       }
       const requestedCalls = isolatedUses.filter((item) => item.name === name);
