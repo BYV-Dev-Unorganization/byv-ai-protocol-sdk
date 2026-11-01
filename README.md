@@ -238,7 +238,7 @@ The script launches Claude Code in non-interactive `stream-json` mode against th
 
 The test creates an isolated temporary workspace, applies a narrow tool/permission allowlist, verifies tool results and the Edit/Write changes, and removes the workspace afterward. It does not grant arbitrary shell execution and does not modify the repository. It tests client-to-gateway tool orchestration; the gateway itself does not execute client tools.
 
-Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). For the local gateway, the script validates the gateway token and model profile before launching Claude Code, and runs the CLI in restricted mode with the six-tool allowlist.
+Optional environment variables: `BYV_BASE_URL`, `BYV_CLAUDE_CODE_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). The test model is intentionally independent from `ANTHROPIC_MODEL` so a value left over from the Anthropic SDK smoke test cannot change this test. For the local gateway, the script validates the gateway token and model profile before launching Claude Code, and runs the CLI in restricted mode with the six-tool allowlist.
 
 These live integration tests are intentionally separate from:
 
