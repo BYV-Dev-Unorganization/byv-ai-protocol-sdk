@@ -36,7 +36,7 @@ function latestUserText(messages) {
       return message.content
         .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
         .map((block) => block.text)
-        .join('\\n');
+        .join('\n');
     }
   }
   return '';
@@ -45,12 +45,12 @@ function latestUserText(messages) {
 function extractExactBashCommand(messages) {
   const text = latestUserText(messages);
   const patterns = [
-    /(?:jalankan|eksekusi)\\s+persis\\s+perintah\\s*:\\s*`([^`\\r\\n]+)`/i,
-    /(?:jalankan|eksekusi)\\s+persis\\s+perintah\\s*:\\s*([^\\r\\n]+)/i,
-    /run\\s+exactly\\s+(?:the\\s+)?command\\s*:\\s*`([^`\\r\\n]+)`/i,
-    /run\\s+exactly\\s+(?:the\\s+)?command\\s*:\\s*([^\\r\\n]+)/i,
-    /execute\\s+exactly\\s+(?:the\\s+)?command\\s*:\\s*`([^`\\r\\n]+)`/i,
-    /execute\\s+exactly\\s+(?:the\\s+)?command\\s*:\\s*([^\\r\\n]+)/i
+    /(?:jalankan|eksekusi)\s+persis\s+perintah\s*:\s*`([^`\r\n]+)`/i,
+    /(?:jalankan|eksekusi)\s+persis\s+perintah\s*:\s*([^\r\n]+)/i,
+    /run\s+exactly\s+(?:the\s+)?command\s*:\s*`([^`\r\n]+)`/i,
+    /run\s+exactly\s+(?:the\s+)?command\s*:\s*([^\r\n]+)/i,
+    /execute\s+exactly\s+(?:the\s+)?command\s*:\s*`([^`\r\n]+)`/i,
+    /execute\s+exactly\s+(?:the\s+)?command\s*:\s*([^\r\n]+)/i
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
