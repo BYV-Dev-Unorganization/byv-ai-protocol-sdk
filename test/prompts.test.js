@@ -96,6 +96,13 @@ test('buildSystemPrompt combines client system context, project policy, tools, p
   assert.doesNotMatch(prompt, /DSML/i);
 });
 
+test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
+  const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] });
+  assert.match(prompt, /NO TOOLS AVAILABLE/);
+  assert.match(prompt, /Do not emit BYV calls, invoke, or parameter tags/);
+  assert.match(prompt, /Do not invent tools/);
+});
+
 test('buildSystemPrompt gives the latest tool result continuation the original task and next-step rules', () => {
   const prompt = buildSystemPrompt({
     model: 'byv-flash-v1',
