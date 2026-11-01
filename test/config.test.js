@@ -13,6 +13,7 @@ function loadConfig(env) {
     "process.stdout.write(JSON.stringify({",
     "PORT: c.PORT,",
     "PROVIDER_MODEL: c.PROVIDER_MODEL,",
+    "PROVIDER_NATIVE_TOOL_CALLING: c.PROVIDER_NATIVE_TOOL_CALLING,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
     "PROVIDER_MAX_REQUESTS_PER_MINUTE: c.PROVIDER_MAX_REQUESTS_PER_MINUTE,",
     "PROVIDER_MAX_CONCURRENT_REQUESTS: c.PROVIDER_MAX_CONCURRENT_REQUESTS,",
@@ -31,7 +32,7 @@ function loadConfig(env) {
   ].join('\n');
   const result = spawnSync(process.execPath, ['-e', source], {
     cwd: root,
-    env: { ...process.env, ...env },
+    env: { ...process.env, PROVIDER_NATIVE_TOOL_CALLING: '', ...env },
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -42,6 +43,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
   const config = loadConfig({
     PORT: '8877',
     PROVIDER_MODEL: 'configured-model-from-env',
+    PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_TIMEOUT_MS: '120000',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: '6',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '1',
@@ -82,6 +84,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   const config = loadConfig({
     PORT: '0',
     PROVIDER_MODEL: 'another-configured-model-from-env',
+    PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_TIMEOUT_MS: '300000.5',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 'not-a-number',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '129',
@@ -121,4 +124,10 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
 test('defaults the system prompt character budget to 4 million and accepts an 8 million override', () => {
   assert.equal(loadConfig({ MAX_PROMPT_CHARS: '' }).MAX_PROMPT_CHARS, 4000000);
   assert.equal(loadConfig({ MAX_PROMPT_CHARS: '8000000' }).MAX_PROMPT_CHARS, 8000000);
+});
+
+test('keeps provider-native function calling opt-in and disabled by default', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_TOOL_CALLING, false);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_CALLING: 'false' }).PROVIDER_NATIVE_TOOL_CALLING, false);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_CALLING: 'true' }).PROVIDER_NATIVE_TOOL_CALLING, true);
 });
