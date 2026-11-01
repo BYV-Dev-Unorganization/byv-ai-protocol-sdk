@@ -341,7 +341,15 @@ function buildSystemPrompt(body = {}) {
     ].join('\n'));
 
     const toolPrompt = toolsToPrompt(tools);
-    if (toolPrompt) sections.push('### TOOLS\n' + toolPrompt);
+    if (toolPrompt) {
+        sections.push('### TOOLS\n' + toolPrompt);
+    } else {
+        sections.push([
+            '=== NO TOOLS AVAILABLE ===',
+            'No tools are available for this request. Do not emit BYV calls, invoke, or parameter tags.',
+            'Do not invent tools or claim that a tool was executed. Answer with the information available, and state any limitation.'
+        ].join('\n'));
+    }
 
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
     const lastHasToolResult = blocksOf(last.content).some((block) => block && block.type === 'tool_result');
