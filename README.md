@@ -123,7 +123,8 @@ All application API routes require the gateway key using either Authorization: B
 | --- | --- | --- |
 | HEAD | /api/hello | Unauthenticated connection-warming probe for Claude Code |
 | GET | /health | Authenticated health and provider-configuration status |
-| GET | /v1/models | Discover available BYV response profiles |\n| GET | /v1/provider/capabilities | Inspect detected upstream context/input/output/cache capabilities |
+| GET | /v1/models | Discover available BYV response profiles |
+| GET | /v1/provider/capabilities | Inspect detected upstream context/input/output/cache capabilities |
 | POST | /v1/messages | Anthropic Messages-compatible request |
 | POST | /v1/messages/count_tokens | Local input-size estimate |
 
@@ -254,9 +255,23 @@ The gateway validates and supports the core fields used by the Anthropic Message
 - stop_sequences
 - output_config.effort: low, medium, high, xhigh, max
 
-The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-native prompt caching, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
+The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
 
-Input token counts are local estimates. When the upstream returns integer prompt_tokens and completion_tokens, those usage numbers are passed through; otherwise BYV estimates usage using a character-based approximation. /v1/messages/count_tokens is always an estimate, not the provider tokenizer.
+### Provider capabilities and context budgeting
+
+BYV performs best-effort model metadata discovery using the configured provider's OpenAI-compatible model endpoints: GET /models/{model}, then GET /models when the detail endpoint does not expose limits. It recognizes reported context-window, maximum-input, and maximum-output token fields. Model capability metadata is cached for PROVIDER_CAPABILITIES_CACHE_MS and can be refreshed with GET /v1/provider/capabilities?refresh=1. The endpoint reports the actual configured provider model and the source of each detected limit.
+
+OpenAI-compatible APIs do not standardize context-window metadata. When the provider does not publish a limit in its model metadata, set PROVIDER_CONTEXT_WINDOW_TOKENS, PROVIDER_MAX_INPUT_TOKENS, and/or PROVIDER_MAX_OUTPUT_TOKENS explicitly. Explicit environment values override discovered values. BYV never infers a context window from the model name. An unknown limit remains unknown rather than being guessed.
+
+Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the BYV system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate conversation history or quietly lower max_tokens. If limits are unknown, the regular body and prompt size limits still apply.
+
+These local counts are conservative estimates, not counts from the provider's exact tokenizer. /v1/messages/count_tokens returns the provider-shaped input estimate and is always marked X-Token-Usage-Estimated: true. Actual prompt_tokens and completion_tokens from the provider take precedence in Messages usage.
+
+### Provider prompt caching and usage
+
+When the upstream provider supports automatic prompt/prefix caching, BYV sends ordinary Chat Completions messages and lets the provider manage its inference cache. BYV keeps the invariant core system prompt at the beginning of the assembled prompt and appends request-specific tool definitions, client instructions, profile guidance, effort, and tool-choice overlays afterward. This gives the provider the longest stable prefix available across requests. BYV does not inject Anthropic cache_control or other provider-specific cache parameters into a generic OpenAI-compatible payload.
+
+When the provider reports cache usage, BYV maps prompt_tokens_details.cached_tokens (and recognized cache-creation/cache-read fields) into the Anthropic usage fields cache_read_input_tokens and cache_creation_input_tokens. The uncached portion is reported as input_tokens. Cache counts are omitted when the provider does not report them; BYV does not manufacture cache-hit metrics.
 
 ## Security and operations
 
@@ -284,7 +299,13 @@ Do not bind this development gateway to a public interface without adding deploy
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
-| PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |\n| PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |\n| PROVIDER_MAX_INPUT_TOKENS | unset | Optional exact model input-token limit override |\n| PROVIDER_MAX_OUTPUT_TOKENS | unset | Optional exact model output-token limit override |\n| PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |\n| PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |\n| CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
+| PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |
+| PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |
+| PROVIDER_MAX_INPUT_TOKENS | unset | Optional exact model input-token limit override |
+| PROVIDER_MAX_OUTPUT_TOKENS | unset | Optional exact model output-token limit override |
+| PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |
+| PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |
+| CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
 | MAX_BODY_BYTES | 10485760 | Maximum inbound JSON request body |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
 | MAX_PROMPT_CHARS | 120000 | Maximum generated system prompt size |
