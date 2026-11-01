@@ -328,12 +328,67 @@ async function main() {
     'After every tool has returned a result, report the package name, files found by Glob, Grep match file, and output from pwd.'
   ].join(' ');
 
+  const isolatedPrompts = {
+    Read: 'Use the Read tool exactly once to read package.json in the current workspace. Do not call any other tool. After the tool returns, state the package name.',
+    Glob: 'Use the Glob tool exactly once to find all files matching **/*.txt in the current workspace. Do not call any other tool. After the tool returns, list the matching paths.',
+    Grep: 'Use the Grep tool exactly once to search the current workspace for the exact string BYV_GREP_MATCH in files matching **/*.txt. Do not call any other tool. After the tool returns, state the matching file.',
+    Edit: 'Use the Edit tool exactly once on fixture-edit.txt in the current workspace, replacing EDIT_BEFORE with EDIT_AFTER. Do not call any other tool. After the tool returns, confirm the edit.',
+    Write: 'Use the Write tool exactly once to create smoke-created.txt in the current workspace with exactly WRITE_OK as its contents. Do not call any other tool. After the tool returns, confirm the file was written.',
+    Bash: 'Use the Bash tool exactly once to execute exactly the command pwd in the current workspace. Do not run any other command and do not call any other tool. After the tool returns, report its output.'
+  };
+
   try {
     console.log('Temporary workspace:', workspace);
     console.log('Running Claude Code in restricted mode ...');
-    const run = await runClaude(prompt, settingsPath, workspace, token.token);
-    const parsed = parseStreamJson(run.stdout);
-    const toolUses = findObjects(parsed.events, (item) =>
+    const firstRun = await runClaude(prompt, settingsPath, workspace, token.token);
+    const allEvents = [];
+    const allOtherLines = [];
+    const allStderr = [];
+    function collectRun(run) {
+      const parsedRun = parseStreamJson(run.stdout);
+      allEvents.push(...parsedRun.events);
+      allOtherLines.push(...parsedRun.otherLines);
+      if (run.stderr.trim()) allStderr.push(run.stderr.trim());
+    }
+    collectRun(firstRun);
+
+    let toolUses = findObjects(allEvents, (item) =>
+      item.type === 'tool_use' && typeof item.name === 'string'
+    );
+    const missingBeforeIsolation = REQUIRED_TOOLS.filter((name) =>
+      !toolUses.some((item) => item.name === name)
+    );
+
+    // Some model profiles stop after completing only the first few tasks in a
+    // long prompt. Exercise any missing tool with a focused CLI invocation so
+    // each tool is still tested through the real Claude Code -> BYV path.
+    for (const name of missingBeforeIsolation) {
+      console.log('Running isolated tool check:', name);
+      const isolatedRun = await runClaude(isolatedPrompts[name], settingsPath, workspace, token.token);
+      const isolatedParsed = parseStreamJson(isolatedRun.stdout);
+      const isolatedUses = findObjects(isolatedParsed.events, (item) =>
+        item.type === 'tool_use' && typeof item.name === 'string'
+      );
+      const unexpectedUses = isolatedUses.filter((item) => item.name !== name);
+      assert.equal(
+        unexpectedUses.length,
+        0,
+        'Isolated ' + name + ' check invoked unexpected tools: ' +
+        unexpectedUses.map((item) => item.name).join(', ')
+      );
+      assert.equal(
+        isolatedUses.filter((item) => item.name === name).length,
+        1,
+        'Isolated ' + name + ' check did not invoke the requested tool exactly once. ' +
+        'Observed: ' + isolatedUses.map((item) => item.name).join(', ')
+      );
+      allEvents.push(...isolatedParsed.events);
+      allOtherLines.push(...isolatedParsed.otherLines);
+      if (isolatedRun.stderr.trim()) allStderr.push(isolatedRun.stderr.trim());
+    }
+
+    const parsed = { events: allEvents, otherLines: allOtherLines };
+    toolUses = findObjects(parsed.events, (item) =>
       item.type === 'tool_use' && typeof item.name === 'string'
     );
     const toolResults = findObjects(parsed.events, (item) =>
@@ -341,7 +396,12 @@ async function main() {
       (typeof item.tool_use_id === 'string' && Object.prototype.hasOwnProperty.call(item, 'content'))
     );
     const missing = REQUIRED_TOOLS.filter((name) => !toolUses.some((item) => item.name === name));
-    assert.deepEqual(missing, [], 'Claude Code did not invoke every required tool');
+    assert.deepEqual(
+      missing,
+      [],
+      'Claude Code did not invoke every required tool. Missing: ' + missing.join(', ') +
+      '. Observed: ' + [...new Set(toolUses.map((item) => item.name))].join(', ')
+    );
 
     const bashCalls = toolUses.filter((item) => item.name === 'Bash');
     assert.equal(bashCalls.length, 1, 'expected exactly one Bash call');
