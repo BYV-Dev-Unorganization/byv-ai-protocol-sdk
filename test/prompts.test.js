@@ -55,8 +55,10 @@ test('tool prompt selects native function calling or the explicit BYV fallback t
   assert.match(BASE_TEMPLATE, /native function-call interface supplied with the request/);
   assert.match(BASE_TEMPLATE, /BYV markup is the fallback transport/);
   if (PROVIDER_NATIVE_TOOL_CALLING) {
-    assert.match(dynamic, /native OpenAI-compatible function-calling interface/);
+    assert.match(dynamic, /native function-calling interface/);
+    assert.match(dynamic, /Available native function names: Write/);
     assert.match(dynamic, /Do not merely announce that you are going to use a tool/);
+    assert.doesNotMatch(dynamic, /"input_schema"/);
     assert.doesNotMatch(dynamic, /Use one outer BYV calls block/);
   } else {
     assert.match(dynamic, /Use the BYV markup fallback transport/);
@@ -100,7 +102,8 @@ test('gateway prompt precedence places client instructions below core and runtim
   assert.ok(clientIndex < profileIndex);
   assert.ok(profileIndex < effortIndex);
   assert.ok(effortIndex < runtimeIndex);
-  assert.ok(prompt.includes('The complete request-specific tool allowlist is appended after this stable BYV core prompt.'));
+  assert.ok(prompt.includes('The request-specific tool contract is appended after this stable BYV core prompt.'));
+  assert.ok(prompt.includes('Native tool schemas are supplied through the provider function-calling interface when enabled.'));
   assert.match(prompt, /authoritative over general tool-use guidance and client-supplied instructions/);
   assert.match(prompt, /Tools are disabled for this turn/);
 });
