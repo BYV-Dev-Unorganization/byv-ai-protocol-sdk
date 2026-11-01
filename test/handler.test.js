@@ -75,6 +75,40 @@ test('converts native provider function calls into Anthropic tool_use blocks', a
   });
 });
 
+test('converts streamed native provider function calls into Anthropic tool_use blocks', async () => {
+  let receivedOptions;
+  const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    provider: {
+      getModelCapabilities: async () => null,
+      createStreamingChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return {
+          text: '',
+          tool_calls: [{
+            id: 'call_native_stream_read',
+            type: 'function',
+            function: {
+              name: 'Read',
+              arguments: '{"file_path":"README.md"}'
+            }
+          }],
+          finish_reason: 'tool_calls',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.tool_choice, 'auto');
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0], {
+    type: 'tool_use',
+    id: 'call_native_stream_read',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  });
+});
+
 test('recovers invalid native function arguments using the native tool interface', async () => {
   let count = 0;
   const seenMessages = [];
