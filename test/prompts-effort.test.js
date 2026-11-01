@@ -15,7 +15,7 @@ test('maps every supported effort level to explicit guidance and ignores unknown
   assert.equal(effortPrompt('unknown'), '');
 });
 
-test('places effort guidance after the response profile and before runtime tool-choice controls', () => {
+test('places runtime tool-choice controls before response-profile and effort guidance', () => {
   const prompt = buildSystemPrompt({
     model: 'byv-flash-v1',
     output_config: { effort: 'high' },
@@ -25,5 +25,5 @@ test('places effort guidance after the response profile and before runtime tool-
   const profile = prompt.indexOf('=== MODEL RESPONSE PROFILE ===');
   const effort = prompt.indexOf('=== RESPONSE EFFORT ===');
   const runtime = prompt.indexOf('=== ACTIVE GATEWAY RUNTIME OVERLAY');
-  assert.ok(profile >= 0 && effort > profile && runtime > effort);
+  assert.ok(runtime >= 0 && profile > runtime && effort > profile);
 });
