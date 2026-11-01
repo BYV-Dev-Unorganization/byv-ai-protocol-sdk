@@ -117,10 +117,11 @@ If GATEWAY_API_KEY is set in the environment, that value is used instead of the 
 
 ## API endpoints
 
-All API routes require the gateway key using either Authorization: Bearer <key> or x-api-key: <key>.
+All application API routes require the gateway key using either Authorization: Bearer <key> or x-api-key: <key>. The Claude Code connection-warming probe at HEAD /api/hello is intentionally unauthenticated.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
+| HEAD | /api/hello | Unauthenticated connection-warming probe for Claude Code |
 | GET | /health | Authenticated health and provider-configuration status |
 | GET | /v1/models | Discover available BYV response profiles |
 | POST | /v1/messages | Anthropic Messages-compatible request |
