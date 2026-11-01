@@ -1,7 +1,6 @@
 'use strict';
 
-const Ajv = require('ajv');
-const schemaValidator = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
+const { compileJsonSchema } = require('./tools/json-schema');
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -87,7 +86,7 @@ function validateMessagesRequest(body, options = {}) {
         return { type: 'invalid_request_error', message: 'tools[' + i + '].input_schema must be an object.' };
       }
       try {
-        schemaValidator.compile(tool.input_schema);
+        compileJsonSchema(tool.input_schema);
       } catch (error) {
         return { type: 'invalid_request_error', message: 'tools[' + i + '].input_schema is invalid: ' + error.message };
       }
