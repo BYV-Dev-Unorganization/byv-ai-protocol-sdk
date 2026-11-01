@@ -1,5 +1,8 @@
 'use strict';
 
+const Ajv = require('ajv');
+const schemaValidator = new Ajv({ allErrors: true, strict: false, allowUnionTypes: true });
+
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -46,6 +49,12 @@ function validateMessagesRequest(body, options = {}) {
       return { type: 'invalid_request_error', message: 'messages[' + i + '].content contains an unsupported block type.' };
     }
     for (const block of Array.isArray(message.content) ? message.content : []) {
+      if (message.role === 'assistant' && block.type === 'tool_result') {
+        return { type: 'invalid_request_error', message: 'tool_result blocks must appear in user messages.' };
+      }
+      if (message.role === 'user' && block.type === 'tool_use') {
+        return { type: 'invalid_request_error', message: 'tool_use blocks must appear in assistant messages.' };
+      }
       if (block.type === 'text' && typeof block.text !== 'string') {
         return { type: 'invalid_request_error', message: 'Text blocks require a string text field.' };
       }
@@ -76,6 +85,11 @@ function validateMessagesRequest(body, options = {}) {
       names.add(tool.name);
       if (!isPlainObject(tool.input_schema)) {
         return { type: 'invalid_request_error', message: 'tools[' + i + '].input_schema must be an object.' };
+      }
+      try {
+        schemaValidator.compile(tool.input_schema);
+      } catch (error) {
+        return { type: 'invalid_request_error', message: 'tools[' + i + '].input_schema is invalid: ' + error.message };
       }
     }
   }
