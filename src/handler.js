@@ -1,12 +1,13 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, uuid } = require('./config');
+const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, uuid } = require('./config');
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { validateToolCalls } = require('./tools/validator');
 const { estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
+const { normalizeProviderToolCalls } = require('./provider/tool-calls');
 
 function parseToolChoice(choice) {
   if (!choice) return { mode: 'auto' };
@@ -113,7 +114,9 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
-    stop_sequences: body.stop_sequences
+    stop_sequences: body.stop_sequences,
+    tools: body.tools,
+    tool_choice: body.tool_choice
   };
   const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
   const normalCall = provider.createChatCompletion || createChatCompletion;
@@ -131,6 +134,37 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     });
   }
   return { ...result, input_tokens_estimated: estimatedInputTokens };
+}
+
+function parseCompletionToolCalls(completion) {
+  const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
+  const parsed = parseBYVOutput(completion.text);
+
+  if (native.error) {
+    return { parsed, calls: [], error: native.error, native: true };
+  }
+  if (native.calls.length > 0 && parsed.calls.length > 0) {
+    return {
+      parsed,
+      calls: [],
+      error: 'Provider returned both native function calls and BYV markup in the same response.',
+      native: true
+    };
+  }
+  if (native.calls.length > 0 && parsed.hasProtocol) {
+    return {
+      parsed,
+      calls: [],
+      error: parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.',
+      native: true
+    };
+  }
+  return {
+    parsed,
+    calls: native.calls.length > 0 ? native.calls : parsed.calls,
+    error: parsed.errors[0] || null,
+    native: native.calls.length > 0
+  };
 }
 
 async function handleMessages(body, options = {}) {
@@ -151,12 +185,13 @@ async function handleMessages(body, options = {}) {
     });
   }
 
-  let parsed = parseBYVOutput(completion.text);
-  let calls = parsed.calls;
-  let parseError = parsed.errors[0] || null;
+  let parsedResult = parseCompletionToolCalls(completion);
+  let parsed = parsedResult.parsed;
+  let calls = parsedResult.calls;
+  let parseError = parsedResult.error;
   let validation = calls.length > 0
     ? validateToolCalls(calls, tools)
-    : { valid: false, error: parseError || 'The model did not return a BYV tool call.' };
+    : { valid: false, error: parseError || 'The model did not return a tool call.' };
 
   if (validation.valid && calls.length > 0) {
     validation = validateChoice(calls, force);
@@ -164,7 +199,8 @@ async function handleMessages(body, options = {}) {
 
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
-  const malformedProtocol = parsed.hasProtocol && (parsed.errors.length > 0 || calls.length === 0);
+  const malformedProtocol = Boolean(parseError) ||
+    (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
 
   if (toolsDisabled && (unexpectedCalls || malformedProtocol)) {
     let recovered = false;
@@ -194,24 +230,25 @@ async function handleMessages(body, options = {}) {
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'tool')
+        content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
       }]);
       completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
       }
-      parsed = parseBYVOutput(completion.text);
-      calls = parsed.calls;
+      parsedResult = parseCompletionToolCalls(completion);
+      parsed = parsedResult.parsed;
+      calls = parsedResult.calls;
       validation = calls.length > 0
         ? validateToolCalls(calls, tools)
-        : { valid: false, error: parsed.errors[0] || 'The recovery did not return a tool invocation.' };
+        : { valid: false, error: parsedResult.error || 'The recovery did not return a tool invocation.' };
       if (validation.valid && calls.length > 0) validation = validateChoice(calls, force);
-      if (parsed.errors.length === 0 && validation.valid && calls.length > 0) {
+      if (!parsedResult.error && validation.valid && calls.length > 0) {
         recovered = true;
         break;
       }
-      lastError = validation.error || parsed.errors[0] || 'The recovery did not return a valid BYV call.';
+      lastError = validation.error || parsedResult.error || 'The recovery did not return a valid tool call.';
     }
     if (!recovered) {
       throw Object.assign(new Error(
@@ -233,15 +270,18 @@ async function handleMessages(body, options = {}) {
           content: buildRecoveryMessage(lastError, attempt, 'tool')
         }]);
         completion = await requestCompletion(retryMessages, body, signal, provider, providerCapabilities);
-        parsed = parseBYVOutput(completion.text);
-        calls = parsed.calls;
-        validation = calls.length ? validateToolCalls(calls, tools) : { valid: false, error: 'No invocation returned.' };
+        parsedResult = parseCompletionToolCalls(completion);
+        parsed = parsedResult.parsed;
+        calls = parsedResult.calls;
+        validation = calls.length
+          ? validateToolCalls(calls, tools)
+          : { valid: false, error: parsedResult.error || 'No invocation returned.' };
         if (validation.valid && calls.length) validation = validateChoice(calls, force);
-        if (parsed.errors.length === 0 && validation.valid && calls.length) {
+        if (!parsedResult.error && validation.valid && calls.length) {
           recovered = true;
           break;
         }
-        lastError = validation.error || parsed.errors[0] || 'No valid tool call returned.';
+        lastError = validation.error || parsedResult.error || 'No valid tool call returned.';
       }
       if (!recovered) {
         throw Object.assign(new Error('The model did not produce the tool call required by tool_choice.'), {
@@ -302,5 +342,6 @@ module.exports = {
   validateChoice,
   normalizeUsage,
   hasProviderTokenTotals,
-  enforceProviderBudget
+  enforceProviderBudget,
+  parseCompletionToolCalls
 };
