@@ -9,6 +9,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Keep parallel tests from racing to create the local development token file.
+      GATEWAY_API_KEY: byv-ci-test-gateway-key
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
