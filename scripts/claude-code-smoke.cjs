@@ -331,7 +331,7 @@ async function main() {
   const isolatedPrompts = {
     Read: 'Use the Read tool exactly once to read package.json in the current workspace. Do not call any other tool. After the tool returns, state the package name.',
     Glob: 'Use the Glob tool exactly once to find all files matching **/*.txt in the current workspace. Do not call any other tool. After the tool returns, list the matching paths.',
-    Grep: 'Use the Grep tool exactly once to search the current workspace for the exact string BYV_GREP_MATCH in files matching **/*.txt. Do not call any other tool. After the tool returns, state the matching file.',
+    Grep: 'Call the built-in Grep tool now. This tool call is mandatory. Set pattern to the exact literal BYV_GREP_MATCH, path to ., glob to **/*.txt, and output_mode to files_with_matches. Search the current workspace only. Do not use Bash, Read, Glob, Edit, Write, or any other tool. Do not respond with prose until the Grep tool has returned. Then state the matching file.',
     Edit: 'Use the Edit tool exactly once on fixture-edit.txt in the current workspace, replacing EDIT_BEFORE with EDIT_AFTER. Do not call any other tool. After the tool returns, confirm the edit.',
     Write: 'Use the Write tool exactly once to create smoke-created.txt in the current workspace with exactly WRITE_OK as its contents. Do not call any other tool. After the tool returns, confirm the file was written.',
     Bash: 'Use the Bash tool exactly once to execute exactly the command pwd in the current workspace. Do not run any other command and do not call any other tool. After the tool returns, report its output.'
@@ -376,12 +376,20 @@ async function main() {
         'Isolated ' + name + ' check invoked unexpected tools: ' +
         unexpectedUses.map((item) => item.name).join(', ')
       );
-      assert.equal(
-        isolatedUses.filter((item) => item.name === name).length,
-        1,
-        'Isolated ' + name + ' check did not invoke the requested tool exactly once. ' +
-        'Observed: ' + isolatedUses.map((item) => item.name).join(', ')
-      );
+      const requestedCalls = isolatedUses.filter((item) => item.name === name);
+      if (requestedCalls.length !== 1) {
+        const finalResponses = isolatedParsed.events
+          .filter((event) => event.type === 'result')
+          .map((event) => event.result || '')
+          .join('\n');
+        throw new Error(
+          'Isolated ' + name + ' check did not invoke the requested tool exactly once. ' +
+          'Observed tools: ' + (isolatedUses.map((item) => item.name).join(', ') || '(none)') +
+          '\nClaude Code final response:\n' + (finalResponses || '(none)') +
+          '\nSTDERR (tail):\n' + (isolatedRun.stderr || '(empty)').slice(-2000) +
+          '\nSTDOUT (tail):\n' + isolatedRun.stdout.slice(-8000)
+        );
+      }
       allEvents.push(...isolatedParsed.events);
       allOtherLines.push(...isolatedParsed.otherLines);
       if (isolatedRun.stderr.trim()) allStderr.push(isolatedRun.stderr.trim());
