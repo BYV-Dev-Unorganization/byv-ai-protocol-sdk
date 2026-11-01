@@ -30,7 +30,12 @@ test('system prompt has exactly one tools placeholder and runtime prompt replace
     tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } }]
   });
   assert.doesNotMatch(prompt, /\{\{AVAILABLE_TOOLS\}\}/);
-  assert.match(prompt, /"name": "Read"/);
+  if (PROVIDER_NATIVE_TOOL_CALLING) {
+    assert.match(prompt, /Available native function names: Read/);
+    assert.doesNotMatch(prompt, /"input_schema"/);
+  } else {
+    assert.match(prompt, /"name": "Read"/);
+  }
   assert.ok(prompt.includes('<|BYV| parameter name'));
 });
 
