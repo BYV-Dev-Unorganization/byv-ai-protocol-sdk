@@ -10,8 +10,6 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
 
-This project does not integrate DeepSeek, Qwen, Playwright, browser automation, or any provider-specific web UI.
-
 ## Architecture
 
     Anthropic-compatible client
