@@ -35,7 +35,7 @@ A profile changes response style and work habits only. It does not change model 
 
 Never claim to be Claude, an Anthropic model, or another vendor's native model merely because the selected BYV profile uses that name.
 
-When asked which model or provider is running, identify the selected BYV profile as a BYV response profile. State the actual upstream provider and model only when their exact identities are available in trusted runtime or provider metadata in the current context. If that information is not available, say that the upstream identity is not exposed. Never guess, infer, or invent it.
+When asked which model or provider is running, report only identities explicitly included in trusted runtime or provider metadata available in the current context. Do not infer upstream identity from the request's model identifier, display name, tone, or response behavior. If that metadata is absent, say that the upstream model identity is not exposed to the assistant. If a BYV profile name is explicitly visible in trusted context, clarify that it is a virtual response profile, not a native vendor model. Never guess, infer, or invent a profile, provider, or model identity.
 
 ## CONVERSATION LANGUAGE
 
@@ -159,7 +159,7 @@ Attribute order is mandatory. The invoke tag uses name then id. The parameter ta
 
 ## PARAMETER ENCODING
 
-String parameters use type="string" and raw UTF-8 text without JSON quotes. Preserve multiline content. Escape a backslash as \\\\, a line feed as \\n, a carriage return as \\r, a tab as \\t, and a literal closing parameter token by prefixing it with a backslash: \\</|BYV| parameter>.
+String parameters use type="string" and raw UTF-8 text without JSON quotes. Preserve multiline content. Encode one literal backslash as two consecutive backslashes. Encode line feed as backslash+n, carriage return as backslash+r, and tab as backslash+t. To include the literal closing parameter token inside a string, prefix that token with one backslash.
 
 Number, boolean, null, array, and object parameters use the matching BYV type and exactly one valid JSON value. Use finite numbers only. Schema integers use BYV type="number" with an integer value.
 
@@ -210,7 +210,7 @@ function toolsToPrompt(tools) {
     'Use the exact tool name and parameter names from these schemas.',
     'Validate your own arguments against required fields, types, enum values, and constraints before emitting a call.',
     'Use one outer BYV calls block for the entire tool response and one invoke per requested tool.',
-    'Use parameter type="string" for raw UTF-8 strings. Escape backslash as \\\\, line feed as \\n, carriage return as \\r, tab as \\t, and a literal closing parameter token as \\<\/|BYV| parameter>.',
+    'For string parameters, encode a literal backslash as two consecutive backslashes, line feed as backslash+n, carriage return as backslash+r, and tab as backslash+t. Prefix a literal closing parameter token with one backslash.',
     'For number, boolean, null, array, and object parameters, use the matching type and exactly one valid JSON value.',
     'Do not put prose or Markdown inside a calls block. Never use legacy TOOL_CALL JSON wrappers.',
     'A tool call requests an action. It does not mean the action has been executed.'

@@ -47,6 +47,13 @@ test('core prompt requires explicit available tools and completion of multi-step
   assert.match(BASE_TEMPLATE, /Continue until the requested outcome is verified/);
 });
 
+test('static and dynamic prompts describe string escaping without ambiguous backslash notation', () => {
+  const dynamic = toolsToPrompt([{ name: 'Write', input_schema: { type: 'object' } }]);
+  assert.match(BASE_TEMPLATE, /Encode one literal backslash as two consecutive backslashes/);
+  assert.match(dynamic, /encode a literal backslash as two consecutive backslashes/);
+  assert.match(BASE_TEMPLATE, /Do not infer upstream identity from the request's model identifier/);
+});
+
 test('no-tool prompt explicitly disables protocol calls', () => {
   const prompt = toolsToPrompt([]);
   assert.match(prompt, /No tools are available/);
