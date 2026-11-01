@@ -41,6 +41,97 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
   });
 });
 
+test('converts native provider function calls into Anthropic tool_use blocks', async () => {
+  let receivedOptions;
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    provider: {
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return {
+          text: '',
+          tool_calls: [{
+            id: 'call_native_read',
+            type: 'function',
+            function: {
+              name: 'Read',
+              arguments: '{"file_path":"README.md"}'
+            }
+          }],
+          finish_reason: 'tool_calls',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.tool_choice, 'auto');
+  assert.equal(receivedOptions.tools[0].name, 'Read');
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0], {
+    type: 'tool_use',
+    id: 'call_native_read',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  });
+});
+
+test('recovers invalid native function arguments using the native tool interface', async () => {
+  let count = 0;
+  const seenMessages = [];
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    provider: {
+      createChatCompletion: async (messages, options) => {
+        count++;
+        seenMessages.push({ messages, options });
+        return count === 1
+          ? {
+              text: '',
+              tool_calls: [{
+                id: 'call_bad_native',
+                type: 'function',
+                function: { name: 'Read', arguments: '{"path":"README.md"}' }
+              }],
+              finish_reason: 'tool_calls'
+            }
+          : {
+              text: '',
+              tool_calls: [{
+                id: 'call_good_native',
+                type: 'function',
+                function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
+              }],
+              finish_reason: 'tool_calls'
+            };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.match(seenMessages[1].messages.at(-1).content, /native function-calling interface/);
+  assert.equal(seenMessages[1].options.tool_choice, 'auto');
+  assert.equal(result.toolCalls[0].id, 'call_good_native');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+});
+
+test('rejects mixed native function calls and BYV markup as an ambiguous response', async () => {
+  await assert.rejects(
+    handleMessages(body(), {
+      provider: {
+        createChatCompletion: async () => ({
+          text: '<|BYV| calls><|BYV| invoke name="Read" id="call_markup"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+          tool_calls: [{
+            id: 'call_native',
+            type: 'function',
+            function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
+          }],
+          finish_reason: 'tool_calls'
+        })
+      }
+    }),
+    (error) => error.code === 'BYV_TOOL_CALL_RECOVERY_FAILED'
+  );
+});
+
 test('performs bounded recovery for schema-invalid tool arguments', async () => {
   let count = 0;
   const result = await handleMessages(body(), {
