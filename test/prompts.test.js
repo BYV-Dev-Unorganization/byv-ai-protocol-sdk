@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { BASE_TEMPLATE, buildSystemPrompt, toolsToPrompt } = require('../src/prompts');
 
 test('system template has exactly one tools placeholder and runtime prompt replaces it', () => {
@@ -74,4 +76,18 @@ test('tool choice overlays enforce none, any, and a specific tool', () => {
   assert.match(any, /one complete BYV calls block and no prose outside it/);
   assert.match(specific, /must call the tool named Read/);
   assert.match(specific, /one complete BYV calls block and no prose outside it/);
+});
+
+test('system prompt accepts content larger than the former 120k character ceiling', () => {
+  const script = [
+    "const { buildSystemPrompt } = require('./src/prompts');",
+    "const prompt = buildSystemPrompt({ model: 'byv-flash-v1', system: 'x'.repeat(150000), tools: [] });",
+    "if (prompt.length <= 120000) process.exit(2);"
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: path.resolve(__dirname, '..'),
+    env: { ...process.env, MAX_PROMPT_CHARS: '4000000' },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
