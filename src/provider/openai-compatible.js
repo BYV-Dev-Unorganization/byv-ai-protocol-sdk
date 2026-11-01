@@ -85,11 +85,14 @@ function buildPayload(messages, options = {}) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
-      // DeepSeek Chat Completions rejects "required" and named tool choices in
-      // thinking mode. Its default is thinking-enabled, so disable thinking
-      // only for forced-tool requests; ordinary "auto" calls keep the default.
+      // DeepSeek V4 rejects "required" and named tool choices while thinking
+      // is enabled. NaraRouter documents reasoning_effort="none" as its
+      // supported Chat Completions control for disabling reasoning. Use that
+      // portable field instead of DeepSeek's provider-specific "thinking"
+      // extension, which a router may not forward. Ordinary "auto" calls keep
+      // the provider's default reasoning mode.
       if (/^deepseek-/i.test(config.model) && requiresNonThinkingToolChoice(options.tool_choice)) {
-        payload.thinking = { type: 'disabled' };
+        payload.reasoning_effort = 'none';
       }
     } catch (error) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
