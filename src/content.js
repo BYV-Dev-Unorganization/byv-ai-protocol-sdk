@@ -1,7 +1,5 @@
 'use strict';
 
-const { isPlainObject } = require('./anthropic-contract');
-
 function blocksOf(content) {
   if (content === null || content === undefined) return [];
   if (typeof content === 'string') return [{ type: 'text', text: content }];
@@ -25,6 +23,7 @@ function renderToolResultContent(content) {
 function convertAnthropicMessages(messages) {
   const output = [];
   const knownToolUseIds = new Set();
+  const consumedToolUseIds = new Set();
 
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
@@ -64,6 +63,10 @@ function convertAnthropicMessages(messages) {
       if (!knownToolUseIds.has(result.tool_use_id)) {
         throw Object.assign(new Error('tool_result references an unknown tool_use_id: ' + result.tool_use_id), { statusCode: 400, type: 'invalid_request_error' });
       }
+      if (consumedToolUseIds.has(result.tool_use_id)) {
+        throw Object.assign(new Error('Duplicate tool_result for tool_use_id: ' + result.tool_use_id), { statusCode: 400, type: 'invalid_request_error' });
+      }
+      consumedToolUseIds.add(result.tool_use_id);
       output.push({
         role: 'tool',
         tool_call_id: result.tool_use_id,
