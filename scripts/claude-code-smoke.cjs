@@ -385,22 +385,22 @@ async function main() {
         const finalResponses = isolatedParsed.events
           .filter((event) => event.type === 'result')
           .map((event) => event.result || '')
-          .join('\\n');
+          .join('\n');
         const diagnostics = [
           'Observed tools: ' + (isolatedUses.map((item) => item.name).join(', ') || '(none)'),
-          'Claude Code final response:\\n' + (finalResponses || '(none)'),
-          'STDERR (tail):\\n' + (isolatedRun.stderr || '(empty)').slice(-3000),
-          'STDOUT (tail):\\n' + isolatedRun.stdout.slice(-10000)
-        ].join('\\n\\n');
+          'Claude Code final response:\n' + (finalResponses || '(none)'),
+          'STDERR (tail):\n' + (isolatedRun.stderr || '(empty)').slice(-3000),
+          'STDOUT (tail):\n' + isolatedRun.stdout.slice(-10000)
+        ].join('\n\n');
         assert.equal(
           prerequisiteCalls.length,
           1,
-          'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.\\n' +
+          'Isolated ' + name + ' check must invoke prerequisite ' + prerequisite + ' exactly once.\n' +
           diagnostics
         );
         assert.ok(
           prerequisiteIndex >= 0 && prerequisiteIndex < requestedIndex,
-          'Isolated ' + name + ' check must invoke ' + prerequisite + ' before ' + name + '.\\n' +
+          'Isolated ' + name + ' check must invoke ' + prerequisite + ' before ' + name + '.\n' +
           diagnostics
         );
       }
