@@ -5,8 +5,8 @@ A BYV protocol runtime and Anthropic Messages-compatible gateway for any provide
 BYV sits between an Anthropic Messages client and one configured upstream model:
 
 - Client contract: Anthropic Messages API shape.
-- Runtime protocol: BYV markup for model-generated tool calls.
-- Upstream contract: OpenAI-compatible Chat Completions.
+- Tool transport: provider-native OpenAI-compatible function calling by default; BYV markup is the compatibility fallback.
+- Upstream contract: OpenAI-compatible Chat Completions with native function tools when supported.
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
 
@@ -27,9 +27,11 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               v
     One configured OpenAI-compatible model
               |
-              | assistant text containing BYV calls
+              +-- native function tool_calls (primary)
+              |
+              +-- BYV markup in assistant text (fallback)
               v
-    BYV parser -> typed decoder -> JSON Schema validation
+    Normalize -> typed arguments -> JSON Schema validation
               |
               +-- bounded recovery when malformed
               |
@@ -70,7 +72,7 @@ The model profile is selected from the request model field. The upstream request
 ## Requirements
 
 - Node.js 18 or later.
-- An OpenAI-compatible provider that implements POST /v1/chat/completions.
+- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the BYV markup fallback.
 - A provider API key, when required by that provider.
 
 ## Setup
@@ -87,6 +89,7 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
+PROVIDER_NATIVE_TOOL_CALLING=true
 ~~~
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
@@ -183,7 +186,7 @@ The SDK appends /v1/messages; do not include /v1 in the baseURL.
 
 ## Live client compatibility smoke tests
 
-The repository includes two opt-in integration smoke tests for real client compatibility. They call the running BYV gateway and its configured upstream provider, so they are not part of `npm test` or the GitHub Actions unit-test job. They may consume provider quota.
+The repository includes opt-in live smoke tests for provider and client compatibility. They call the configured upstream provider and/or the running BYV gateway, so they are not part of `npm test` or the GitHub Actions unit-test job. They may consume provider quota.
 
 Install dependencies (the Anthropic SDK is included as a development dependency):
 
@@ -219,6 +222,18 @@ The tool fixture requests a harmless echo command, but the smoke test **never ex
 
 Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
 
+### Native provider function-calling smoke test
+
+Run:
+
+~~~sh
+npm run test:provider-tools
+~~~
+
+This sends one live OpenAI-compatible Chat Completions request with a synthetic `Read` function and `tool_choice: auto`. It passes only when the configured provider returns one structured function call for `README.md`. The tool is never executed and no client files are read. This is the quickest way to isolate provider-native function calling from Claude Code's permissions and local tool runner.
+
+The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key.
+
 ### Claude Code CLI smoke test
 
 Install and authenticate Claude Code CLI separately, make sure the `claude` command is available on `PATH`, then run:
@@ -251,9 +266,18 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-The gateway injects the exact tools and input schemas from each request into the BYV system prompt. The model must answer with the BYV format defined in system/BYV_SYSTEM_PROMPT_TEMPLATE_v0.1.txt.
+BYV translates Anthropic Messages tool definitions into OpenAI-compatible function tools when `PROVIDER_NATIVE_TOOL_CALLING=true` (the default). The provider request includes the tool names, descriptions, JSON Schemas, and the mapped `tool_choice` value:
 
-Example:
+| Anthropic Messages | Provider Chat Completions |
+| --- | --- |
+| `auto` | `auto` |
+| `any` | `required` |
+| `none` | `none` |
+| `{ type: "tool", name: "Read" }` | `{ type: "function", function: { name: "Read" } }` |
+
+The gateway reads native `message.tool_calls` responses and streaming `delta.tool_calls` fragments. It parses JSON arguments, assigns a safe invocation ID if the provider omits one, validates tool names against the original Anthropic allowlist, and validates every argument against its declared JSON Schema before returning Anthropic `tool_use` blocks. The provider's invocation ID is preserved when present.
+
+The provider-native function-call path is primary. Set `PROVIDER_NATIVE_TOOL_CALLING=false` only when the configured provider does not support OpenAI-compatible function tools. In that fallback mode, BYV places tool schemas in the system prompt and accepts the BYV markup format below. BYV markup is not sent when native function calling is enabled.
 
 ~~~text
 <|BYV| calls>
@@ -263,35 +287,9 @@ Example:
 </|BYV| calls>
 ~~~
 
-The parser turns this into an Anthropic-style content block:
+Both transports converge on the same validation and Anthropic response path. When a batch is malformed or fails schema validation, the gateway makes a bounded recovery request using the active transport. It does not forward a partial or invalid batch. After the configured recovery limit, it returns an explicit API error rather than pretending the turn completed successfully.
 
-~~~json
-{
-  "type": "tool_use",
-  "id": "call_001",
-  "name": "Read",
-  "input": {
-    "file_path": "README.md"
-  }
-}
-~~~
-
-The invocation ID emitted by the model is preserved. It is used as the tool-call ID when the conversation is converted to the upstream OpenAI-compatible message format, and it is returned unchanged in the Anthropic tool_use block.
-
-The gateway validates:
-- Exactly one outer calls block.
-- Invocation metadata and attribute ordering.
-- Unique, non-empty invocation IDs.
-- Unique parameter names.
-- Supported BYV parameter types.
-- String escaping and strict JSON decoding for non-string parameters.
-- Tool names against the request allowlist.
-- Every input against its declared JSON Schema.
-- tool_choice requirements.
-
-The gateway does not execute the tool. The client executes the requested tool, then sends the assistant tool_use block and a user tool_result block with the matching tool_use_id in the next Messages request. BYV converts those blocks to OpenAI-compatible assistant tool_calls and tool-role messages.
-
-When a batch is malformed or fails schema validation, the gateway makes a bounded recovery request. It does not forward a partial or invalid batch. After the configured recovery limit, it returns an explicit API error rather than pretending the turn completed successfully.
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV converts those blocks to OpenAI-compatible assistant `tool_calls` and tool-role messages.
 
 ## Streaming
 
