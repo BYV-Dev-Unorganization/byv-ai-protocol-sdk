@@ -158,6 +158,7 @@ async function main() {
     model,
     max_tokens: 128,
     tools,
+    tool_choice: { type: 'none' },
     messages: [
       { role: 'user', content: toolPrompt },
       { role: 'assistant', content: toolMessage.content },
@@ -168,10 +169,16 @@ async function main() {
           tool_use_id: toolUse.id,
           content: 'BYV_SDK_SYNTHETIC_TOOL_RESULT_OK (no shell command was executed)'
         }]
+      },
+      {
+        role: 'user',
+        content: 'The synthetic tool has completed. Do not call any additional tools. Reply in plain text and acknowledge BYV_SDK_SYNTHETIC_TOOL_RESULT_OK.'
       }
     ]
   });
   assertMessageShape(finalMessage, 'tool-result round trip');
+  assert.notEqual(finalMessage.stop_reason, 'tool_use',
+    'tool-result round trip: tool_choice=none must prevent another tool call');
   assert.ok(textFrom(finalMessage).trim(), 'tool-result round trip: final response is empty');
   console.log('PASS tool_use:', toolUse.name, JSON.stringify(toolUse.input));
   console.log('PASS stateless tool_result round trip:', textFrom(finalMessage).trim().slice(0, 160));
