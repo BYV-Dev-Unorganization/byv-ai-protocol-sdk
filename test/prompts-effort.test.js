@@ -24,6 +24,6 @@ test('places runtime tool-choice controls before response-profile and effort gui
   });
   const profile = prompt.indexOf('=== MODEL RESPONSE PROFILE ===');
   const effort = prompt.indexOf('=== RESPONSE EFFORT ===');
-  const runtime = prompt.indexOf('=== ACTIVE GATEWAY RUNTIME OVERLAY');
+  const runtime = prompt.indexOf('=== ACTIVE GATEWAY TOOL-CHOICE CONTROL ===');
   assert.ok(runtime >= 0 && profile > runtime && effort > profile);
 });
