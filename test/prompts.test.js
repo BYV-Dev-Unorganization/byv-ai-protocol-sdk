@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { BASE_TEMPLATE, buildSystemPrompt, toolsToPrompt } = require('../src/prompts');
+const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
 
 const PROMPT_ARTIFACT_PATH = path.join(
   __dirname,
@@ -48,10 +49,20 @@ test('core prompt requires explicit available tools and completion of multi-step
   assert.match(BASE_TEMPLATE, /Continue until the requested outcome is verified/);
 });
 
-test('static and dynamic prompts describe string escaping without ambiguous backslash notation', () => {
+test('tool prompt selects native function calling or the explicit BYV fallback transport', () => {
   const dynamic = toolsToPrompt([{ name: 'Write', input_schema: { type: 'object' } }]);
+  assert.match(BASE_TEMPLATE, /TOOL-CALL TRANSPORT/);
+  assert.match(BASE_TEMPLATE, /native function-call interface supplied with the request/);
+  assert.match(BASE_TEMPLATE, /BYV markup is the fallback transport/);
+  if (PROVIDER_NATIVE_TOOL_CALLING) {
+    assert.match(dynamic, /native OpenAI-compatible function-calling interface/);
+    assert.match(dynamic, /Do not merely announce that you are going to use a tool/);
+    assert.doesNotMatch(dynamic, /Use one outer BYV calls block/);
+  } else {
+    assert.match(dynamic, /Use the BYV markup fallback transport/);
+    assert.match(dynamic, /encode a literal backslash as two consecutive backslashes/);
+  }
   assert.match(BASE_TEMPLATE, /Encode one literal backslash as two consecutive backslashes/);
-  assert.match(dynamic, /encode a literal backslash as two consecutive backslashes/);
   assert.match(BASE_TEMPLATE, /Do not infer upstream identity from the request's model identifier/);
 });
 
@@ -111,9 +122,15 @@ test('tool choice overlays enforce none, any, and a specific tool', () => {
   const specific = buildSystemPrompt({ model: 'byv-flash-v1', tools: [{ name: 'Read', input_schema: { type: 'object' } }], tool_choice: { type: 'tool', name: 'Read' } });
   assert.match(none, /STOP: DO NOT CALL TOOLS/);
   assert.match(any, /must call at least one tool from this request allowlist/);
-  assert.match(any, /one complete BYV calls block and no prose outside it/);
   assert.match(specific, /must call the tool named Read/);
-  assert.match(specific, /one complete BYV calls block and no prose outside it/);
+  if (PROVIDER_NATIVE_TOOL_CALLING) {
+    assert.match(any, /native function-calling interface/);
+    assert.match(specific, /native function-calling interface/);
+    assert.doesNotMatch(any, /one complete BYV calls block/);
+  } else {
+    assert.match(any, /one complete BYV calls block and no prose outside it/);
+    assert.match(specific, /one complete BYV calls block and no prose outside it/);
+  }
 });
 
 test('system prompt accepts content larger than the former 120k character ceiling', () => {
