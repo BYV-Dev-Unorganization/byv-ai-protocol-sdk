@@ -2,11 +2,26 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { BASE_TEMPLATE, buildSystemPrompt, toolsToPrompt } = require('../src/prompts');
 
-test('system template has exactly one tools placeholder and runtime prompt replaces it', () => {
+const PROMPT_ARTIFACT_PATH = path.join(
+  __dirname,
+  '..',
+  'system',
+  'BYV_SYSTEM_PROMPT_ARTIFACT_v0.2.txt'
+);
+
+test('active prompt is embedded in prompts.js and the system file is a matching documentation artifact', () => {
+  const artifact = fs.readFileSync(PROMPT_ARTIFACT_PATH, 'utf8');
+  assert.equal(artifact, BASE_TEMPLATE);
+  assert.match(BASE_TEMPLATE, /^# BYV SYSTEM INSTRUCTIONS/m);
+  assert.doesNotMatch(BASE_TEMPLATE, /^#{1,6}\s+\d+[.)]/m);
+});
+
+test('system prompt has exactly one tools placeholder and runtime prompt replaces it', () => {
   assert.equal((BASE_TEMPLATE.match(/\{\{AVAILABLE_TOOLS\}\}/g) || []).length, 1);
   const prompt = buildSystemPrompt({
     model: 'claude-sonnet-5-5',
@@ -15,6 +30,21 @@ test('system template has exactly one tools placeholder and runtime prompt repla
   assert.doesNotMatch(prompt, /\{\{AVAILABLE_TOOLS\}\}/);
   assert.match(prompt, /"name": "Read"/);
   assert.ok(prompt.includes('<|BYV| parameter name'));
+});
+
+test('core prompt clarifies virtual model identity and forbids unsupported vendor identity claims', () => {
+  assert.match(BASE_TEMPLATE, /MODEL IDENTITY AND PROFILE TRANSPARENCY/);
+  assert.match(BASE_TEMPLATE, /virtual response profiles/);
+  assert.match(BASE_TEMPLATE, /Never claim to be Claude, an Anthropic model/);
+  assert.match(BASE_TEMPLATE, /Never guess, infer, or invent it/);
+});
+
+test('core prompt requires explicit available tools and completion of multi-step tasks', () => {
+  assert.match(BASE_TEMPLATE, /TOOL SELECTION AND EXPLICIT TOOL INTENT/);
+  assert.match(BASE_TEMPLATE, /When the user explicitly requests a specific tool/);
+  assert.match(BASE_TEMPLATE, /MULTI-STEP TASK EXECUTION/);
+  assert.match(BASE_TEMPLATE, /Do not stop after a partial result/);
+  assert.match(BASE_TEMPLATE, /Continue until the requested outcome is verified/);
 });
 
 test('no-tool prompt explicitly disables protocol calls', () => {
@@ -38,7 +68,7 @@ test('gateway prompt precedence places client instructions below core and runtim
     tool_choice: 'none'
   });
 
-  const coreIndex = prompt.indexOf('### Instruction authority and precedence');
+  const coreIndex = prompt.indexOf('## INSTRUCTION PRIORITY');
   const toolsIndex = prompt.indexOf('"name": "Read"');
   const clientIndex = prompt.indexOf('=== CLIENT-SUPPLIED SYSTEM / DEVELOPER INSTRUCTIONS (LOWER PRECEDENCE) ===');
   const profileIndex = prompt.indexOf('=== MODEL RESPONSE PROFILE ===');
@@ -61,7 +91,7 @@ test('request-specific tool definitions follow the complete invariant prompt for
     model: 'byv-flash-v1',
     tools: [{ name: 'Read', input_schema: { type: 'object' } }]
   });
-  const stableEnd = prompt.indexOf('## 3. Instructions after tool results');
+  const stableEnd = prompt.indexOf('## INSTRUCTIONS AFTER TOOL RESULTS');
   const toolDefinition = prompt.indexOf('"name": "Read"');
   assert.ok(stableEnd >= 0);
   assert.ok(toolDefinition > stableEnd);
