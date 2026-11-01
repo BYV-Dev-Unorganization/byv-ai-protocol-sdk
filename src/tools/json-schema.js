@@ -1,7 +1,7 @@
 'use strict';
 
 const Ajv = require('ajv');
-const Ajv2020 = require('ajv/dist/2020').default;
+const Ajv2020 = require('ajv/dist/2020');
 
 const options = {
   allErrors: true,
