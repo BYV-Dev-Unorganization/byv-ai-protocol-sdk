@@ -4,11 +4,18 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
+  PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_TIMEOUT_MS,
   PROVIDER_MAX_REQUESTS_PER_MINUTE,
   PROVIDER_MAX_CONCURRENT_REQUESTS
 } = require('../config');
 const { createProviderRequestLimiter } = require('./request-limiter');
+const {
+  providerToolChoice,
+  providerFunctionTools,
+  mergeProviderToolCallDelta,
+  finalizeProviderToolCallDeltas
+} = require('./tool-calls');
 
 const providerRequestLimiter = createProviderRequestLimiter({
   requestsPerMinute: PROVIDER_MAX_REQUESTS_PER_MINUTE,
@@ -67,6 +74,14 @@ function buildPayload(messages, options = {}) {
   if (typeof options.top_p === 'number') payload.top_p = options.top_p;
   if (Array.isArray(options.stop_sequences) && options.stop_sequences.length) {
     payload.stop = options.stop_sequences;
+  }
+  if (PROVIDER_NATIVE_TOOL_CALLING && Array.isArray(options.tools) && options.tools.length) {
+    try {
+      payload.tools = providerFunctionTools(options.tools);
+      payload.tool_choice = providerToolChoice(options.tool_choice);
+    } catch (error) {
+      throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
+    }
   }
   return { config, payload };
 }
@@ -167,6 +182,7 @@ async function createChatCompletion(messages, options = {}, signal) {
     }
     return {
       text: normalizeMessageContent(choice.message.content),
+      tool_calls: Array.isArray(choice.message.tool_calls) ? choice.message.tool_calls : [],
       reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : '',
       finish_reason: choice.finish_reason || 'stop',
       usage: data.usage || null,
@@ -198,6 +214,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     let reasoning = '';
     let finishReason = 'stop';
     let usage = null;
+    const toolCallDeltas = new Map();
     let done = false;
     let timedOut = false;
     const streamTimer = setTimeout(() => {
@@ -240,6 +257,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
       if (typeof delta.content === 'string') text += delta.content;
       else if (Array.isArray(delta.content)) text += normalizeMessageContent(delta.content);
       if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
+      mergeProviderToolCallDelta(toolCallDeltas, delta.tool_calls);
       if (choice.finish_reason) finishReason = choice.finish_reason;
     }
 
@@ -273,6 +291,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
 
     return {
       text,
+      tool_calls: finalizeProviderToolCallDeltas(toolCallDeltas),
       reasoning,
       finish_reason: finishReason,
       usage,
