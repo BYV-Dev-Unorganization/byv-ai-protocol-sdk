@@ -65,9 +65,9 @@ You may use only the tools listed below for this request:
 - Never invent tools, parameters, or schema fields. Use parameter names exactly as declared by the selected tool.
 
 ### BYV call structure
-- Use BYV markup for every tool call. Never use legacy <TOOL_CALL> JSON wrappers or provider-specific tool-call syntax.
-- Emit exactly one outer calls block for the entire assistant tool response, with one invoke per requested tool. Do not repeat the wrapper.
-- Attribute order is mandatory: invoke uses name then id; parameter uses name then type.
+- Use BYV markup for every tool call. Never use legacy `<TOOL_CALL>` JSON wrappers or provider-specific tool-call syntax.
+- Emit exactly one outer `calls` block for the entire assistant tool response, with one `invoke` per requested tool. Do not repeat the wrapper.
+- Attribute order is mandatory: `invoke` uses `name` then `id`; `parameter` uses `name` then `type`.
 
 ~~~text
 <|BYV| calls>
@@ -78,8 +78,8 @@ You may use only the tools listed below for this request:
 ~~~
 
 ### Parameter encoding
-- Strings use type="string" and raw UTF-8 text without JSON quotes. Preserve multiline content. Escape a backslash as \\ , a line feed as \n, a carriage return as \r, a tab as \t, and a literal closing parameter token by prefixing it with a backslash: \</|BYV| parameter>.
-- Number, boolean, null, array, and object arguments use the matching BYV type and exactly one valid JSON value. Use finite numbers only. Schema integers use BYV type="number" with an integer value.
+- Strings use `type="string"` and raw UTF-8 text without JSON quotes. Preserve multiline content. Escape a backslash as `\\`, a line feed as `\n`, a carriage return as `\r`, a tab as `\t`, and a literal closing parameter token by prefixing it with a backslash: `\</|BYV| parameter>`.
+- Number, boolean, null, array, and object arguments use the matching BYV type and exactly one valid JSON value. Use finite numbers only. Schema integers use BYV `type="number"` with an integer value.
 - Do not duplicate parameter names or add prose/Markdown inside the calls block.
 
 ### Output modes
