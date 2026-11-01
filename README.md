@@ -127,6 +127,8 @@ All application API routes require the gateway key using either Authorization: B
 | POST | /v1/messages | Anthropic Messages-compatible request |
 | POST | /v1/messages/count_tokens | Local input-size estimate |
 
+Authenticated API requests are limited to **30 requests per rolling 60 seconds per client IP**. The limit applies across authenticated endpoints and returns HTTP 429 with a `Retry-After` header when exceeded. The unauthenticated `HEAD /api/hello` probe and CORS `OPTIONS` preflight requests are excluded.
+
 Example request:
 
 ~~~sh
@@ -266,6 +268,7 @@ Input token counts are local estimates. When the upstream returns integer prompt
 - CORS is denied by default for browser origins. Exact trusted origins can be listed in CORS_ALLOWED_ORIGINS.
 - Request bodies and provider output have configurable size limits.
 - Active request concurrency is bounded by MAX_PENDING_REQUESTS.
+- Authenticated API traffic is limited to 30 requests per rolling 60 seconds per client IP. The server uses the socket peer address and does not trust client-supplied forwarded-IP headers.
 - Provider requests have a timeout and are cancelled when the client disconnects.
 - Logs contain request metadata and error summaries, not raw prompts, API keys, tool arguments, or tool results.
 
