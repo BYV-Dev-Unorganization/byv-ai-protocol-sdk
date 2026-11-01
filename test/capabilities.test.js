@@ -62,3 +62,23 @@ test('prefers explicit environment limits over provider-discovered values', () =
 test('does not guess context limits when the provider omits them', () => {
   assert.equal(extractModelMetadata({ id: 'model-x', object: 'model' }, 'model-x'), null);
 });
+
+
+test('recognizes OpenAgentic context_limit in its model catalog records', () => {
+  const metadata = extractModelMetadata({
+    object: 'list',
+    data: [{
+      id: 'deepseek-v4.1-flash-free',
+      name: 'DeepSeek V4.1 Flash Free',
+      context_limit: 1000000,
+      provider: 'deepseek'
+    }]
+  }, 'deepseek-v4.1-flash-free');
+
+  assert.deepEqual(metadata, {
+    context_window_tokens: 1000000,
+    max_input_tokens: null,
+    max_output_tokens: null,
+    supports_prompt_caching: null
+  });
+});

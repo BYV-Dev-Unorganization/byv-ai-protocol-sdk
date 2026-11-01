@@ -93,6 +93,7 @@ function extractModelMetadata(payload, model) {
   const metadata = {
     context_window_tokens: firstPositiveInteger(nested, [
       'context_window_tokens',
+      'context_limit',
       'context_window',
       'context_length',
       'context_length_tokens',
