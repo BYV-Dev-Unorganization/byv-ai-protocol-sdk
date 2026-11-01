@@ -54,3 +54,25 @@ test('validates optional generation parameters', () => {
   assert.match(validateMessagesRequest({ ...minimal, temperature: 2 }).message, /temperature/);
   assert.match(validateMessagesRequest({ ...minimal, output_config: { effort: 'extreme' } }).message, /effort/);
 });
+
+test('rejects tool blocks placed in the wrong message role', () => {
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'assistant', content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'ok' }] }]
+  }).message, /tool_result blocks must appear in user messages/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }] }]
+  }).message, /tool_use blocks must appear in assistant messages/);
+});
+
+test('rejects invalid JSON Schema declarations before calling the provider', () => {
+  const invalid = {
+    ...minimal,
+    tools: [{
+      name: 'Broken',
+      input_schema: { type: 'not-a-json-schema-type' }
+    }]
+  };
+  assert.match(validateMessagesRequest(invalid).message, /input_schema is invalid/);
+});
