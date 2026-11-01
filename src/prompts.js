@@ -74,8 +74,10 @@ function buildSystemPrompt(body) {
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const availableTools = toolsToPrompt(tools);
   let system = BASE_TEMPLATE.replace('{{AVAILABLE_TOOLS}}', availableTools);
+  if (requestSystem) {
+    system = '=== CLIENT-SUPPLIED SYSTEM INSTRUCTIONS ===\n' + requestSystem + '\n\n' + system;
+  }
   const additions = [];
-  if (requestSystem) additions.push('=== REQUEST SYSTEM INSTRUCTIONS ===\n' + requestSystem);
   additions.push(modelProfilePrompt(body.model));
   const effort = effortPrompt(body.output_config && body.output_config.effort);
   if (effort) additions.push(effort);
@@ -84,8 +86,9 @@ function buildSystemPrompt(body) {
   system += '\n\n' + additions.filter(Boolean).join('\n\n');
 
   if (system.length > MAX_PROMPT_CHARS) {
-    system = system.slice(0, MAX_PROMPT_CHARS) +
-      '\n\n[BYV NOTE: system prompt was truncated at the configured character limit.]';
+    throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schema or instruction size.'), {
+      statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+    });
   }
   return system;
 }
