@@ -63,18 +63,21 @@ test('forces a text response after three identical tool calls', async () => {
     ])
   ];
   let providerMessages;
+  let providerOptions;
   const result = await handleMessages(body({
     messages,
     tool_choice: 'auto'
   }), {
     provider: {
-      createChatCompletion: async (messages) => {
+      createChatCompletion: async (messages, options) => {
         providerMessages = messages;
+        providerOptions = options;
         return { text: 'The same command has already been repeated; no further tool call is needed.', finish_reason: 'stop', usage: null };
       }
     }
   });
   assert.match(providerMessages[0].content, /STOP: DO NOT CALL TOOLS/);
+  assert.equal(providerOptions.tool_choice, 'none');
   assert.equal(result.stop_reason, 'end_turn');
   assert.equal(result.toolCalls.length, 0);
 });
@@ -243,6 +246,74 @@ test('recovers to plain text when tools are disabled but model emits BYV markup'
   assert.equal(result.stop_reason, 'end_turn');
   assert.equal(result.toolCalls.length, 0);
   assert.match(result.text, /cannot access files/);
+});
+
+test('text-only recovery rejects an empty response and retries with plain text', async () => {
+  let count = 0;
+  const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    provider: {
+      createChatCompletion: async (_messages, options) => {
+        count++;
+        assert.equal(options.tool_choice, 'none');
+        if (count === 1) {
+          return {
+            text: '<|BYV| calls><|BYV| invoke name="Read" id="call_bad"></|BYV| invoke></|BYV| calls>',
+            finish_reason: 'stop'
+          };
+        }
+        if (count === 2) return { text: '   ', finish_reason: 'stop' };
+        return {
+          text: 'The requested operation is unavailable because tools are disabled.',
+          finish_reason: 'stop'
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 3);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(result.toolCalls.length, 0);
+  assert.match(result.text, /tools are disabled/);
+});
+
+test('text-only recovery rejects native tool calls instead of silently accepting them', async () => {
+  let count = 0;
+  const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    provider: {
+      createChatCompletion: async () => {
+        count++;
+        if (count === 1) {
+          return {
+            text: '<|BYV| calls><|BYV| invoke name="Read" id="call_bad"></|BYV| invoke></|BYV| calls>',
+            finish_reason: 'stop'
+          };
+        }
+        if (count === 2) {
+          return {
+            text: '',
+            tool_calls: [{
+              id: 'call_native_during_text_recovery',
+              type: 'function',
+              function: {
+                name: 'Read',
+                arguments: '{"file_path":"README.md"}'
+              }
+            }],
+            finish_reason: 'tool_calls'
+          };
+        }
+        return {
+          text: 'I cannot perform file operations while tools are disabled.',
+          finish_reason: 'stop'
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 3);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(result.toolCalls.length, 0);
+  assert.match(result.text, /tools are disabled/);
 });
 
 test('fails explicitly when a required tool call cannot be recovered', async () => {
