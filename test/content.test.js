@@ -39,3 +39,13 @@ test('rejects orphan tool results and duplicate tool-use IDs', () => {
     { role: 'assistant', content: [{ type: 'tool_use', id: 'same', name: 'Read', input: {} }] }
   ]), /Duplicate or missing/);
 });
+
+test('rejects duplicate tool_result blocks for the same invocation', () => {
+  assert.throws(() => convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_once', name: 'Read', input: {} }] },
+    { role: 'user', content: [
+      { type: 'tool_result', tool_use_id: 'call_once', content: 'first' },
+      { type: 'tool_result', tool_use_id: 'call_once', content: 'second' }
+    ] }
+  ]), /Duplicate tool_result/);
+});
