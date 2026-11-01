@@ -32,6 +32,34 @@ test('answers Claude Code HEAD /api/hello connection probe without authenticatio
   assert.equal(await response.text(), '');
 });
 
+test('limits authenticated API requests to 30 per rolling minute per IP', async (t) => {
+  const base = await withServer(t);
+
+  // Unauthenticated probes and preflight requests do not consume the API quota.
+  const probe = await fetch(base + '/api/hello', { method: 'HEAD' });
+  assert.equal(probe.status, 204);
+  const preflight = await fetch(base + '/v1/messages', { method: 'OPTIONS' });
+  assert.equal(preflight.status, 204);
+  const unauthorized = await fetch(base + '/health');
+  assert.equal(unauthorized.status, 401);
+
+  let lastAllowed;
+  for (let i = 0; i < 30; i++) {
+    lastAllowed = await fetch(base + '/health', { headers: authHeaders() });
+    assert.equal(lastAllowed.status, 200, 'request ' + (i + 1) + ' should be allowed');
+  }
+  assert.equal(lastAllowed.headers.get('x-ratelimit-limit'), '30');
+  assert.equal(lastAllowed.headers.get('x-ratelimit-remaining'), '0');
+
+  const blocked = await fetch(base + '/health', { headers: authHeaders() });
+  assert.equal(blocked.status, 429);
+  assert.ok(Number(blocked.headers.get('retry-after')) >= 1);
+  assert.equal(blocked.headers.get('x-ratelimit-limit'), '30');
+  assert.equal(blocked.headers.get('x-ratelimit-remaining'), '0');
+  const body = await blocked.json();
+  assert.equal(body.error.code, 'RATE_LIMITED');
+});
+
 test('requires gateway authentication and exposes BYV Flash V1 in model discovery', async (t) => {
   const base = await withServer(t);
   const rejected = await fetch(base + '/v1/models');
