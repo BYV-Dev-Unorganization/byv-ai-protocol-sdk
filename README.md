@@ -5,8 +5,8 @@ A BYV protocol runtime and Anthropic Messages-compatible gateway for any provide
 BYV sits between an Anthropic Messages client and one configured upstream model:
 
 - Client contract: Anthropic Messages API shape.
-- Tool transport: provider-native OpenAI-compatible function calling by default; BYV markup is the compatibility fallback.
-- Upstream contract: OpenAI-compatible Chat Completions with native function tools when supported.
+- Tool transport: BYV Format Block in assistant text by default; provider-native function calling is an explicit optional mode.
+- Upstream contract: OpenAI-compatible Chat Completions API. Native function tools are not required.
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
 
@@ -27,11 +27,11 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               v
     One configured OpenAI-compatible model
               |
-              +-- native function tool_calls (primary)
-              |
-              +-- BYV markup in assistant text (fallback)
+              | assistant text containing BYV Format Block
               v
-    Normalize -> typed arguments -> JSON Schema validation
+    BYV parser -> typed arguments -> JSON Schema validation
+              |
+              +-- optional native function-call adapter
               |
               +-- bounded recovery when malformed
               |
@@ -89,7 +89,8 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-PROVIDER_NATIVE_TOOL_CALLING=true
+# Optional only. BYV Format Block is the default.
+PROVIDER_NATIVE_TOOL_CALLING=false
 ~~~
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
@@ -266,20 +267,9 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-BYV translates Anthropic Messages tool definitions into OpenAI-compatible function tools when `PROVIDER_NATIVE_TOOL_CALLING=true` (the default). The provider request includes the tool names, descriptions, JSON Schemas, and the mapped `tool_choice` value:
+BYV Format Block is the default tool-call protocol. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the BYV system prompt. The upstream model returns a structured block in its assistant text, and BYV parses and validates that block before translating accepted invocations into Anthropic Messages `tool_use` blocks.
 
-| Anthropic Messages | Provider Chat Completions |
-| --- | --- |
-| `auto` | `auto` |
-| `any` | `required` |
-| `none` | `none` |
-| `{ type: "tool", name: "Read" }` | `{ type: "function", function: { name: "Read" } }` |
-
-For DeepSeek Chat Completions models, the adapter automatically sets `reasoning_effort: "none"` on forced-tool requests (`tool_choice: any` or a specific tool). DeepSeek documents that `required` and named tool choices return HTTP 400 in thinking mode; NaraRouter documents `reasoning_effort: "none"` as its supported Chat Completions control for disabling reasoning. This override is limited to forced-tool requests; ordinary `auto` calls retain the provider's default reasoning behavior.
-
-The gateway reads native `message.tool_calls` responses and streaming `delta.tool_calls` fragments. It parses JSON arguments, assigns a safe invocation ID if the provider omits one, validates tool names against the original Anthropic allowlist, and validates every argument against its declared JSON Schema before returning Anthropic `tool_use` blocks. The provider's invocation ID is preserved when present.
-
-The provider-native function-call path is primary. Set `PROVIDER_NATIVE_TOOL_CALLING=false` only when the configured provider does not support OpenAI-compatible function tools. In that fallback mode, BYV places tool schemas in the system prompt and accepts the BYV markup format below. BYV markup is not sent when native function calling is enabled.
+Example model output:
 
 ~~~text
 <|BYV| calls>
@@ -289,9 +279,23 @@ The provider-native function-call path is primary. Set `PROVIDER_NATIVE_TOOL_CAL
 </|BYV| calls>
 ~~~
 
-Both transports converge on the same validation and Anthropic response path. When a batch is malformed or fails schema validation, the gateway makes a bounded recovery request using the active transport. It does not forward a partial or invalid batch. After the configured recovery limit, it returns an explicit API error rather than pretending the turn completed successfully.
+The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
+- `auto`: the model may call an available tool when needed;
+- `any`: the model must emit at least one valid BYV invocation;
+- `none`: the model must return text and must not emit a tool invocation;
+- a specific tool: the model must emit an invocation for that exact tool.
 
-The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV converts those blocks to OpenAI-compatible assistant `tool_calls` and tool-role messages.
+The provider adapter does not send OpenAI-compatible `tools` or `tool_choice` fields in the default BYV mode. This means the configured model does not need native provider function-calling support. It only needs to follow the BYV Format Block instructions in ordinary Chat Completions text.
+
+### Optional provider-native function calling
+
+Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation.
+
+For DeepSeek Chat Completions models in this optional mode, the adapter sets `reasoning_effort: "none"` on forced-tool requests. This is separate from the default BYV Format Block path.
+
+Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. BYV never forwards a partial or invalid batch.
+
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current assistant output protocol: BYV Format Block remains the default.
 
 ## Streaming
 
@@ -367,7 +371,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | true | Forward Anthropic tools and tool_choice through native provider function calling; set false for BYV markup fallback |
+| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; BYV Format Block is the default tool-call protocol |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
