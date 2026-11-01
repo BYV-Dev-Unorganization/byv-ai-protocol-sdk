@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 function boundedInteger(name, fallback, min, max) {
   const raw = process.env[name];
   if (raw === undefined || String(raw).trim() === '') return fallback;
