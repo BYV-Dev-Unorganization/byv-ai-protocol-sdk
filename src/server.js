@@ -43,6 +43,16 @@ function createServer(options = {}) {
       });
       return res.end();
     }
+
+    // Claude Code sends this unauthenticated connection-warming probe.
+    if (req.method === 'HEAD' && route === '/api/hello') {
+      res.writeHead(204, {
+        'Cache-Control': 'no-store',
+        'Content-Length': '0'
+      });
+      return res.end();
+    }
+
     if (!checkAuth(req)) {
       return jsonError(res, 401, 'authentication_error', 'Invalid gateway API key.');
     }
