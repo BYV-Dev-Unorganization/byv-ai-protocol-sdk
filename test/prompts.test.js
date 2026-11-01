@@ -36,7 +36,7 @@ test('core prompt clarifies virtual model identity and forbids unsupported vendo
   assert.match(BASE_TEMPLATE, /MODEL IDENTITY AND PROFILE TRANSPARENCY/);
   assert.match(BASE_TEMPLATE, /virtual response profiles/);
   assert.match(BASE_TEMPLATE, /Never claim to be Claude, an Anthropic model/);
-  assert.match(BASE_TEMPLATE, /Never guess, infer, or invent it/);
+  assert.match(BASE_TEMPLATE, /Never guess, infer, or invent a profile, provider, or model identity/);
 });
 
 test('core prompt requires explicit available tools and completion of multi-step tasks', () => {
