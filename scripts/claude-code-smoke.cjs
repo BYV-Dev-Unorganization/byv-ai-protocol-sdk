@@ -1,7 +1,7 @@
 'use strict';
 
 // End-to-end Claude Code CLI -> BYV gateway test.
-// Adapted from the Claude Code integration test in naufalelghani/deepseek-super.
+// Adapted from naufalelghani/deepseek-super/scripts/claude-code-smoke.cjs.
 // Uses an isolated temporary workspace and a strict built-in tool allowlist.
 // Run: npm run test:claude-code
 
@@ -16,9 +16,9 @@ function normalizeBaseURL(value) {
   const url = new URL(value);
   url.search = '';
   url.hash = '';
-  url.pathname = url.pathname.replace(/\\/+$/, '');
+  url.pathname = url.pathname.replace(/\/+$/, '');
   if (url.pathname.endsWith('/v1')) url.pathname = url.pathname.slice(0, -3);
-  return url.toString().replace(/\\/$/, '');
+  return url.toString().replace(/\/$/, '');
 }
 
 const BASE_URL = normalizeBaseURL(
@@ -64,7 +64,7 @@ function readEnvFileToken() {
 function uniqueTokens(entries) {
   const seen = new Set();
   return entries
-    .map(([label, value]) => ({ label, token: String(value || '').replace(/\\s+/g, '') }))
+    .map(([label, value]) => ({ label, token: String(value || '').replace(/\s+/g, '') }))
     .filter(({ token }) => {
       if (!token || seen.has(token)) return false;
       seen.add(token);
@@ -86,10 +86,9 @@ async function resolveGatewayToken() {
     return candidates[0];
   }
 
-  // Prefer an explicit BYV token, then the token file used by a default local
-  // gateway. Other environment and .env candidates are tried only if needed.
-  // This prevents a stale GATEWAY_API_KEY in another PowerShell session from
-  // silently taking precedence over the local token file.
+  // Prefer an explicit BYV token, then the local token file. Other environment
+  // and .env candidates are tried only when necessary. This avoids a stale
+  // GATEWAY_API_KEY in another PowerShell session overriding the local token.
   const candidates = uniqueTokens([
     ['BYV_GATEWAY_TOKEN', process.env.BYV_GATEWAY_TOKEN],
     ['.byv-gateway-token', readLocalToken()],
@@ -176,7 +175,7 @@ function findObjects(root, predicate, found = []) {
 function parseStreamJson(stdout) {
   const events = [];
   const otherLines = [];
-  for (const line of stdout.split(/\\r?\\n/)) {
+  for (const line of stdout.split(/\r?\n/)) {
     const value = line.trim();
     if (!value) continue;
     try { events.push(JSON.parse(value)); }
@@ -240,7 +239,7 @@ function runClaude(prompt, settingsPath, cwd, token) {
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
       pendingStdout += chunk;
-      const lines = pendingStdout.split(/\\r?\\n/);
+      const lines = pendingStdout.split(/\r?\n/);
       pendingStdout = lines.pop() || '';
       for (const line of lines) {
         try {
@@ -266,8 +265,8 @@ function runClaude(prompt, settingsPath, cwd, token) {
       if (code !== 0) {
         finish(new Error(
           'Claude Code exit code=' + code + ' signal=' + signal +
-          '\\nSTDERR:\\n' + (stderr || '(empty)') +
-          '\\nSTDOUT (tail):\\n' + stdout.slice(-12000)
+          '\nSTDERR:\n' + (stderr || '(empty)') +
+          '\nSTDOUT (tail):\n' + stdout.slice(-12000)
         ));
       } else {
         finish(null, { stdout, stderr });
@@ -295,10 +294,10 @@ async function main() {
   fs.writeFileSync(path.join(workspace, 'package.json'), JSON.stringify({
     name: 'byv-claude-code-fixture',
     private: true
-  }, null, 2) + '\\n');
-  fs.writeFileSync(path.join(workspace, 'fixture.txt'), 'BYV_GREP_MATCH\\nordinary fixture line\\n');
-  fs.writeFileSync(path.join(workspace, 'nested', 'second.txt'), 'BYV_SECOND_FIXTURE\\n');
-  fs.writeFileSync(path.join(workspace, 'fixture-edit.txt'), 'EDIT_BEFORE\\n');
+  }, null, 2) + '\n');
+  fs.writeFileSync(path.join(workspace, 'fixture.txt'), 'BYV_GREP_MATCH\nordinary fixture line\n');
+  fs.writeFileSync(path.join(workspace, 'nested', 'second.txt'), 'BYV_SECOND_FIXTURE\n');
+  fs.writeFileSync(path.join(workspace, 'fixture-edit.txt'), 'EDIT_BEFORE\n');
 
   fs.writeFileSync(settingsPath, JSON.stringify({
     modelOverrides: {
@@ -369,17 +368,17 @@ async function main() {
     const finalText = parsed.events
       .filter((event) => event.type === 'result')
       .map((event) => event.result || '')
-      .join('\\n');
+      .join('\n');
     for (const name of REQUIRED_TOOLS) console.log('PASS tool called:', name);
     console.log('PASS tool results observed:', toolResults.length);
     console.log('PASS Edit and Write changed only the temporary workspace');
     console.log('PASS Bash command restricted to pwd');
-    if (finalText) console.log('\\nClaude Code final response:\\n' + finalText);
-    if (run.stderr.trim()) console.log('\\nClaude Code diagnostics:\\n' + run.stderr.trim().slice(-3000));
+    if (finalText) console.log('\nClaude Code final response:\n' + finalText);
+    if (run.stderr.trim()) console.log('\nClaude Code diagnostics:\n' + run.stderr.trim().slice(-3000));
     if (parsed.otherLines.length) {
-      console.log('\\nAdditional CLI output:\\n' + parsed.otherLines.join('\\n').slice(-2000));
+      console.log('\nAdditional CLI output:\n' + parsed.otherLines.join('\n').slice(-2000));
     }
-    console.log('\\nBYV CLAUDE CODE CLI INTEGRATION TEST PASSED');
+    console.log('\nBYV CLAUDE CODE CLI INTEGRATION TEST PASSED');
   } finally {
     try { fs.unlinkSync(settingsPath); } catch {}
     try { fs.rmSync(workspace, { recursive: true, force: true }); } catch {}
@@ -387,8 +386,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('\\nBYV CLAUDE CODE CLI INTEGRATION TEST FAILED');
+  console.error('\nBYV CLAUDE CODE CLI INTEGRATION TEST FAILED');
   console.error(error && error.stack ? error.stack : error);
-  console.error('\\nEnsure the gateway is running at ' + BASE_URL + ', the gateway token is valid, and Claude Code CLI is installed.');
+  console.error('\nEnsure the gateway is running at ' + BASE_URL + ', the gateway token is valid, and Claude Code CLI is installed.');
   process.exitCode = 1;
 });
