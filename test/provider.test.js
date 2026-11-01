@@ -89,7 +89,7 @@ test('disables DeepSeek thinking for Anthropic any tool_choice mapped to require
     "  tool_choice: { type: 'any' }",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
