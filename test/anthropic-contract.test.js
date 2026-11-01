@@ -76,3 +76,22 @@ test('rejects invalid JSON Schema declarations before calling the provider', () 
   };
   assert.match(validateMessagesRequest(invalid).message, /input_schema is invalid/);
 });
+
+
+test('accepts JSON Schema Draft 2020-12 tool declarations', () => {
+  const tools = [{
+    name: 'Read',
+    input_schema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object',
+      allOf: [{
+        properties: {
+          file_path: { type: 'string', minLength: 1 }
+        }
+      }],
+      required: ['file_path'],
+      unevaluatedProperties: false
+    }
+  }];
+  assert.equal(validateMessagesRequest({ ...minimal, tools }), null);
+});
