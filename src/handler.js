@@ -41,8 +41,8 @@ function detectToolLoop(messages, threshold = 3) {
   if (threshold < 1 || !Array.isArray(messages)) return false;
   const signatures = [];
   for (const message of messages) {
-    if (!message || !Array.isArray(message.content)) continue;
-    for (const block of message.content) {
+    if (!message) continue;
+    for (const block of blocksOf(message.content)) {
       if (block && block.type === 'tool_use') {
         signatures.push(block.name + '|' + JSON.stringify(block.input || {}));
       }
