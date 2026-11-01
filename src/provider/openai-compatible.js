@@ -169,6 +169,16 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
   let finishReason = 'stop';
   let usage = null;
   let done = false;
+  let timedOut = false;
+  const streamTimer = setTimeout(() => {
+    timedOut = true;
+    reader.cancel().catch(() => {});
+  }, PROVIDER_TIMEOUT_MS);
+  const abortStream = () => reader.cancel().catch(() => {});
+  if (signal) {
+    if (signal.aborted) abortStream();
+    else signal.addEventListener('abort', abortStream, { once: true });
+  }
 
   function processEvent(eventText) {
     const dataLines = eventText.split(/\r?\n/)
@@ -219,7 +229,16 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     }
     if (buffer.trim()) processEvent(buffer);
   } finally {
+    clearTimeout(streamTimer);
+    if (signal) signal.removeEventListener('abort', abortStream);
     try { reader.releaseLock(); } catch {}
+  }
+
+  if (timedOut) {
+    throw new ProviderError('Provider streaming response timed out.', 504, 'PROVIDER_TIMEOUT');
+  }
+  if (signal && signal.aborted) {
+    throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
   }
 
   return {
