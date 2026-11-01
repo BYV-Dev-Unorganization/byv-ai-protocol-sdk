@@ -365,6 +365,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
+| PROVIDER_NATIVE_TOOL_CALLING | true | Forward Anthropic tools and tool_choice through native provider function calling; set false for BYV markup fallback |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
