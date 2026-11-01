@@ -8,7 +8,9 @@ const ENV_KEYS = [
   'PROVIDER_BASE_URL',
   'PROVIDER_API_KEY',
   'PROVIDER_MODEL',
-  'PROVIDER_TIMEOUT_MS'
+  'PROVIDER_TIMEOUT_MS',
+  'PROVIDER_MAX_REQUESTS_PER_MINUTE',
+  'PROVIDER_MAX_CONCURRENT_REQUESTS'
 ];
 
 function loadProvider(t, overrides = {}) {
@@ -20,6 +22,8 @@ function loadProvider(t, overrides = {}) {
     PROVIDER_API_KEY: 'provider-test-secret',
     PROVIDER_MODEL: model,
     PROVIDER_TIMEOUT_MS: '300000',
+    PROVIDER_MAX_REQUESTS_PER_MINUTE: '0',
+    PROVIDER_MAX_CONCURRENT_REQUESTS: '0',
     ...overrides,
     PROVIDER_MODEL: model
   });
@@ -204,6 +208,40 @@ test('parses provider SSE chunks, finish reasons, reasoning, and final usage', a
   assert.equal(result.finish_reason, 'stop');
   assert.deepEqual(result.usage, { prompt_tokens: 30, completion_tokens: 2 });
   assert.equal(result.provider_model, model);
+});
+
+
+test('applies the configured provider concurrency limit across parallel client requests', async (t) => {
+  const { provider } = loadProvider(t, {
+    PROVIDER_MAX_REQUESTS_PER_MINUTE: '20',
+    PROVIDER_MAX_CONCURRENT_REQUESTS: '1'
+  });
+  let active = 0;
+  let maximumActive = 0;
+  let calls = 0;
+  global.fetch = async () => {
+    calls++;
+    active++;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active--;
+    return response({
+      payload: {
+        choices: [{
+          finish_reason: 'stop',
+          message: { content: 'ok' }
+        }]
+      }
+    });
+  };
+
+  const results = await Promise.all(Array.from({ length: 4 }, () =>
+    provider.createChatCompletion([{ role: 'user', content: 'Hi' }], { max_tokens: 16 })
+  ));
+
+  assert.equal(calls, 4);
+  assert.equal(maximumActive, 1);
+  assert.deepEqual(results.map((result) => result.text), ['ok', 'ok', 'ok', 'ok']);
 });
 
 test('rejects malformed JSON in an upstream SSE event', async (t) => {

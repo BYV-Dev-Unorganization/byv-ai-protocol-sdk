@@ -353,6 +353,7 @@ When the provider reports cache usage, BYV maps prompt_tokens_details.cached_tok
 - Active request concurrency is bounded by MAX_PENDING_REQUESTS.
 - Authenticated API traffic is limited to 30 requests per rolling 60 seconds per client IP. The server uses the socket peer address and does not trust client-supplied forwarded-IP headers.
 - Provider requests have a timeout and are cancelled when the client disconnects.
+- Outbound inference requests can be paced globally by provider requests-per-minute and maximum concurrent-request settings. The limiter includes normal, recovery, and streaming completions; health checks and local token counting do not consume provider quota.
 - Logs contain request metadata and error summaries, not raw prompts, API keys, tool arguments, or tool results.
 
 Do not bind this development gateway to a public interface without adding deployment-grade authentication, TLS, rate limiting, monitoring, and network controls.
@@ -368,6 +369,8 @@ Do not bind this development gateway to a public interface without adding deploy
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
 | PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |
+| PROVIDER_MAX_REQUESTS_PER_MINUTE | 0 (disabled) | Maximum outbound inference requests in a rolling 60-second window; 0 disables this limit |
+| PROVIDER_MAX_CONCURRENT_REQUESTS | 0 (disabled) | Maximum simultaneous outbound inference requests; 0 disables this limit |
 | PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |
 | PROVIDER_MAX_INPUT_TOKENS | unset | Optional exact model input-token limit override |
 | PROVIDER_MAX_OUTPUT_TOKENS | unset | Optional exact model output-token limit override |

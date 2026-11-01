@@ -4,8 +4,16 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_TIMEOUT_MS
+  PROVIDER_TIMEOUT_MS,
+  PROVIDER_MAX_REQUESTS_PER_MINUTE,
+  PROVIDER_MAX_CONCURRENT_REQUESTS
 } = require('../config');
+const { createProviderRequestLimiter } = require('./request-limiter');
+
+const providerRequestLimiter = createProviderRequestLimiter({
+  requestsPerMinute: PROVIDER_MAX_REQUESTS_PER_MINUTE,
+  maxConcurrent: PROVIDER_MAX_CONCURRENT_REQUESTS
+});
 
 class ProviderError extends Error {
   constructor(message, statusCode, code) {
@@ -69,6 +77,21 @@ function requestHeaders(apiKey) {
   return headers;
 }
 
+async function acquireProviderRequestSlot(signal) {
+  try {
+    return await providerRequestLimiter.acquire(signal);
+  } catch (error) {
+    if (signal && signal.aborted) {
+      throw new ProviderError(
+        'Provider request was cancelled while waiting for an available quota slot.',
+        499,
+        'CLIENT_DISCONNECTED'
+      );
+    }
+    throw error;
+  }
+}
+
 async function fetchWithTimeout(url, init, signal) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error('Provider request timed out.')), PROVIDER_TIMEOUT_MS);
@@ -123,131 +146,141 @@ function normalizeMessageContent(content) {
 
 async function createChatCompletion(messages, options = {}, signal) {
   const { config, payload } = buildPayload(messages, { ...options, stream: false });
-  const response = await fetchWithTimeout(config.url, {
-    method: 'POST',
-    headers: requestHeaders(config.apiKey),
-    body: JSON.stringify(payload)
-  }, signal);
-  if (!response.ok) throw await readProviderError(response);
-
-  let data;
+  const release = await acquireProviderRequestSlot(signal);
   try {
-    data = await response.json();
-  } catch (error) {
-    throw new ProviderError('Provider returned invalid JSON: ' + error.message, 502, 'PROVIDER_INVALID_JSON');
+    const response = await fetchWithTimeout(config.url, {
+      method: 'POST',
+      headers: requestHeaders(config.apiKey),
+      body: JSON.stringify(payload)
+    }, signal);
+    if (!response.ok) throw await readProviderError(response);
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new ProviderError('Provider returned invalid JSON: ' + error.message, 502, 'PROVIDER_INVALID_JSON');
+    }
+    const choice = data.choices && data.choices[0];
+    if (!choice || !choice.message) {
+      throw new ProviderError('Provider response did not contain choices[0].message.', 502, 'PROVIDER_INVALID_RESPONSE');
+    }
+    return {
+      text: normalizeMessageContent(choice.message.content),
+      reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : '',
+      finish_reason: choice.finish_reason || 'stop',
+      usage: data.usage || null,
+      provider_model: data.model || config.model
+    };
+  } finally {
+    release();
   }
-  const choice = data.choices && data.choices[0];
-  if (!choice || !choice.message) {
-    throw new ProviderError('Provider response did not contain choices[0].message.', 502, 'PROVIDER_INVALID_RESPONSE');
-  }
-  return {
-    text: normalizeMessageContent(choice.message.content),
-    reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : '',
-    finish_reason: choice.finish_reason || 'stop',
-    usage: data.usage || null,
-    provider_model: data.model || config.model
-  };
 }
 
 async function createStreamingChatCompletion(messages, options = {}, signal) {
   const { config, payload } = buildPayload(messages, { ...options, stream: true });
-  const response = await fetchWithTimeout(config.url, {
-    method: 'POST',
-    headers: { ...requestHeaders(config.apiKey), Accept: 'text/event-stream' },
-    body: JSON.stringify(payload)
-  }, signal);
-  if (!response.ok) throw await readProviderError(response);
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    throw new ProviderError('Provider did not return a readable streaming body.', 502, 'PROVIDER_STREAM_UNSUPPORTED');
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let text = '';
-  let reasoning = '';
-  let finishReason = 'stop';
-  let usage = null;
-  let done = false;
-  let timedOut = false;
-  const streamTimer = setTimeout(() => {
-    timedOut = true;
-    reader.cancel().catch(() => {});
-  }, PROVIDER_TIMEOUT_MS);
-  const abortStream = () => reader.cancel().catch(() => {});
-  if (signal) {
-    if (signal.aborted) abortStream();
-    else signal.addEventListener('abort', abortStream, { once: true });
-  }
-
-  function processEvent(eventText) {
-    const dataLines = eventText.split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).trim());
-    if (!dataLines.length) return;
-    const dataText = dataLines.join('\n');
-    if (dataText === '[DONE]') {
-      done = true;
-      return;
-    }
-    let data;
-    try {
-      data = JSON.parse(dataText);
-    } catch {
-      throw new ProviderError('Provider emitted malformed SSE JSON.', 502, 'PROVIDER_INVALID_STREAM');
-    }
-    if (data.error) {
-      throw new ProviderError(
-        data.error.message || 'Provider stream returned an error.',
-        502,
-        data.error.code || 'PROVIDER_STREAM_ERROR'
-      );
-    }
-    if (data.usage) usage = data.usage;
-    const choice = data.choices && data.choices[0];
-    if (!choice) return;
-    const delta = choice.delta || {};
-    if (typeof delta.content === 'string') text += delta.content;
-    else if (Array.isArray(delta.content)) text += normalizeMessageContent(delta.content);
-    if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
-    if (choice.finish_reason) finishReason = choice.finish_reason;
-  }
-
+  const release = await acquireProviderRequestSlot(signal);
   try {
-    while (!done) {
-      const result = await reader.read();
-      if (result.done) break;
-      buffer += decoder.decode(result.value, { stream: true });
-      let boundary;
-      while ((boundary = buffer.search(/\r?\n\r?\n/)) >= 0) {
-        const eventText = buffer.slice(0, boundary);
-        const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)[0];
-        buffer = buffer.slice(boundary + separator.length);
-        processEvent(eventText);
-        if (done) break;
-      }
+    const response = await fetchWithTimeout(config.url, {
+      method: 'POST',
+      headers: { ...requestHeaders(config.apiKey), Accept: 'text/event-stream' },
+      body: JSON.stringify(payload)
+    }, signal);
+    if (!response.ok) throw await readProviderError(response);
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      throw new ProviderError('Provider did not return a readable streaming body.', 502, 'PROVIDER_STREAM_UNSUPPORTED');
     }
-    if (buffer.trim()) processEvent(buffer);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let text = '';
+    let reasoning = '';
+    let finishReason = 'stop';
+    let usage = null;
+    let done = false;
+    let timedOut = false;
+    const streamTimer = setTimeout(() => {
+      timedOut = true;
+      reader.cancel().catch(() => {});
+    }, PROVIDER_TIMEOUT_MS);
+    const abortStream = () => reader.cancel().catch(() => {});
+    if (signal) {
+      if (signal.aborted) abortStream();
+      else signal.addEventListener('abort', abortStream, { once: true });
+    }
+
+    function processEvent(eventText) {
+      const dataLines = eventText.split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim());
+      if (!dataLines.length) return;
+      const dataText = dataLines.join('\n');
+      if (dataText === '[DONE]') {
+        done = true;
+        return;
+      }
+      let data;
+      try {
+        data = JSON.parse(dataText);
+      } catch {
+        throw new ProviderError('Provider emitted malformed SSE JSON.', 502, 'PROVIDER_INVALID_STREAM');
+      }
+      if (data.error) {
+        throw new ProviderError(
+          data.error.message || 'Provider stream returned an error.',
+          502,
+          data.error.code || 'PROVIDER_STREAM_ERROR'
+        );
+      }
+      if (data.usage) usage = data.usage;
+      const choice = data.choices && data.choices[0];
+      if (!choice) return;
+      const delta = choice.delta || {};
+      if (typeof delta.content === 'string') text += delta.content;
+      else if (Array.isArray(delta.content)) text += normalizeMessageContent(delta.content);
+      if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+    }
+
+    try {
+      while (!done) {
+        const result = await reader.read();
+        if (result.done) break;
+        buffer += decoder.decode(result.value, { stream: true });
+        let boundary;
+        while ((boundary = buffer.search(/\r?\n\r?\n/)) >= 0) {
+          const eventText = buffer.slice(0, boundary);
+          const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)[0];
+          buffer = buffer.slice(boundary + separator.length);
+          processEvent(eventText);
+          if (done) break;
+        }
+      }
+      if (buffer.trim()) processEvent(buffer);
+    } finally {
+      clearTimeout(streamTimer);
+      if (signal) signal.removeEventListener('abort', abortStream);
+      try { reader.releaseLock(); } catch {}
+    }
+
+    if (timedOut) {
+      throw new ProviderError('Provider streaming response timed out.', 504, 'PROVIDER_TIMEOUT');
+    }
+    if (signal && signal.aborted) {
+      throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
+    }
+
+    return {
+      text,
+      reasoning,
+      finish_reason: finishReason,
+      usage,
+      provider_model: config.model
+    };
   } finally {
-    clearTimeout(streamTimer);
-    if (signal) signal.removeEventListener('abort', abortStream);
-    try { reader.releaseLock(); } catch {}
+    release();
   }
-
-  if (timedOut) {
-    throw new ProviderError('Provider streaming response timed out.', 504, 'PROVIDER_TIMEOUT');
-  }
-  if (signal && signal.aborted) {
-    throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
-  }
-
-  return {
-    text,
-    reasoning,
-    finish_reason: finishReason,
-    usage,
-    provider_model: config.model
-  };
 }
 
 module.exports = {
