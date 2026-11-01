@@ -53,7 +53,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     CONTEXT_WINDOW_SAFETY_TOKENS: '2048',
     MAX_BODY_BYTES: '2097152',
     MAX_OUTPUT_CHARS: '1048576',
-    MAX_PROMPT_CHARS: '240000',
+    MAX_PROMPT_CHARS: '4000000',
     MAX_PENDING_REQUESTS: '12',
     MAX_RECOVERY_ATTEMPTS: '3'
   });
@@ -72,7 +72,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     CONTEXT_WINDOW_SAFETY_TOKENS: 2048,
     MAX_BODY_BYTES: 2097152,
     MAX_OUTPUT_CHARS: 1048576,
-    MAX_PROMPT_CHARS: 240000,
+    MAX_PROMPT_CHARS: 4000000,
     MAX_PENDING_REQUESTS: 12,
     MAX_RECOVERY_ATTEMPTS: 3
   });
@@ -112,8 +112,13 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     CONTEXT_WINDOW_SAFETY_TOKENS: 1024,
     MAX_BODY_BYTES: 10485760,
     MAX_OUTPUT_CHARS: 2097152,
-    MAX_PROMPT_CHARS: 120000,
+    MAX_PROMPT_CHARS: 4000000,
     MAX_PENDING_REQUESTS: 8,
     MAX_RECOVERY_ATTEMPTS: 2
   });
+});
+
+test('defaults the system prompt character budget to 4 million and accepts an 8 million override', () => {
+  assert.equal(loadConfig({ MAX_PROMPT_CHARS: '' }).MAX_PROMPT_CHARS, 4000000);
+  assert.equal(loadConfig({ MAX_PROMPT_CHARS: '8000000' }).MAX_PROMPT_CHARS, 8000000);
 });
