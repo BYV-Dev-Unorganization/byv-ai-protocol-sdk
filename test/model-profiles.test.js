@@ -4,16 +4,26 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { MODEL_PROFILES, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
 
-test('exposes six response profiles while keeping one provider model configuration', () => {
+test('exposes six response profiles with the BYV Flash V1 default', () => {
   assert.deepEqual(Object.keys(MODEL_PROFILES), [
-    'byv-default',
+    'byv-flash-v1',
     'claude-opus-5-5',
     'claude-sonnet-5-5',
     'claude-haiku-5-5',
     'claude-mythos-5-1',
     'claude-fable-5.1'
   ]);
-  assert.equal(listModels().length, 6);
+  assert.deepEqual(
+    listModels().map(({ id, display_name }) => [id, display_name]),
+    [
+      ['byv-flash-v1', 'BYV Flash V1'],
+      ['claude-opus-5-5', 'Opus 5.5'],
+      ['claude-sonnet-5-5', 'Sonnet 5.5'],
+      ['claude-haiku-5-5', 'Haiku 5.5'],
+      ['claude-mythos-5-1', 'Mythos 5.1'],
+      ['claude-fable-5.1', 'Fable 5.1']
+    ]
+  );
 });
 
 test('each profile makes clear it is style guidance over the same upstream model', () => {
@@ -25,11 +35,14 @@ test('each profile makes clear it is style guidance over the same upstream model
 });
 
 test('profile aliases resolve to their canonical profile', () => {
+  assert.equal(modelProfilePrompt('byv-default'), modelProfilePrompt('byv-flash-v1'));
+  assert.equal(modelProfilePrompt('byv'), modelProfilePrompt('byv-flash-v1'));
   assert.equal(modelProfilePrompt('claude-mythos-5.1'), modelProfilePrompt('claude-mythos-5-1'));
   assert.equal(modelProfilePrompt('claude-fable-5-1'), modelProfilePrompt('claude-fable-5.1'));
 });
 
 test('accepts canonical profile IDs and documented aliases, rejects arbitrary IDs', () => {
+  assert.equal(isSupportedModel('byv-flash-v1'), true);
   assert.equal(isSupportedModel('byv-default'), true);
   assert.equal(isSupportedModel('byv'), true);
   assert.equal(isSupportedModel('claude-fable-5-1'), true);
