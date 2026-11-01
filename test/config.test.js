@@ -63,6 +63,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
   assert.deepEqual(config, {
     PORT: 8877,
     PROVIDER_MODEL: 'configured-model-from-env',
+    PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_TIMEOUT_MS: 120000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 6,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 1,
@@ -104,6 +105,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   assert.deepEqual(config, {
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
+    PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_TIMEOUT_MS: 300000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 0,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 0,
