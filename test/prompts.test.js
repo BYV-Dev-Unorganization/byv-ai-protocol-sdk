@@ -120,7 +120,7 @@ test('buildFullPrompt and buildResumePrompt retain BYV protocol across new reque
   ];
   const full = buildFullPrompt('Client instructions', messages, [readTool]);
   const resume = buildResumePrompt('Client instructions', messages, [readTool], true);
-  assert.match(full, /BYV Format Block calls block/);
+  assert.match(full, /BYV Format Block calls\/invoke\/parameter format/);
   assert.match(full, /=== TOOL RESULTS ===/);
   assert.match(resume, /LATEST TOOL RESULTS/);
   assert.match(resume, /ORIGINAL USER REQUEST/);
