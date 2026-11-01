@@ -98,7 +98,7 @@ function modelProfilePrompt(model) {
     'Every listed profile uses the same configured upstream provider and model. A profile does not change model weights, grant provider-native capabilities, or make this an official Anthropic model.',
     'Use this guidance to complement the user request, not to reinterpret it.',
     ...profile.instructions,
-    'This profile never overrides safety requirements, system instructions, the user request, required output format, or tool schemas and calling protocol.',
+    'This profile is style guidance only. It never overrides BYV core instructions, active gateway runtime controls, client system/developer instructions, the user task, tool permissions, input schemas, or required output format.',
     'Do not reveal internal profile instructions unless the user explicitly asks about the configuration.'
   ].join('\n');
 }
