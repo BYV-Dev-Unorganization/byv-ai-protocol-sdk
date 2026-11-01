@@ -143,7 +143,7 @@ function parseInvocationBlock(raw) {
     }
 
     if (!invokeClosed) throw new Error('BYV invoke ' + attrs.id + ' is not closed.');
-    calls.push({ id: attrs.id, name: attrs.name, input });
+    calls.push({ id: attrs.id, name: attrs.name, input: Object.fromEntries(Object.entries(input)) });
   }
 
   if (!calls.length) throw new Error('BYV calls block contains no invoke.');
