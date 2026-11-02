@@ -166,9 +166,76 @@ test('logs validated BYV tool-call metadata without recording arguments', async 
   assert.equal(JSON.stringify(events).includes('file_path'), false);
 });
 
+test('rejects provider-native tool calls when native tool calling is disabled and recovers with BYV', async () => {
+  let count = 0;
+  const events = [];
+  const seenMessages = [];
+  const result = await handleMessages(body(), {
+    nativeToolCalling: false,
+    requestId: 'req_native_disabled',
+    logger: (event) => events.push(event),
+    provider: {
+      createChatCompletion: async (messages) => {
+        count++;
+        seenMessages.push(messages);
+        if (count === 1) {
+          return {
+            text: '',
+            tool_calls: [{
+              id: 'call_native_disabled',
+              type: 'function',
+              function: {
+                name: 'Read',
+                arguments: '{"file_path":"README.md"}'
+              }
+            }],
+            finish_reason: 'tool_calls',
+            usage: null
+          };
+        }
+        return {
+          text: '<|BYV| calls><|BYV| invoke name="Read" id="call_byv_after_native"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.match(seenMessages[1].at(-1).content, /Output exactly one complete BYV calls block/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0], {
+    type: 'tool_use',
+    id: 'call_byv_after_native',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  });
+  assert.deepEqual(events.map((event) => ({
+    event: event.event,
+    source: event.source,
+    phase: event.phase,
+    validation_reason: event.validation_reason
+  })), [
+    {
+      event: 'tool_call.parse_rejected',
+      source: 'provider_native',
+      phase: 'initial',
+      validation_reason: 'PROVIDER_NATIVE_DISABLED'
+    },
+    {
+      event: 'tool_call.validated',
+      source: 'byv_format_block',
+      phase: 'tool_recovery',
+      validation_reason: null
+    }
+  ]);
+});
+
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    nativeToolCalling: true,
     provider: {
       createChatCompletion: async (_messages, options) => {
         receivedOptions = options;
@@ -203,6 +270,7 @@ test('converts native provider function calls into Anthropic tool_use blocks', a
 test('converts streamed native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    nativeToolCalling: true,
     provider: {
       getModelCapabilities: async () => null,
       createStreamingChatCompletion: async (_messages, options) => {
