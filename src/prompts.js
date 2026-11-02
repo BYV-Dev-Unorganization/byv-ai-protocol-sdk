@@ -313,19 +313,6 @@ function applyForcedTool(prompt, force) {
     return prompt;
 }
 
-function effortPrompt(effort) {
-    const guidance = {
-        low: 'Keep reasoning and response depth focused. Do not skip required validation or safety checks.',
-        medium: 'Use balanced reasoning depth appropriate to the task.',
-        high: 'Use thorough reasoning for meaningful edge cases, trade-offs, and verification.',
-        xhigh: 'Use very thorough analysis for complex tasks while remaining focused on the requested outcome.',
-        max: 'Use the deepest useful analysis available. Avoid unnecessary verbosity in the final response.'
-    };
-    return guidance[effort]
-        ? '=== RESPONSE EFFORT ===\n' + guidance[effort]
-        : '';
-}
-
 function buildSystemPrompt(body = {}) {
     const system = flattenContent(body.system);
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -379,9 +366,6 @@ function buildSystemPrompt(body = {}) {
 
     const profile = modelProfilePrompt(body.model);
     if (profile) sections.push(profile);
-    const effort = effortPrompt(body.output_config && body.output_config.effort);
-    if (effort) sections.push(effort);
-
     const prompt = sections.join('\n\n');
     if (prompt.length > MAX_PROMPT_CHARS) {
         throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schemas or client system instructions.'), {
@@ -449,7 +433,6 @@ module.exports = {
     buildResumePrompt,
     parseToolChoice,
     applyForcedTool,
-    effortPrompt,
     buildSystemPrompt,
     buildProviderMessages,
     buildRecoveryMessage,
