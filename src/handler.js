@@ -166,10 +166,28 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   return { ...result, input_tokens_estimated: estimatedInputTokens };
 }
 
-function parseCompletionToolCalls(completion) {
-  const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
+function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIVE_TOOL_CALLING) {
   const parsed = parseBYVOutput(completion.text);
+  const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
+  if (!nativeToolCalling && hasNativeToolCalls) {
+    if (parsed.calls.length > 0) {
+      return {
+        parsed,
+        calls: parsed.calls,
+        error: parsed.errors[0] || null,
+        native: false
+      };
+    }
+    return {
+      parsed,
+      calls: [],
+      error: 'Native provider function calls are disabled; use BYV Format Block instead.',
+      native: true
+    };
+  }
+
+  const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
   if (native.error) {
     return { parsed, calls: [], error: native.error, native: true };
   }
@@ -198,7 +216,7 @@ function parseCompletionToolCalls(completion) {
 }
 
 function validateTextOnlyCompletion(completion) {
-  const result = parseCompletionToolCalls(completion);
+  const result = parseCompletionToolCalls(completion, false);
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -279,7 +297,9 @@ function logToolCallValidation(options = {}) {
     : parseError
       ? (String(parseError).includes('both native function calls and BYV markup')
         ? 'AMBIGUOUS_TOOL_OUTPUT'
-        : source === 'provider_native' ? 'PROVIDER_NATIVE_PARSE_ERROR' : 'BYV_PARSE_ERROR')
+        : String(parseError).includes('Native provider function calls are disabled')
+          ? 'PROVIDER_NATIVE_DISABLED'
+          : source === 'provider_native' ? 'PROVIDER_NATIVE_PARSE_ERROR' : 'BYV_PARSE_ERROR')
       : !validation.valid
         ? classifyToolCallValidationError(validation.error)
         : null;
@@ -329,6 +349,9 @@ function logToolCallValidation(options = {}) {
 
 async function handleMessages(body, options = {}) {
   const signal = options.signal;
+  const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+    ? options.nativeToolCalling
+    : PROVIDER_NATIVE_TOOL_CALLING;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
@@ -349,7 +372,7 @@ async function handleMessages(body, options = {}) {
     });
   }
 
-  let parsedResult = parseCompletionToolCalls(completion);
+  let parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
   let parsed = parsedResult.parsed;
   let calls = parsedResult.calls;
   let parseError = parsedResult.error;
@@ -430,14 +453,14 @@ async function handleMessages(body, options = {}) {
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
+        content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
       }]);
       completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
       }
-      parsedResult = parseCompletionToolCalls(completion);
+      parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
       parsed = parsedResult.parsed;
       calls = parsedResult.calls;
       validation = validateToolCallRequest(calls, tools, force);
@@ -479,10 +502,10 @@ async function handleMessages(body, options = {}) {
       for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
         const retryMessages = providerMessages.concat([{
           role: 'user',
-          content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling: PROVIDER_NATIVE_TOOL_CALLING })
+          content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
         }]);
         completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
-        parsedResult = parseCompletionToolCalls(completion);
+        parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
         validation = validateToolCallRequest(calls, tools, force);
