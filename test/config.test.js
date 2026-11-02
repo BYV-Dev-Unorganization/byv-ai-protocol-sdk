@@ -14,6 +14,7 @@ function loadConfig(env) {
     "PORT: c.PORT,",
     "PROVIDER_MODEL: c.PROVIDER_MODEL,",
     "PROVIDER_NATIVE_TOOL_CALLING: c.PROVIDER_NATIVE_TOOL_CALLING,",
+    "PROVIDER_NATIVE_REASONING_EFFORT: c.PROVIDER_NATIVE_REASONING_EFFORT,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
     "PROVIDER_MAX_REQUESTS_PER_MINUTE: c.PROVIDER_MAX_REQUESTS_PER_MINUTE,",
     "PROVIDER_MAX_CONCURRENT_REQUESTS: c.PROVIDER_MAX_CONCURRENT_REQUESTS,",
@@ -32,7 +33,7 @@ function loadConfig(env) {
   ].join('\n');
   const result = spawnSync(process.execPath, ['-e', source], {
     cwd: root,
-    env: { ...process.env, PROVIDER_NATIVE_TOOL_CALLING: '', ...env },
+    env: { ...process.env, PROVIDER_NATIVE_TOOL_CALLING: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -64,6 +65,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     PORT: 8877,
     PROVIDER_MODEL: 'configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
+    PROVIDER_NATIVE_REASONING_EFFORT: true,
     PROVIDER_TIMEOUT_MS: 120000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 6,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 1,
@@ -106,6 +108,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
+    PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_TIMEOUT_MS: 300000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 0,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 0,
@@ -121,6 +124,12 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     MAX_PENDING_REQUESTS: 8,
     MAX_RECOVERY_ATTEMPTS: 2
   });
+});
+
+test('enables native provider reasoning effort by default and allows disabling it', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, true);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'true' }).PROVIDER_NATIVE_REASONING_EFFORT, true);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'false' }).PROVIDER_NATIVE_REASONING_EFFORT, false);
 });
 
 test('defaults the system prompt character budget to 4 million and accepts an 8 million override', () => {
