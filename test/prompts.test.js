@@ -172,16 +172,30 @@ test('parseToolChoice and applyForcedTool preserve none, any, and named-tool con
   }
 });
 
-test('recovery prompts request DSML output by default and plain text when tools are disabled', () => {
-  const toolRecovery = buildRecoveryMessage('wrong parameter', 1, 'tool');
+test('recovery prompts include the validation issue, concrete DSML example, and final-attempt guidance', () => {
+  const validationIssue = 'BYV parameter command is not closed.';
+  const firstRecovery = buildRecoveryMessage(validationIssue, 1, 'tool');
+  const finalRecovery = buildRecoveryMessage('Retry returned a malformed batch.', 2, 'tool');
   const textRecovery = buildRecoveryMessage('tool disabled', 1, 'text');
+
   if (PROVIDER_NATIVE_TOOL_CALLING) {
-    assert.match(toolRecovery, /native function-calling interface/);
+    assert.match(firstRecovery, /native function-calling interface/);
+    assert.match(firstRecovery, /Correct this issue: BYV parameter command is not closed\\./);
+    assert.match(finalRecovery, /final recovery attempt/i);
   } else {
-    assert.match(toolRecovery, /DSML calls block/);
-    assert.match(toolRecovery, /string="true"/);
-    assert.match(toolRecovery, /preserve.*verbatim/i);
+    assert.match(firstRecovery, /=== TOOL CALL RECOVERY ===/);
+    assert.match(firstRecovery, /previous response contained a tool call/i);
+    assert.match(firstRecovery, /Correct this issue: BYV parameter command is not closed\\./);
+    assert.match(firstRecovery, /one DeepSeek DSML calls block/);
+    assert.ok(firstRecovery.includes('<｜DSML｜ calls><｜DSML｜ invoke name="Bash"><｜DSML｜ parameter name="command" string="true">pwd</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>'));
+    assert.match(firstRecovery, /preserve.*verbatim/i);
+    assert.doesNotMatch(firstRecovery, /final recovery attempt/i);
+
+    assert.match(finalRecovery, /previous recovery retry returned a partially malformed or invalid tool-call batch/i);
+    assert.match(finalRecovery, /Correct this issue: Retry returned a malformed batch\\./);
+    assert.match(finalRecovery, /final recovery attempt/i);
   }
+
   assert.match(textRecovery, /Do not emit DSML calls/);
   assert.doesNotMatch(textRecovery, /Output exactly one complete DSML calls block/);
 });
