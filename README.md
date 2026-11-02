@@ -20,7 +20,7 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               |
               +-- request validation / content normalization
               +-- profile selection
-              +-- BYV system prompt + per-request tool schemas
+              +-- DSML model instructions + per-request tool schemas
               +-- conversation conversion
               +-- OpenAI-compatible provider adapter
               |
@@ -29,7 +29,7 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               |
               | assistant text containing DeepSeek DSML
               v
-    BYV parser -> typed arguments -> JSON Schema validation
+    DSML adapter -> BYV parser -> typed arguments -> JSON Schema validation
               |
               +-- optional native function-call adapter
               |
