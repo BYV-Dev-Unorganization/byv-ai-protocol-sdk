@@ -38,7 +38,7 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               v
     Anthropic message / tool_use / SSE response
 
-Tool execution is intentionally outside the protocol parser and gateway. A tool_use response asks the client or agent runtime to execute a tool. The gateway does not execute a shell command or access client files merely because the model emitted a BYV invocation.
+Tool execution is intentionally outside the protocol parser and gateway. A tool_use response asks the client or agent runtime to execute a tool. The gateway does not execute a shell command or access client files merely because the model emitted a DSML invocation.
 
 ## One upstream model, multiple response profiles
 
@@ -72,7 +72,7 @@ The model profile is selected from the request model field. The upstream request
 ## Requirements
 
 - Node.js 18 or later.
-- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the BYV markup fallback.
+- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
 - A provider API key, when required by that provider.
 
 ## Setup
@@ -344,7 +344,7 @@ BYV performs best-effort model metadata discovery using the configured provider'
 
 OpenAI-compatible APIs do not standardize context-window metadata. When the provider does not publish a limit in its model metadata, set PROVIDER_CONTEXT_WINDOW_TOKENS, PROVIDER_MAX_INPUT_TOKENS, and/or PROVIDER_MAX_OUTPUT_TOKENS explicitly. Explicit environment values override discovered values. BYV never infers a context window from the model name. An unknown limit remains unknown rather than being guessed.
 
-Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the BYV system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate or compact conversation history, and it does not quietly lower max_tokens. If limits are unknown, the regular body and system-prompt size limits still apply.
+Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the DSML system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate or compact conversation history, and it does not quietly lower max_tokens. If limits are unknown, the regular body and system-prompt size limits still apply.
 
 `MAX_PROMPT_CHARS` is a character-based safety ceiling for the assembled system prompt only; it is not a token limit or a substitute for provider context budgeting. The default is 4,000,000 characters and the configurable range is 8,192–8,000,000 characters. The complete provider-shaped input is still subject to the discovered or explicitly configured provider token limits.
 
