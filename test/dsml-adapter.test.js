@@ -18,7 +18,7 @@ test('converts a standard DeepSeek DSML calls block into the existing BYV parser
 
   const adapted = convertDsmlToBYV(source);
   assert.equal(adapted.detected, true);
-  assert.match(adapted.text, /<\\|BYV\\| invoke name="Read" id="dsml_call_001">/);
+  assert.match(adapted.text, /<\|BYV\| invoke name="Read" id="dsml_call_001">/);
 
   const parsed = parseBYVOutput(adapted.text);
   assert.deepEqual(parsed.errors, []);
