@@ -247,7 +247,7 @@ function start() {
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
     console.log('Tool transport: ' + (PROVIDER_NATIVE_TOOL_CALLING
       ? 'provider-native function calling (explicit opt-in)'
-      : 'DSML text -> BYV adapter (default)'));
+      : 'BYV Format Block (default)'));
     console.log('Gateway auth source: ' + GATEWAY_API_KEY_SOURCE);
     console.log('Gateway API key: ' + (GATEWAY_API_KEY_SOURCE === 'environment'
       ? 'provided through GATEWAY_API_KEY'
