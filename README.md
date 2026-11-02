@@ -5,7 +5,7 @@ A BYV protocol runtime and Anthropic Messages-compatible gateway for any provide
 BYV sits between an Anthropic Messages client and one configured upstream model:
 
 - Client contract: Anthropic Messages API shape.
-- Tool transport: BYV Format Block in assistant text by default; provider-native function calling is an explicit optional mode.
+- Model-facing tool transport: DeepSeek DSML in assistant text by default; a gateway adapter converts it to the internal BYV representation before parsing and validation. Provider-native function calling is an explicit optional mode.
 - Upstream contract: OpenAI-compatible Chat Completions API. Native function tools are not required.
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
@@ -27,7 +27,7 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               v
     One configured OpenAI-compatible model
               |
-              | assistant text containing BYV Format Block
+              | assistant text containing DeepSeek DSML
               v
     BYV parser -> typed arguments -> JSON Schema validation
               |
@@ -89,12 +89,12 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-# Optional only. BYV Format Block is the default.
+# Optional only. DSML model output, normalized to BYV internally, is the default.
 PROVIDER_NATIVE_TOOL_CALLING=false
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. Tool invocations must use BYV Format Block. Set it to `true` only when the configured provider supports native function calling.
+When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. The model is instructed to emit DeepSeek DSML in assistant text; the gateway converts that output to BYV internally before parsing and validation. Set it to `true` only when the configured provider supports native function calling.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
@@ -270,35 +270,37 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-BYV Format Block is the default tool-call protocol. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the BYV system prompt. The upstream model returns a structured block in its assistant text, and BYV parses and validates that block before translating accepted invocations into Anthropic Messages `tool_use` blocks.
+When `PROVIDER_NATIVE_TOOL_CALLING=false` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
 
 Example model output:
 
 ~~~text
-<|BYV| calls>
-<|BYV| invoke name="Read" id="call_001">
-<|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter>
-</|BYV| invoke>
-</|BYV| calls>
+<｜DSML｜ calls>
+<｜DSML｜ invoke name="Read">
+<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>
+</｜DSML｜ invoke>
+</｜DSML｜ calls>
 ~~~
+
+The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
 
 The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
 - `auto`: the model may call an available tool when needed;
-- `any`: the model must emit at least one valid BYV invocation;
+- `any`: the model must emit at least one valid DSML invocation;
 - `none`: the model must return text and must not emit a tool invocation;
 - a specific tool: the model must emit an invocation for that exact tool.
 
-The provider adapter does not send OpenAI-compatible `tools` or `tool_choice` fields in the default BYV mode. This means the configured model does not need native provider function-calling support. It only needs to follow the BYV Format Block instructions in ordinary Chat Completions text.
+The provider adapter does not send OpenAI-compatible `tools` or `tool_choice` fields in the default DSML mode. This means the configured model does not need native provider function-calling support. It only needs to produce DSML tool-call markup in ordinary Chat Completions text.
 
 ### Optional provider-native function calling
 
-Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation.
+Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
 
-For DeepSeek Chat Completions models in this optional mode, the adapter sets `reasoning_effort: "none"` on forced-tool requests. This is separate from the default BYV Format Block path.
+For DeepSeek Chat Completions models in this optional mode, the adapter sets `reasoning_effort: "none"` on forced-tool requests. This is separate from the default DSML-to-BYV path.
 
-Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. BYV never forwards a partial or invalid batch.
+Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
 
-The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current assistant output protocol: BYV Format Block remains the default.
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and normalized to BYV before parsing.
 
 ## Streaming
 
@@ -379,7 +381,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; BYV Format Block is the default tool-call protocol |
+| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
 | PROVIDER_NATIVE_REASONING_EFFORT | true | Forward Anthropic output_config.effort as native reasoning_effort; set false for providers that do not support it |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
