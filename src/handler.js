@@ -141,6 +141,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     temperature: body.temperature,
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
+    reasoning_effort: body.output_config && body.output_config.effort,
     tools: body.tools,
     tool_choice: body.tool_choice
   };
