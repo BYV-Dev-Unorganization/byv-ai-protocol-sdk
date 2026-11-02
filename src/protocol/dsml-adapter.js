@@ -8,7 +8,7 @@ function createTagRegex() {
 
 function parseAttributes(raw) {
   const attributes = Object.create(null);
-  const pattern = /([A-Za-z_][A-Za-z0-9_-]*)\\s*=\\s*(?:"([^"]*)"|'([^']*)')/g;
+  const pattern = /([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
   let match;
   let cursor = 0;
 
@@ -41,7 +41,7 @@ function escapeBYVString(value) {
     .replace(/\r/g, '\\r')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')
-    .replace(/<\\/\\|BYV\\|\\s*parameter>/g, (match) => '\\\\' + match);
+    .replace(/<\\/\\|BYV\\|\\s*parameter>/g, (match) => '\\' + match);
 }
 
 function escapeBYVJson(value) {
