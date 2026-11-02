@@ -8,6 +8,7 @@ const ENV_KEYS = [
   'PROVIDER_BASE_URL',
   'PROVIDER_API_KEY',
   'PROVIDER_MODEL',
+  'PROVIDER_NATIVE_REASONING_EFFORT',
   'PROVIDER_TIMEOUT_MS',
   'PROVIDER_MAX_REQUESTS_PER_MINUTE',
   'PROVIDER_MAX_CONCURRENT_REQUESTS'
@@ -21,6 +22,7 @@ function loadProvider(t, overrides = {}) {
     PROVIDER_BASE_URL: 'https://provider.example/v1',
     PROVIDER_API_KEY: 'provider-test-secret',
     PROVIDER_MODEL: model,
+    PROVIDER_NATIVE_REASONING_EFFORT: 'true',
     PROVIDER_TIMEOUT_MS: '300000',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: '0',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '0',
@@ -108,6 +110,43 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
     usage: { prompt_tokens: 20, completion_tokens: 4 },
     provider_model: model
   });
+});
+
+test('forwards each supported Anthropic effort as native reasoning_effort', (t) => {
+  const { provider } = loadProvider(t);
+  const messages = [{ role: 'user', content: 'Think carefully.' }];
+  const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+  for (const level of levels) {
+    const regular = provider.buildPayload(messages, {
+      max_tokens: 128,
+      reasoning_effort: level
+    }).payload;
+    const streaming = provider.buildPayload(messages, {
+      max_tokens: 128,
+      reasoning_effort: level,
+      stream: true
+    }).payload;
+
+    assert.equal(regular.reasoning_effort, level);
+    assert.equal(streaming.reasoning_effort, level);
+    assert.equal(streaming.stream, true);
+  }
+
+  const omitted = provider.buildPayload(messages, { max_tokens: 128 }).payload;
+  assert.equal(Object.hasOwn(omitted, 'reasoning_effort'), false);
+});
+
+test('omits native reasoning_effort when provider support is disabled', (t) => {
+  const { provider } = loadProvider(t, {
+    PROVIDER_NATIVE_REASONING_EFFORT: 'false'
+  });
+  const payload = provider.buildPayload([{ role: 'user', content: 'Hello' }], {
+    max_tokens: 32,
+    reasoning_effort: 'high'
+  }).payload;
+
+  assert.equal(Object.hasOwn(payload, 'reasoning_effort'), false);
 });
 
 test('maps upstream HTTP errors without leaking provider credentials', async (t) => {

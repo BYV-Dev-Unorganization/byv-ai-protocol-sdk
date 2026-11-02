@@ -23,6 +23,24 @@ function body(options = {}) {
   };
 }
 
+test('forwards Anthropic output_config.effort to the provider as native metadata', async () => {
+  let receivedOptions;
+  const result = await handleMessages(body({
+    output_config: { effort: 'high' }
+  }), {
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return { text: 'Completed.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.reasoning_effort, 'high');
+  assert.equal(result.stop_reason, 'end_turn');
+});
+
 test('detects repeated identical tool calls in conversation history', () => {
   const messages = [1, 2, 3].flatMap((index) => [
     {
