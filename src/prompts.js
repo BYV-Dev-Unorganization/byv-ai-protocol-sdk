@@ -325,13 +325,13 @@ function buildSystemPrompt(body = {}) {
         sections.push([
             '### NATIVE TOOL CALL PROTOCOL',
             'Use the upstream provider native function-calling interface supplied with this request. Do not emit DSML or JSON tool-call wrappers.'
-        ].join('\\n'));
+        ].join('\n'));
     } else {
         sections.push([
             '### DSML TOOL CALL PROTOCOL',
             'Use the DeepSeek DSML tool-call format as the model-facing text protocol. The gateway converts DSML output into its internal representation, validates tool names and arguments against the request schemas, and translates accepted calls into the Anthropic tool_use contract.',
             'Do not use alternative markup, JSON tool-call wrappers, or provider-native function calling unless the gateway explicitly enables its optional native compatibility mode.'
-        ].join('\\n'));
+        ].join('\n'));
     }
 
     const toolPrompt = toolsToPrompt(tools);
