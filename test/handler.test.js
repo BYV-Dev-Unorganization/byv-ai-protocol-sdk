@@ -154,10 +154,11 @@ test('converts DSML model output through the unchanged BYV parser before returni
   assert.equal(result.stop_reason, 'tool_use');
   assert.deepEqual(result.content[0], {
     type: 'tool_use',
-    id: 'dsml_call_001',
+    id: result.content[0].id,
     name: 'Read',
     input: { file_path: 'README.md' }
   });
+  assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
   assert.equal(events[0].source, 'dsml_converted_to_byv');
   assert.equal(events[0].validation_status, 'valid');
 });
@@ -238,10 +239,11 @@ test('rejects provider-native calls and recovers with DSML when native calling i
   assert.equal(result.stop_reason, 'tool_use');
   assert.deepEqual(result.content[0], {
     type: 'tool_use',
-    id: 'dsml_call_001',
+    id: result.content[0].id,
     name: 'Read',
     input: { file_path: 'README.md' }
   });
+  assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
   assert.deepEqual(events.map((event) => ({
     event: event.event,
     source: event.source,
