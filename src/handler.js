@@ -171,12 +171,14 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
   const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
   if (!nativeToolCalling && hasNativeToolCalls) {
-    if (parsed.calls.length > 0) {
+    if (parsed.hasProtocol) {
       return {
         parsed,
-        calls: parsed.calls,
-        error: parsed.errors[0] || null,
-        native: false
+        calls: [],
+        error: parsed.calls.length > 0
+          ? 'Provider returned both native function calls and BYV markup while native function calling is disabled.'
+          : (parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.'),
+        native: true
       };
     }
     return {
