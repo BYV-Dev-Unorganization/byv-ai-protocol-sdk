@@ -396,7 +396,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
             'Do not emit DSML calls, invoke, or parameter tags. Do not request or claim tool execution.',
             'Answer in plain text using only the existing conversation and available results.',
             'Do not repeat tool calls or introduce a new task.'
-        ].join('\\n');
+        ].join('\n');
     }
     if (options.nativeToolCalling || PROVIDER_NATIVE_TOOL_CALLING) {
         return [
@@ -408,7 +408,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
             attempt >= 2
                 ? 'This is the final recovery attempt. Make the smallest valid native function call that still fulfills the original task.'
                 : 'Preserve the original intent. Do not invent missing values.'
-        ].join('\\n');
+        ].join('\n');
     }
 
     const previousResponseIssue = Number(attempt) > 1
@@ -435,7 +435,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
         attempt >= 2
             ? 'This is the final recovery attempt. Rebuild the simplest valid arguments that still satisfy the original task.'
             : 'Preserve the original task intent. Do not invent missing values.'
-    ].join('\\n');
+    ].join('\n');
 }
 
 const BASE_TEMPLATE = [
