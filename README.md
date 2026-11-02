@@ -361,6 +361,7 @@ When the provider reports cache usage, BYV maps prompt_tokens_details.cached_tok
 - Provider requests have a timeout and are cancelled when the client disconnects.
 - Outbound inference requests can be paced globally by provider requests-per-minute and maximum concurrent-request settings. The limiter includes normal, recovery, and streaming completions; health checks and local token counting do not consume provider quota.
 - Logs contain request metadata and error summaries, not raw prompts, API keys, tool arguments, or tool results.
+- Structured per-tool-call events record the request ID, invocation ID, tool name, transport, recovery phase, and validation status/reason. They never include argument values, file paths, file contents, or tool results.
 
 Do not bind this development gateway to a public interface without adding deployment-grade authentication, TLS, rate limiting, monitoring, and network controls.
 

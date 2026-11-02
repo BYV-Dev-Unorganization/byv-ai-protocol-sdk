@@ -19,6 +19,9 @@ const { uuid } = require('./config');
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
+  const toolCallLogger = typeof options.toolCallLogger === 'function'
+    ? options.toolCallLogger
+    : (entry) => console.log(JSON.stringify(entry));
   const rateLimiter = options.rateLimiter || createRateLimiter({
     limit: 30,
     windowMs: 60_000
@@ -155,7 +158,11 @@ function createServer(options = {}) {
 
     const startedAt = Date.now();
     try {
-      const result = await runHandler(body, { signal: controller.signal });
+      const result = await runHandler(body, {
+        signal: controller.signal,
+        requestId,
+        logger: toolCallLogger
+      });
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
       if (isStream) {

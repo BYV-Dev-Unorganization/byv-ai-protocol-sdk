@@ -128,6 +128,49 @@ test('returns an Anthropic Messages envelope from the injected runtime', async (
   assert.deepEqual(result.usage, { input_tokens: 9, output_tokens: 6 });
 });
 
+test('passes request-scoped structured tool logging to the handler', async (t) => {
+  const events = [];
+  const base = await withServer(t, {
+    toolCallLogger: (event) => events.push(event),
+    handleMessages: async (_body, options) => {
+      options.logger({
+        level: 'info',
+        event: 'tool_call.validated',
+        request_id: options.requestId,
+        invocation_id: 'call_server_log',
+        tool_name: 'Read',
+        validation_status: 'valid'
+      });
+      return {
+        id: 'msg_log_test',
+        content: [{ type: 'text', text: 'Done.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+        usage_estimated: false
+      };
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 64,
+      messages: [{ role: 'user', content: 'Hello' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].event, 'tool_call.validated');
+  assert.equal(events[0].request_id, response.headers.get('x-gateway-request-id'));
+  assert.equal(events[0].invocation_id, 'call_server_log');
+  assert.equal(events[0].tool_name, 'Read');
+  assert.equal(events[0].validation_status, 'valid');
+});
+
 test('count_tokens accepts the canonical BYV Flash V1 model ID without invoking model runtime', async (t) => {
   let called = false;
   const base = await withServer(t, {

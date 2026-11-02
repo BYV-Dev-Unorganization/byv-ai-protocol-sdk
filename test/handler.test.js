@@ -113,6 +113,41 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
   });
 });
 
+test('logs validated BYV tool-call metadata without recording arguments', async () => {
+  const events = [];
+  const privatePath = '/workspace/private-file-name.txt';
+  const result = await handleMessages(body(), {
+    requestId: 'req_safe_tool_log',
+    logger: (event) => events.push(event),
+    provider: {
+      createChatCompletion: async () => ({
+        text: '<|BYV| calls><|BYV| invoke name="Read" id="call_safe_log"><|BYV| parameter name="file_path" type="string">' +
+          privatePath +
+          '</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+        finish_reason: 'stop',
+        usage: null
+      })
+    }
+  });
+
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], {
+    level: 'info',
+    event: 'tool_call.validated',
+    request_id: 'req_safe_tool_log',
+    source: 'byv_format_block',
+    phase: 'initial',
+    recovery_attempt: null,
+    invocation_id: 'call_safe_log',
+    tool_name: 'Read',
+    validation_status: 'valid',
+    validation_reason: null
+  });
+  assert.equal(JSON.stringify(events).includes(privatePath), false);
+  assert.equal(JSON.stringify(events).includes('file_path'), false);
+});
+
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
@@ -229,7 +264,10 @@ test('rejects mixed native function calls and BYV markup as an ambiguous respons
 
 test('performs bounded recovery for schema-invalid tool arguments', async () => {
   let count = 0;
+  const events = [];
   const result = await handleMessages(body(), {
+    requestId: 'req_recovery_log',
+    logger: (event) => events.push(event),
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -241,6 +279,35 @@ test('performs bounded recovery for schema-invalid tool arguments', async () => 
   });
   assert.equal(count, 2);
   assert.equal(result.toolCalls[0].id, 'good');
+  assert.deepEqual(events.map((event) => ({
+    event: event.event,
+    request_id: event.request_id,
+    invocation_id: event.invocation_id,
+    tool_name: event.tool_name,
+    phase: event.phase,
+    validation_status: event.validation_status,
+    validation_reason: event.validation_reason
+  })), [
+    {
+      event: 'tool_call.rejected',
+      request_id: 'req_recovery_log',
+      invocation_id: 'bad',
+      tool_name: 'Read',
+      phase: 'initial',
+      validation_status: 'rejected',
+      validation_reason: 'TOOL_SCHEMA_INVALID'
+    },
+    {
+      event: 'tool_call.validated',
+      request_id: 'req_recovery_log',
+      invocation_id: 'good',
+      tool_name: 'Read',
+      phase: 'tool_recovery',
+      validation_status: 'valid',
+      validation_reason: null
+    }
+  ]);
+  assert.equal(JSON.stringify(events).includes('README.md'), false);
 });
 
 test('recovers to plain text when tools are disabled but model emits BYV markup', async () => {
