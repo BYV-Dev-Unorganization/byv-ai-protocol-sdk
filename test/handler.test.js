@@ -333,7 +333,7 @@ test('converts streamed native provider function calls into Anthropic tool_use b
   });
 });
 
-test('recovers invalid BYV Format Block arguments using BYV protocol instructions', async () => {
+test('recovers invalid tool arguments using DSML protocol instructions', async () => {
   let count = 0;
   const seenMessages = [];
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
@@ -355,7 +355,7 @@ test('recovers invalid BYV Format Block arguments using BYV protocol instruction
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].messages.at(-1).content, /Output exactly one complete BYV calls block/);
+  assert.match(seenMessages[1].messages.at(-1).content, /Output exactly one complete DSML calls block/);
   assert.equal(seenMessages[1].options.tool_choice, 'auto');
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
