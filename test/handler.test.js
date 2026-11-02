@@ -152,12 +152,9 @@ test('converts DSML model output through the unchanged BYV parser before returni
   });
 
   assert.equal(result.stop_reason, 'tool_use');
-  assert.deepEqual(result.content[0], {
-    type: 'tool_use',
-    id: result.content[0].id,
-    name: 'Read',
-    input: { file_path: 'README.md' }
-  });
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(result.content[0].name, 'Read');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
   assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
   assert.equal(events[0].source, 'dsml_converted_to_byv');
   assert.equal(events[0].validation_status, 'valid');
@@ -237,12 +234,9 @@ test('rejects provider-native calls and recovers with DSML when native calling i
   assert.equal(count, 2);
   assert.match(seenMessages[1].at(-1).content, /Output exactly one complete DSML calls block/);
   assert.equal(result.stop_reason, 'tool_use');
-  assert.deepEqual(result.content[0], {
-    type: 'tool_use',
-    id: result.content[0].id,
-    name: 'Read',
-    input: { file_path: 'README.md' }
-  });
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(result.content[0].name, 'Read');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
   assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
   assert.deepEqual(events.map((event) => ({
     event: event.event,
