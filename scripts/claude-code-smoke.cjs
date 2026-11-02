@@ -295,6 +295,11 @@ async function main() {
     name: 'byv-claude-code-fixture',
     private: true
   }, null, 2) + '\n');
+  // Use a dedicated file for the Read check. Claude Code may inspect package.json
+  // automatically during startup, causing the explicit test Read to be deduplicated.
+  fs.writeFileSync(path.join(workspace, 'byv-read-fixture.json'), JSON.stringify({
+    fixture_token: 'BYV_READ_FIXTURE_OK'
+  }, null, 2) + '\n');
   fs.writeFileSync(path.join(workspace, 'fixture.txt'), 'BYV_GREP_MATCH\nordinary fixture line\n');
   fs.writeFileSync(path.join(workspace, 'nested', 'second.txt'), 'BYV_SECOND_FIXTURE\n');
   fs.writeFileSync(path.join(workspace, 'fixture-edit.txt'), 'EDIT_BEFORE\n');
@@ -318,18 +323,18 @@ async function main() {
   const prompt = [
     'This is a mandatory BYV gateway integration test. Use every one of these six tools for its named task.',
     'Perform the tasks sequentially: make exactly one tool call in each response, wait for its real tool result, then continue. Do not batch calls.',
-    '1. Read: read package.json and identify its top-level name.',
+    '1. Read: read byv-read-fixture.json and report its fixture_token.',
     '2. Glob: find all files matching **/*.txt in the current workspace.',
     '3. Grep: search for the exact string BYV_GREP_MATCH in **/*.txt.',
     '4. Read + Edit: use Read to read fixture-edit.txt in this same conversation, then use Edit to replace EDIT_BEFORE with EDIT_AFTER.',
     '5. Write: create smoke-created.txt with exactly WRITE_OK as its contents.',
     '6. Bash: execute exactly the one command pwd. Do not chain commands.',
     'Do not run any other shell command, do not access files outside the current workspace, and do not use other tools.',
-    'After every tool has returned a result, report the package name, files found by Glob, Grep match file, and output from pwd.'
+    'After every tool has returned a result, report the fixture_token, files found by Glob, Grep match file, and output from pwd.'
   ].join(' ');
 
   const isolatedPrompts = {
-    Read: 'Use the Read tool exactly once to read package.json in the current workspace. Do not call any other tool. After the tool returns, state the package name.',
+    Read: 'Use the Read tool exactly once to read byv-read-fixture.json in the current workspace. Do not call any other tool. After the tool returns, state the fixture_token.',
     Glob: 'Use the Glob tool exactly once to find all files matching **/*.txt in the current workspace. Do not call any other tool. After the tool returns, list the matching paths.',
     Grep: 'Call the built-in Grep tool now. This tool call is mandatory. Set pattern to the exact literal BYV_GREP_MATCH, path to ., glob to **/*.txt, and output_mode to files_with_matches. Search the current workspace only. Do not use Bash, Read, Glob, Edit, Write, or any other tool. Do not respond with prose until the Grep tool has returned. Then state the matching file.',
     Edit: 'First, use the Read tool exactly once to read the absolute file path ' + JSON.stringify(path.join(workspace, 'fixture-edit.txt')) + '. Wait for its successful tool result. Then use the Edit tool exactly once on that same absolute file path, replacing the exact text EDIT_BEFORE with EDIT_AFTER. Do not call any other tool. After the Edit tool returns, confirm the edit.',
