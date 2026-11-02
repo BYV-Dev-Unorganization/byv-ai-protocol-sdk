@@ -198,33 +198,132 @@ function parseCompletionToolCalls(completion) {
 
 function validateTextOnlyCompletion(completion) {
   const result = parseCompletionToolCalls(completion);
+  const base = {
+    parsed: result.parsed,
+    calls: result.calls,
+    native: result.native,
+    parseError: result.error || null
+  };
 
   if (result.error) {
-    return { valid: false, parsed: result.parsed, error: result.error };
+    return { ...base, valid: false, error: result.error };
   }
   if (result.calls.length > 0) {
     return {
+      ...base,
       valid: false,
-      parsed: result.parsed,
-      error: 'The model attempted a native tool call while tool use was disabled.'
+      error: 'The model attempted a tool call while tool use was disabled.'
     };
   }
   if (result.parsed.hasProtocol || result.parsed.errors.length > 0) {
     return {
+      ...base,
       valid: false,
-      parsed: result.parsed,
       error: result.parsed.errors[0] || 'The model emitted BYV protocol markup while tool use was disabled.'
     };
   }
   if (typeof result.parsed.text !== 'string' || !result.parsed.text.trim()) {
     return {
+      ...base,
       valid: false,
-      parsed: result.parsed,
       error: 'The text-only recovery returned an empty response.'
     };
   }
 
-  return { valid: true, parsed: result.parsed, error: null };
+  return { ...base, valid: true, error: null };
+}
+
+function classifyToolCallValidationError(error) {
+  const message = String(error || '');
+  if (/was not declared in this request/i.test(message)) return 'TOOL_NOT_DECLARED';
+  if (/failed schema validation/i.test(message)) return 'TOOL_SCHEMA_INVALID';
+  if (/duplicate invocation id/i.test(message)) return 'DUPLICATE_INVOCATION_ID';
+  if (/batch exceeds the maximum/i.test(message)) return 'TOOL_BATCH_LIMIT_EXCEEDED';
+  if (/tool_choice requires/i.test(message)) return 'TOOL_CHOICE_MISMATCH';
+  if (/must be a JSON object/i.test(message)) return 'INVALID_ARGUMENT_OBJECT';
+  if (/missing a valid id/i.test(message)) return 'INVALID_INVOCATION_ID';
+  if (/missing a valid tool name/i.test(message)) return 'INVALID_TOOL_NAME';
+  if (/no BYV invocation/i.test(message)) return 'EMPTY_TOOL_BATCH';
+  return 'TOOL_VALIDATION_FAILED';
+}
+
+function boundedLogString(value, maxLength) {
+  return typeof value === 'string' && value.length
+    ? value.slice(0, maxLength)
+    : null;
+}
+
+// Log metadata only. Never include call.input, provider arguments, prompts, or tool results.
+function logToolCallValidation(options = {}) {
+  const logger = options.logger;
+  if (typeof logger !== 'function') return;
+
+  const calls = Array.isArray(options.calls) ? options.calls : [];
+  const parseError = options.parseError || null;
+  const parsed = options.parsed || null;
+  const source = options.native
+    ? 'provider_native'
+    : parsed && parsed.hasProtocol
+      ? 'byv_format_block'
+      : 'unknown';
+  const validation = validateToolCallRequest(
+    calls,
+    Array.isArray(options.tools) ? options.tools : [],
+    options.force || { mode: 'auto' }
+  );
+  const disabled = options.toolsDisabled === true;
+  const rejected = disabled || Boolean(parseError) || !validation.valid;
+  const reason = disabled
+    ? 'TOOL_USE_DISABLED'
+    : parseError
+      ? (String(parseError).includes('both native function calls and BYV markup')
+        ? 'AMBIGUOUS_TOOL_OUTPUT'
+        : source === 'provider_native' ? 'PROVIDER_NATIVE_PARSE_ERROR' : 'BYV_PARSE_ERROR')
+      : !validation.valid
+        ? classifyToolCallValidationError(validation.error)
+        : null;
+  const base = {
+    request_id: boundedLogString(options.requestId, 128),
+    source,
+    phase: options.phase || 'initial',
+    recovery_attempt: Number.isInteger(options.attempt) ? options.attempt : null
+  };
+
+  const emit = (entry) => {
+    try {
+      logger({
+        level: rejected ? 'warn' : 'info',
+        ...entry
+      });
+    } catch (error) {
+      // Diagnostics must never change tool execution or recovery behavior.
+    }
+  };
+
+  if (calls.length === 0) {
+    if (parseError || (parsed && Array.isArray(parsed.errors) && parsed.errors.length > 0)) {
+      emit({
+        event: 'tool_call.parse_rejected',
+        ...base,
+        invocation_id: null,
+        tool_name: null,
+        validation_status: 'rejected',
+        validation_reason: reason || 'TOOL_PARSE_ERROR'
+      });
+    }
+    return;
+  }
+
+  for (const call of calls) {
+    emit({
+      event: rejected ? 'tool_call.rejected' : 'tool_call.validated',
+      ...base,
+      invocation_id: boundedLogString(call && call.id, 128),
+      tool_name: boundedLogString(call && call.name, 128),
+      validation_status: rejected ? 'rejected' : 'valid',
+      validation_reason: reason
+    });
+  }
 }
 
 async function handleMessages(body, options = {}) {
@@ -266,6 +365,19 @@ async function handleMessages(body, options = {}) {
     !parsed.hasProtocol &&
     !parsed.text.trim();
 
+  logToolCallValidation({
+    logger: options.logger,
+    requestId: options.requestId,
+    calls,
+    tools,
+    force,
+    parsed,
+    native: parsedResult.native,
+    parseError,
+    toolsDisabled,
+    phase: 'initial'
+  });
+
   if (toolsDisabled && (unexpectedCalls || malformedProtocol || emptyTextResponse)) {
     let recovered = false;
     let lastError = unexpectedCalls
@@ -280,6 +392,19 @@ async function handleMessages(body, options = {}) {
       }]);
       completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
       const textRecovery = validateTextOnlyCompletion(completion);
+      logToolCallValidation({
+        logger: options.logger,
+        requestId: options.requestId,
+        calls: textRecovery.calls,
+        tools,
+        force: { mode: 'none' },
+        parsed: textRecovery.parsed,
+        native: textRecovery.native,
+        parseError: textRecovery.parseError,
+        toolsDisabled: true,
+        phase: 'text_recovery',
+        attempt
+      });
       parsed = textRecovery.parsed;
       if (textRecovery.valid) {
         calls = [];
@@ -318,6 +443,18 @@ async function handleMessages(body, options = {}) {
       if (!validation.valid && parsedResult.error) {
         validation.error = parsedResult.error + ' ' + validation.error;
       }
+      logToolCallValidation({
+        logger: options.logger,
+        requestId: options.requestId,
+        calls,
+        tools,
+        force,
+        parsed,
+        native: parsedResult.native,
+        parseError: parsedResult.error,
+        phase: 'tool_recovery',
+        attempt
+      });
       if (!parsedResult.error && validation.valid && calls.length > 0) {
         recovered = true;
         break;
@@ -351,6 +488,18 @@ async function handleMessages(body, options = {}) {
         if (!validation.valid && parsedResult.error) {
           validation.error = parsedResult.error + ' ' + validation.error;
         }
+        logToolCallValidation({
+          logger: options.logger,
+          requestId: options.requestId,
+          calls,
+          tools,
+          force,
+          parsed,
+          native: parsedResult.native,
+          parseError: parsedResult.error,
+          phase: 'required_tool_recovery',
+          attempt
+        });
         if (!parsedResult.error && validation.valid && calls.length) {
           recovered = true;
           break;
