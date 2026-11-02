@@ -232,7 +232,7 @@ test('rejects provider-native calls and recovers with DSML when native calling i
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].at(-1).content, /Output exactly one complete DSML calls block/);
+  assert.match(seenMessages[1].at(-1).content, /Output only one DeepSeek DSML calls block/);
   assert.equal(result.stop_reason, 'tool_use');
   assert.equal(result.content[0].type, 'tool_use');
   assert.equal(result.content[0].name, 'Read');
@@ -351,7 +351,7 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].messages.at(-1).content, /Output exactly one complete DSML calls block/);
+  assert.match(seenMessages[1].messages.at(-1).content, /Output only one DeepSeek DSML calls block/);
   assert.equal(seenMessages[1].options.tool_choice, 'auto');
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
