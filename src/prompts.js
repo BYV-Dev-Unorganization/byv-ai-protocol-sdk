@@ -143,7 +143,7 @@ function toolsToPrompt(tools) {
     if (PROVIDER_NATIVE_TOOL_CALLING) {
         lines.push('1. The declared tool schemas are supplied through the upstream provider native function-calling interface.');
         lines.push('2. When the task requires a listed capability, invoke the appropriate native function immediately. Do not merely announce an action or substitute prose for a tool call.');
-        lines.push('3. Use only the listed native function names and exact declared parameter names. Do not emit BYV markup or JSON tool-call wrappers while native function calling is enabled.');
+        lines.push('3. Use only the listed native function names and exact declared parameter names. Do not emit DSML markup or JSON tool-call wrappers while native function calling is enabled.');
         lines.push('4. Use tools only when they materially help complete the current request. After sufficient tool results are received, provide the final answer without another tool call.');
     } else {
         lines.push('1. If the task requires file access, shell commands, search, or an action that one of the tools above can perform, you MUST use the appropriate tool.');
@@ -321,11 +321,18 @@ function buildSystemPrompt(body = {}) {
 
     if (system) sections.push('### SYSTEM\n' + system);
     sections.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
-    sections.push([
-        '### DSML TOOL CALL PROTOCOL',
-        'Use the DeepSeek DSML tool-call format as the model-facing text protocol. The gateway converts DSML output into its internal representation, validates tool names and arguments against the request schemas, and translates accepted calls into the Anthropic tool_use contract.',
-        'Do not use alternative markup, JSON tool-call wrappers, or provider-native function calling unless the gateway explicitly enables its optional native compatibility mode.'
-    ].join('\n'));
+    if (PROVIDER_NATIVE_TOOL_CALLING) {
+        sections.push([
+            '### NATIVE TOOL CALL PROTOCOL',
+            'Use the upstream provider native function-calling interface supplied with this request. Do not emit DSML or JSON tool-call wrappers.'
+        ].join('\\n'));
+    } else {
+        sections.push([
+            '### DSML TOOL CALL PROTOCOL',
+            'Use the DeepSeek DSML tool-call format as the model-facing text protocol. The gateway converts DSML output into its internal representation, validates tool names and arguments against the request schemas, and translates accepted calls into the Anthropic tool_use contract.',
+            'Do not use alternative markup, JSON tool-call wrappers, or provider-native function calling unless the gateway explicitly enables its optional native compatibility mode.'
+        ].join('\\n'));
+    }
 
     const toolPrompt = toolsToPrompt(tools);
     if (toolPrompt) {
@@ -394,7 +401,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     if (options.nativeToolCalling || PROVIDER_NATIVE_TOOL_CALLING) {
         return [
             'RECOVERY REQUIRED: the previous response did not contain a valid native function call for the declared tools.',
-            'Use the native function-calling interface supplied with this request. Do not write BYV markup, JSON wrappers, or narration instead of invoking the required function.',
+            'Use the native function-calling interface supplied with this request. Do not write DSML markup, JSON wrappers, or narration instead of invoking the required function.',
             'Validation issue: ' + String(error || 'Unknown provider tool-call validation error'),
             'Rebuild the required call from the original user request and available tool schemas.',
             'Every function name and argument must satisfy the declared tool input_schema.',
