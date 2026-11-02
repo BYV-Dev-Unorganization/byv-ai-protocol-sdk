@@ -91,6 +91,7 @@ PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
 # Optional only. BYV Format Block is the default.
 PROVIDER_NATIVE_TOOL_CALLING=false
+PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
@@ -329,6 +330,10 @@ The gateway validates and supports the core fields used by the Anthropic Message
 
 The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
 
+### Native reasoning effort
+
+When `PROVIDER_NATIVE_REASONING_EFFORT=true` (the default), BYV forwards Anthropic `output_config.effort` as the top-level OpenAI-compatible `reasoning_effort` parameter. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Set `PROVIDER_NATIVE_REASONING_EFFORT=false` when an upstream provider does not support this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
+
 ### Provider capabilities and context budgeting
 
 BYV performs best-effort model metadata discovery using the configured provider's OpenAI-compatible model endpoints: GET /models/{model}, then GET /models when the detail endpoint does not expose limits. It recognizes reported context-window, maximum-input, and maximum-output token fields. Model capability metadata is cached for PROVIDER_CAPABILITIES_CACHE_MS and can be refreshed with GET /v1/provider/capabilities?refresh=1. The endpoint reports the actual configured provider model and the source of each detected limit.
@@ -343,7 +348,7 @@ These local counts are conservative estimates, not counts from the provider's ex
 
 ### Provider prompt caching and usage
 
-When the upstream provider supports automatic prompt/prefix caching, BYV sends ordinary Chat Completions messages and lets the provider manage its inference cache. BYV keeps the invariant core system prompt at the beginning of the assembled prompt and appends request-specific tool definitions, client instructions, profile guidance, effort, and tool-choice overlays afterward. This gives the provider the longest stable prefix available across requests. BYV does not inject Anthropic cache_control or other provider-specific cache parameters into a generic OpenAI-compatible payload.
+When the upstream provider supports automatic prompt/prefix caching, BYV sends ordinary Chat Completions messages and lets the provider manage its inference cache. BYV keeps the invariant core system prompt at the beginning of the assembled prompt and appends request-specific tool definitions, client instructions, profile guidance, and tool-choice overlays afterward. Native reasoning effort is sent separately as a top-level provider parameter, so it does not alter the reusable prompt prefix. This gives the provider the longest stable prefix available across requests. BYV does not inject Anthropic cache_control or other provider-specific cache parameters into a generic OpenAI-compatible payload.
 
 When the provider reports cache usage, BYV maps prompt_tokens_details.cached_tokens (and recognized cache-creation/cache-read fields) into the Anthropic usage fields cache_read_input_tokens and cache_creation_input_tokens. The uncached portion is reported as input_tokens. Cache counts are omitted when the provider does not report them; BYV does not manufacture cache-hit metrics.
 
@@ -373,6 +378,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
 | PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; BYV Format Block is the default tool-call protocol |
+| PROVIDER_NATIVE_REASONING_EFFORT | true | Forward Anthropic output_config.effort as native reasoning_effort; set false for providers that do not support it |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
