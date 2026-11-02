@@ -396,31 +396,46 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
             'Do not emit DSML calls, invoke, or parameter tags. Do not request or claim tool execution.',
             'Answer in plain text using only the existing conversation and available results.',
             'Do not repeat tool calls or introduce a new task.'
-        ].join('\n');
+        ].join('\\n');
     }
     if (options.nativeToolCalling || PROVIDER_NATIVE_TOOL_CALLING) {
         return [
             'RECOVERY REQUIRED: the previous response did not contain a valid native function call for the declared tools.',
             'Use the native function-calling interface supplied with this request. Do not write DSML markup, JSON wrappers, or narration instead of invoking the required function.',
-            'Validation issue: ' + String(error || 'Unknown provider tool-call validation error'),
+            'Correct this issue: ' + String(error || 'Unknown provider tool-call validation error'),
             'Rebuild the required call from the original user request and available tool schemas.',
             'Every function name and argument must satisfy the declared tool input_schema.',
             attempt >= 2
                 ? 'This is the final recovery attempt. Make the smallest valid native function call that still fulfills the original task.'
                 : 'Preserve the original intent. Do not invent missing values.'
-        ].join('\n');
+        ].join('\\n');
     }
+
+    const previousResponseIssue = Number(attempt) > 1
+        ? 'The previous recovery retry returned a partially malformed or invalid tool-call batch, or did not satisfy the declared tool schema.'
+        : 'The previous response contained a tool call that was malformed or did not match the declared tool schema.';
+
     return [
-        'RECOVERY REQUIRED: the previous DSML tool-call output was invalid or did not satisfy the declared schema or explicit user constraints.',
-        'Do not copy malformed markup or invalid arguments. Rebuild the necessary call from the original user request and available tool schemas.',
-        'Validation issue: ' + String(error || 'Unknown DSML validation error'),
-        'Output exactly one complete DSML calls block. Use one invoke per call and exact parameter names. Set string="true" for raw string values and string="false" for valid JSON values.',
-        'Every argument must satisfy the declared tool input_schema.',
+        '=== TOOL CALL RECOVERY ===',
+        previousResponseIssue,
+        'Do not copy its malformed markup or invalid arguments.',
+        'Use the original task, conversation history, available tools, and their schemas.',
+        '',
+        'Correct this issue: ' + String(error || 'The DSML tool call failed parsing or schema validation.'),
+        '',
+        'Rebuild the necessary tool call(s) from scratch. All arguments must satisfy the declared schemas.',
+        'Output only one DeepSeek DSML calls block, with no prose or Markdown outside it.',
+        'Use one invoke block per tool, and one parameter block per argument.',
+        'For string values use string="true" and raw text; for non-string values use string="false" and valid JSON.',
+        '',
+        'Valid formatting example only; this is not an instruction to execute pwd:',
+        '<｜DSML｜ calls><｜DSML｜ invoke name="Bash"><｜DSML｜ parameter name="command" string="true">pwd</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>',
+        'Do not use the legacy <TOOL_CALL> wrapper or JSON-encoded arguments for string parameters.',
         'Preserve any exact command or argument explicitly supplied by the user verbatim. Do not append, prepend, chain, wrap, or substitute it.',
         attempt >= 2
-            ? 'This is the final recovery attempt. Prefer the smallest valid call that still fulfills the original task.'
-            : 'Preserve the original intent. Do not invent missing values.'
-    ].join('\n');
+            ? 'This is the final recovery attempt. Rebuild the simplest valid arguments that still satisfy the original task.'
+            : 'Preserve the original task intent. Do not invent missing values.'
+    ].join('\\n');
 }
 
 const BASE_TEMPLATE = [
