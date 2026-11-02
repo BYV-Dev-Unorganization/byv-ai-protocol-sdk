@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const DSML_TAG_SOURCE = '<\\s*(\\/?)\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*(calls|tool_calls|invoke|parameter)\\b([^>]*)>';
 
 function createTagRegex() {
@@ -106,7 +108,7 @@ function convertParameter(attributesText, rawValue) {
  * Format Block representation. The BYV parser remains the single parser and
  * validator for the converted result.
  */
-function convertDsmlToBYV(input) {
+function convertDsmlToBYV(input, options = {}) {
   const source = String(input || '');
   const pattern = createTagRegex();
   let output = '';
@@ -114,6 +116,9 @@ function convertDsmlToBYV(input) {
   let match;
   let detected = false;
   let invocationIndex = 0;
+  const idFactory = typeof options.idFactory === 'function'
+    ? options.idFactory
+    : () => 'dsml_call_' + crypto.randomBytes(12).toString('hex');
 
   while ((match = pattern.exec(source)) !== null) {
     detected = true;
@@ -140,8 +145,8 @@ function convertDsmlToBYV(input) {
         }
         const name = safeAttribute(attributes.name, /^[A-Za-z_][A-Za-z0-9_.:/-]*$/);
         invocationIndex++;
-        output += '<|BYV| invoke name="' + name + '" id="dsml_call_' +
-          String(invocationIndex).padStart(3, '0') + '">';
+        const generatedId = safeAttribute(idFactory(invocationIndex), /^[A-Za-z_][A-Za-z0-9_.:/-]*$/);
+        output += '<|BYV| invoke name="' + name + '" id="' + generatedId + '">';
       }
       cursor = pattern.lastIndex;
       continue;
