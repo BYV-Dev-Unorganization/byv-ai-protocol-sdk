@@ -180,19 +180,19 @@ test('recovery prompts include the validation issue, concrete DSML example, and 
 
   if (PROVIDER_NATIVE_TOOL_CALLING) {
     assert.match(firstRecovery, /native function-calling interface/);
-    assert.match(firstRecovery, /Correct this issue: BYV parameter command is not closed\\./);
+    assert.ok(firstRecovery.includes('Correct this issue: BYV parameter command is not closed.'));
     assert.match(finalRecovery, /final recovery attempt/i);
   } else {
     assert.match(firstRecovery, /=== TOOL CALL RECOVERY ===/);
     assert.match(firstRecovery, /previous response contained a tool call/i);
-    assert.match(firstRecovery, /Correct this issue: BYV parameter command is not closed\\./);
+    assert.ok(firstRecovery.includes('Correct this issue: BYV parameter command is not closed.'));
     assert.match(firstRecovery, /one DeepSeek DSML calls block/);
     assert.ok(firstRecovery.includes('<｜DSML｜ calls><｜DSML｜ invoke name="Bash"><｜DSML｜ parameter name="command" string="true">pwd</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>'));
     assert.match(firstRecovery, /preserve.*verbatim/i);
     assert.doesNotMatch(firstRecovery, /final recovery attempt/i);
 
     assert.match(finalRecovery, /previous recovery retry returned a partially malformed or invalid tool-call batch/i);
-    assert.match(finalRecovery, /Correct this issue: Retry returned a malformed batch\\./);
+    assert.ok(finalRecovery.includes('Correct this issue: Retry returned a malformed batch.'));
     assert.match(finalRecovery, /final recovery attempt/i);
   }
 
