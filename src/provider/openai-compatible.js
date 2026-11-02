@@ -5,6 +5,7 @@ const {
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
+  PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_TIMEOUT_MS,
   PROVIDER_MAX_REQUESTS_PER_MINUTE,
   PROVIDER_MAX_CONCURRENT_REQUESTS
@@ -80,6 +81,10 @@ function buildPayload(messages, options = {}) {
   if (typeof options.top_p === 'number') payload.top_p = options.top_p;
   if (Array.isArray(options.stop_sequences) && options.stop_sequences.length) {
     payload.stop = options.stop_sequences;
+  }
+  if (PROVIDER_NATIVE_REASONING_EFFORT &&
+      ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
+    payload.reasoning_effort = options.reasoning_effort;
   }
   if (PROVIDER_NATIVE_TOOL_CALLING && Array.isArray(options.tools) && options.tools.length) {
     try {
