@@ -131,6 +131,37 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
   });
 });
 
+test('converts DSML model output through the unchanged BYV parser before returning tool_use', async () => {
+  const events = [];
+  const output = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+  const result = await handleMessages(body(), {
+    nativeToolCalling: false,
+    requestId: 'req_dsml_adapter',
+    logger: (event) => events.push(event),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async () => ({
+        text: output,
+        reasoning: '',
+        finish_reason: 'stop',
+        usage: null
+      })
+    }
+  });
+
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0], {
+    type: 'tool_use',
+    id: 'dsml_call_001',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  });
+  assert.equal(events[0].source, 'dsml_converted_to_byv');
+  assert.equal(events[0].validation_status, 'valid');
+});
+
 test('logs validated BYV tool-call metadata without recording arguments', async () => {
   const events = [];
   const privatePath = '/workspace/private-file-name.txt';
@@ -166,7 +197,7 @@ test('logs validated BYV tool-call metadata without recording arguments', async 
   assert.equal(JSON.stringify(events).includes('file_path'), false);
 });
 
-test('rejects provider-native tool calls when native tool calling is disabled and recovers with BYV', async () => {
+test('rejects provider-native calls and recovers with DSML when native calling is disabled', async () => {
   let count = 0;
   const events = [];
   const seenMessages = [];
@@ -194,7 +225,7 @@ test('rejects provider-native tool calls when native tool calling is disabled an
           };
         }
         return {
-          text: '<|BYV| calls><|BYV| invoke name="Read" id="call_byv_after_native"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"><｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>',
           finish_reason: 'stop',
           usage: null
         };
@@ -203,11 +234,11 @@ test('rejects provider-native tool calls when native tool calling is disabled an
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].at(-1).content, /Output exactly one complete BYV calls block/);
+  assert.match(seenMessages[1].at(-1).content, /Output exactly one complete DSML calls block/);
   assert.equal(result.stop_reason, 'tool_use');
   assert.deepEqual(result.content[0], {
     type: 'tool_use',
-    id: 'call_byv_after_native',
+    id: 'dsml_call_001',
     name: 'Read',
     input: { file_path: 'README.md' }
   });
@@ -225,7 +256,7 @@ test('rejects provider-native tool calls when native tool calling is disabled an
     },
     {
       event: 'tool_call.validated',
-      source: 'byv_format_block',
+      source: 'dsml_converted_to_byv',
       phase: 'tool_recovery',
       validation_reason: null
     }
