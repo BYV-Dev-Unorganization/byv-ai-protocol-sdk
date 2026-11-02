@@ -60,7 +60,7 @@ test('base prompt and documentation artifact describe DSML model output and the 
   assert.match(artifact, /DeepSeek DSML/);
   assert.match(artifact, /<｜DSML｜ calls>/);
   assert.doesNotMatch(BASE_TEMPLATE, /BYV Format Block/);
-  assert.match(artifact, /BYV parser/);
+  assert.match(artifact, /unchanged BYV protocol parser/);
 });
 
 test('tool prompt follows the reference catalog style and describes exact DSML syntax', () => {
