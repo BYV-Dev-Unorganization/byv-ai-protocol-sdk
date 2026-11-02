@@ -4,6 +4,7 @@ const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, P
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
+const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
@@ -167,7 +168,11 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
 }
 
 function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIVE_TOOL_CALLING) {
-  const parsed = parseBYVOutput(completion.text);
+  const adapted = convertDsmlToBYV(completion.text);
+  const parsed = parseBYVOutput(adapted.text);
+  parsed.protocolSource = adapted.detected
+    ? 'dsml_converted_to_byv'
+    : parsed.hasProtocol ? 'byv_format_block' : 'unknown';
   const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
   if (!nativeToolCalling && hasNativeToolCalls) {
@@ -176,15 +181,15 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
         parsed,
         calls: [],
         error: parsed.calls.length > 0
-          ? 'Provider returned both native function calls and BYV markup while native function calling is disabled.'
-          : (parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.'),
+          ? 'Provider returned both native function calls and textual tool-call markup while native function calling is disabled.'
+          : (parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.'),
         native: true
       };
     }
     return {
       parsed,
       calls: [],
-      error: 'Native provider function calls are disabled; use BYV Format Block instead.',
+      error: 'Native provider function calls are disabled; use DSML text tool calls instead.',
       native: true
     };
   }
@@ -197,7 +202,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     return {
       parsed,
       calls: [],
-      error: 'Provider returned both native function calls and BYV markup in the same response.',
+      error: 'Provider returned both native function calls and textual tool-call markup in the same response.',
       native: true
     };
   }
@@ -205,7 +210,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     return {
       parsed,
       calls: [],
-      error: parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.',
+      error: parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.',
       native: true
     };
   }
@@ -240,7 +245,7 @@ function validateTextOnlyCompletion(completion) {
     return {
       ...base,
       valid: false,
-      error: result.parsed.errors[0] || 'The model emitted BYV protocol markup while tool use was disabled.'
+      error: result.parsed.errors[0] || 'The model emitted tool-call markup while tool use was disabled.'
     };
   }
   if (typeof result.parsed.text !== 'string' || !result.parsed.text.trim()) {
@@ -284,9 +289,11 @@ function logToolCallValidation(options = {}) {
   const parsed = options.parsed || null;
   const source = options.native
     ? 'provider_native'
-    : parsed && parsed.hasProtocol
-      ? 'byv_format_block'
-      : 'unknown';
+    : parsed && parsed.protocolSource
+      ? parsed.protocolSource
+      : parsed && parsed.hasProtocol
+        ? 'byv_format_block'
+        : 'unknown';
   const validation = validateToolCallRequest(
     calls,
     Array.isArray(options.tools) ? options.tools : [],
@@ -297,7 +304,7 @@ function logToolCallValidation(options = {}) {
   const reason = disabled
     ? 'TOOL_USE_DISABLED'
     : parseError
-      ? (String(parseError).includes('both native function calls and BYV markup')
+      ? (String(parseError).includes('both native function calls and textual tool-call markup')
         ? 'AMBIGUOUS_TOOL_OUTPUT'
         : String(parseError).includes('Native provider function calls are disabled')
           ? 'PROVIDER_NATIVE_DISABLED'
