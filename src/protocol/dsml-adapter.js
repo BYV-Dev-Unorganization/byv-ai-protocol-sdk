@@ -41,12 +41,12 @@ function escapeBYVString(value) {
     .replace(/\r/g, '\\r')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')
-    .replace(/<\\/\\|BYV\\|\\s*parameter>/g, (match) => '\\' + match);
+    .replace(/<\/\|BYV\|\s*parameter>/g, (match) => '\\' + match);
 }
 
 function escapeBYVJson(value) {
   return JSON.stringify(value).replace(
-    /<\\/\\|BYV\\|\\s*parameter>/g,
+    /<\/\|BYV\|\s*parameter>/g,
     (match) => '\\u003c' + match.slice(1)
   );
 }
