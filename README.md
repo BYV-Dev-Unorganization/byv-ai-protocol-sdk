@@ -94,6 +94,8 @@ PROVIDER_NATIVE_TOOL_CALLING=false
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
+When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. Tool invocations must use BYV Format Block. Set it to `true` only when the configured provider supports native function calling.
+
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
 Start the gateway:
