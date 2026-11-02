@@ -16,7 +16,7 @@ test('converts a standard DeepSeek DSML calls block into the existing BYV parser
     'After the call.'
   ].join('\n');
 
-  const adapted = convertDsmlToBYV(source);
+  const adapted = convertDsmlToBYV(source, { idFactory: (index) => 'dsml_call_' + String(index).padStart(3, '0') });
   assert.equal(adapted.detected, true);
   assert.match(adapted.text, /<\|BYV\| invoke name="Read" id="dsml_call_001">/);
 
@@ -28,6 +28,13 @@ test('converts a standard DeepSeek DSML calls block into the existing BYV parser
     name: 'Read',
     input: { file_path: 'README.md' }
   }]);
+});
+
+test('generates different invocation IDs across separate DSML responses', () => {
+  const source = '<|DSML| calls><|DSML| invoke name="Read"></|DSML| invoke></|DSML| calls>';
+  const first = parseBYVOutput(convertDsmlToBYV(source).text);
+  const second = parseBYVOutput(convertDsmlToBYV(source).text);
+  assert.notEqual(first.calls[0].id, second.calls[0].id);
 });
 
 test('converts DSML string flags into the matching BYV JSON value types', () => {
