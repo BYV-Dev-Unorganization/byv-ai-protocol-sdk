@@ -58,9 +58,9 @@ test('base prompt and documentation artifact describe DSML model output and the 
   assert.match(BASE_TEMPLATE, /DeepSeek DSML is the model-facing tool-call format/);
   assert.match(BASE_TEMPLATE, /string flags/);
   assert.match(artifact, /DeepSeek DSML/);
-  assert.match(artifact, /<\|BYV\| calls>/);
+  assert.match(artifact, /<｜DSML｜ calls>/);
   assert.doesNotMatch(BASE_TEMPLATE, /BYV Format Block/);
-  assert.match(artifact, /internal BYV representation/);
+  assert.match(artifact, /<｜DSML｜ calls>/);
 });
 
 test('tool prompt follows the reference catalog style and describes exact DSML syntax', () => {
@@ -68,8 +68,8 @@ test('tool prompt follows the reference catalog style and describes exact DSML s
   assert.match(prompt, /Bash\(command\*: string/);
   assert.match(prompt, /Read\(file_path\*: string/);
   assert.match(prompt, /DeepSeek DSML markup format/);
-  assert.match(prompt, /<\|BYV\| invoke name="Bash" id="call_001">/);
-  assert.match(prompt, /<\|BYV\| parameter name="command" type="string">pwd/);
+  assert.match(prompt, /<｜DSML｜ invoke name="Bash">/);
+  assert.match(prompt, /<｜DSML｜ parameter name="command" string="true">pwd/);
   assert.match(prompt, /string="false"/);
   assert.match(prompt, /preserve it verbatim/);
   assert.match(prompt, /Tool names, descriptions, and schemas define available capabilities/);
@@ -127,7 +127,7 @@ test('buildFullPrompt and buildResumePrompt retain DSML protocol across new requ
   ];
   const full = buildFullPrompt('Client instructions', messages, [readTool]);
   const resume = buildResumePrompt('Client instructions', messages, [readTool], true);
-  assert.match(full, /DSML calls\\/invoke\\/parameter format/);
+  assert.match(full, /DSML calls\/invoke\/parameter format/);
   assert.match(full, /=== TOOL RESULTS ===/);
   assert.match(resume, /LATEST TOOL RESULTS/);
   assert.match(resume, /ORIGINAL USER REQUEST/);
