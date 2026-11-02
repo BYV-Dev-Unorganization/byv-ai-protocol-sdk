@@ -88,6 +88,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PORT: '0',
     PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
+    PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_TIMEOUT_MS: '300000.5',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 'not-a-number',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '129',
