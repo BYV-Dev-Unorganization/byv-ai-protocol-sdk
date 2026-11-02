@@ -50,31 +50,31 @@ const bashTool = {
   }
 };
 
-test('base prompt and documentation artifact describe the BYV Format Block protocol', () => {
+test('base prompt and documentation artifact describe DSML model output and the internal BYV adapter', () => {
   const artifact = fs.readFileSync(PROMPT_ARTIFACT_PATH, 'utf8');
   assert.match(BASE_TEMPLATE, /ASSISTANT IDENTITY/);
   assert.match(BASE_TEMPLATE, /CONVERSATION LANGUAGE/);
-  assert.match(BASE_TEMPLATE, /BYV FORMAT BLOCK TOOL CALLS/);
-  assert.match(BASE_TEMPLATE, /BYV Format Block is the primary tool-call protocol/);
-  assert.match(BASE_TEMPLATE, /unique id/);
-  assert.match(artifact, /BYV Format Block/);
+  assert.match(BASE_TEMPLATE, /DSML TOOL CALLS/);
+  assert.match(BASE_TEMPLATE, /DeepSeek DSML is the model-facing tool-call format/);
+  assert.match(BASE_TEMPLATE, /string flags/);
+  assert.match(artifact, /DeepSeek DSML/);
   assert.match(artifact, /<\|BYV\| calls>/);
-  assert.doesNotMatch(BASE_TEMPLATE, /DSML/i);
-  assert.doesNotMatch(artifact, /DSML/i);
+  assert.doesNotMatch(BASE_TEMPLATE, /<\\|BYV\\|/);
+  assert.match(artifact, /internal BYV representation/);
 });
 
-test('tool prompt follows the reference catalog style and describes exact BYV syntax', () => {
+test('tool prompt follows the reference catalog style and describes exact DSML syntax', () => {
   const prompt = toolsToPrompt([bashTool, readTool]);
   assert.match(prompt, /Bash\(command\*: string/);
   assert.match(prompt, /Read\(file_path\*: string/);
-  assert.match(prompt, /BYV Format Block markup format/);
+  assert.match(prompt, /DeepSeek DSML markup format/);
   assert.match(prompt, /<\|BYV\| invoke name="Bash" id="call_001">/);
   assert.match(prompt, /<\|BYV\| parameter name="command" type="string">pwd/);
-  assert.match(prompt, /unique non-empty id/);
+  assert.match(prompt, /string="false"/);
   assert.match(prompt, /preserve it verbatim/);
   assert.match(prompt, /Tool names, descriptions, and schemas define available capabilities/);
-  assert.doesNotMatch(prompt, /DSML/i);
-  assert.doesNotMatch(prompt, /string="true"/);
+  assert.doesNotMatch(prompt, /<\\|BYV\\|/);
+  assert.match(prompt, /string="true"/);
   assert.equal(toolsToPrompt([]), '');
 });
 
@@ -92,14 +92,14 @@ test('buildSystemPrompt combines client system context, project policy, tools, p
   assert.ok(prompt.indexOf('Read(file_path*: string') >= 0);
   assert.ok(prompt.indexOf('=== ACTIVE GATEWAY TOOL-CHOICE CONTROL ===') >= 0);
   assert.ok(prompt.indexOf('MODEL RESPONSE PROFILE') >= 0);
-  assert.match(prompt, /BYV Format Block is the default tool-call protocol/);
-  assert.doesNotMatch(prompt, /DSML/i);
+  assert.match(prompt, /DeepSeek DSML tool-call format as the model-facing text protocol/);
+  assert.match(prompt, /DSML/i);
 });
 
 test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
   const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] });
   assert.match(prompt, /NO TOOLS AVAILABLE/);
-  assert.match(prompt, /Do not emit BYV calls, invoke, or parameter tags/);
+  assert.match(prompt, /Do not emit DSML calls, invoke, or parameter tags/);
   assert.match(prompt, /Do not invent tools/);
 });
 
@@ -119,7 +119,7 @@ test('buildSystemPrompt gives the latest tool result continuation the original t
   assert.match(prompt, /Do not call another tool if the task is complete/);
 });
 
-test('buildFullPrompt and buildResumePrompt retain BYV protocol across new requests and tool-result turns', () => {
+test('buildFullPrompt and buildResumePrompt retain DSML protocol across new requests and tool-result turns', () => {
   const messages = [
     { role: 'user', content: 'Read README.md and summarize it.' },
     { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
@@ -131,11 +131,11 @@ test('buildFullPrompt and buildResumePrompt retain BYV protocol across new reque
   assert.match(full, /=== TOOL RESULTS ===/);
   assert.match(resume, /LATEST TOOL RESULTS/);
   assert.match(resume, /ORIGINAL USER REQUEST/);
-  assert.match(resume, /BYV Format Block calls block/);
-  assert.doesNotMatch(full + resume, /DSML/i);
+  assert.match(resume, /DSML calls block/);
+  assert.match(full + resume, /DSML/i);
 });
 
-test('buildProviderMessages preserves provider chat roles while applying the new BYV system prompt', () => {
+test('buildProviderMessages preserves provider chat roles while applying the new DSML system prompt', () => {
   const messages = buildProviderMessages({
     model: 'byv-flash-v1',
     tools: [readTool],
@@ -146,7 +146,7 @@ test('buildProviderMessages preserves provider chat roles while applying the new
     ]
   });
   assert.equal(messages[0].role, 'system');
-  assert.match(messages[0].content, /BYV Format Block/);
+  assert.match(messages[0].content, /DSML TOOL CALL PROTOCOL/);
   assert.equal(messages[1].role, 'user');
   assert.equal(messages[2].role, 'assistant');
   assert.equal(messages[3].role, 'tool');
@@ -167,21 +167,21 @@ test('parseToolChoice and applyForcedTool preserve none, any, and named-tool con
     assert.match(any, /native function/);
     assert.match(specific, /native function/);
   } else {
-    assert.match(any, /one BYV calls block/);
-    assert.match(specific, /one BYV calls block containing an invoke named "Read"/);
+    assert.match(any, /one DSML calls block/);
+    assert.match(specific, /one DSML calls block containing an invoke named "Read"/);
   }
 });
 
-test('recovery prompts request BYV output by default and plain text when tools are disabled', () => {
+test('recovery prompts request DSML output by default and plain text when tools are disabled', () => {
   const toolRecovery = buildRecoveryMessage('wrong parameter', 1, 'tool');
   const textRecovery = buildRecoveryMessage('tool disabled', 1, 'text');
   if (PROVIDER_NATIVE_TOOL_CALLING) {
     assert.match(toolRecovery, /native function-calling interface/);
   } else {
-    assert.match(toolRecovery, /BYV Format Block/);
-    assert.match(toolRecovery, /unique non-empty id/);
+    assert.match(toolRecovery, /DSML calls block/);
+    assert.match(toolRecovery, /string="true"/);
     assert.match(toolRecovery, /preserve.*verbatim/i);
   }
-  assert.match(textRecovery, /Do not emit BYV calls/);
-  assert.doesNotMatch(textRecovery, /Output exactly one complete BYV calls block/);
+  assert.match(textRecovery, /Do not emit DSML calls/);
+  assert.doesNotMatch(textRecovery, /Output exactly one complete DSML calls block/);
 });
