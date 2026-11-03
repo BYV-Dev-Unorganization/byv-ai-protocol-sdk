@@ -96,6 +96,33 @@ test('buildSystemPrompt combines client system context, project policy, tools, p
   assert.match(prompt, /DSML/i);
 });
 
+test('DSML prompt includes the complete nested JSON Schema as the authoritative tool contract', () => {
+  const schemaTool = {
+    name: 'mcp__example__search',
+    description: 'Search records',
+    input_schema: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['exact', 'fuzzy'] },
+        filters: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { field: { type: 'string' }, values: { type: 'array', items: { type: 'number' } } },
+            required: ['field']
+          }
+        }
+      },
+      required: ['mode']
+    }
+  };
+  const prompt = buildSystemPrompt({ tools: [schemaTool] }, { nativeToolCalling: false });
+  assert.match(prompt, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(prompt, /"enum": \\[\\s*"exact",\\s*"fuzzy"/);
+  assert.match(prompt, /"items": \\{/);
+  assert.match(prompt, /"required": \\[\\s*"mode"/);
+});
+
 test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
   const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] });
   assert.match(prompt, /NO TOOLS AVAILABLE/);
@@ -144,14 +171,17 @@ test('buildProviderMessages preserves provider chat roles while applying the new
       { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'file content' }] }
     ]
-  });
+  }, { nativeToolCalling: false });
   assert.equal(messages[0].role, 'system');
   assert.match(messages[0].content, /DSML TOOL CALL PROTOCOL/);
   assert.equal(messages[1].role, 'user');
   assert.equal(messages[2].role, 'assistant');
-  assert.equal(messages[3].role, 'tool');
-  assert.equal(messages[3].tool_call_id, 'call_read');
-  assert.equal(messages[3].content, 'file content');
+  assert.match(messages[2].content, /HISTORICAL TOOL INVOCATIONS/);
+  assert.match(messages[2].content, /<｜DSML｜tool_calls>/);
+  assert.equal(messages[3].role, 'user');
+  assert.match(messages[3].content, /HISTORICAL TOOL RESULTS/);
+  assert.match(messages[3].content, /file content/);
+  assert.equal(messages.some((message) => message.role === 'tool'), false);
 });
 
 test('parseToolChoice and applyForcedTool preserve none, any, and named-tool controls', () => {
