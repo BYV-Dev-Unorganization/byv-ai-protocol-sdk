@@ -80,7 +80,7 @@ function convertParameter(attributesText, rawValue) {
 
   if (stringFlag === 'true') {
     type = 'string';
-    const decoded = rawValue.replace(/<\\(\/\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*parameter\\s*)>/gi, '<$1>');
+    const decoded = rawValue.replace(/<\\(\/\s*[｜|]{1,2}\s*DSML\s*[｜|]{1,2}\s*parameter\s*)>/gi, '<$1>');
     value = escapeBYVString(decoded);
   } else if (stringFlag === 'false') {
     try {
