@@ -7,7 +7,8 @@ function isPlainObject(value) {
 }
 
 function parseArguments(value, label) {
-  if (value === undefined || value === null) return {};
+  if (value === undefined) return {};
+  if (value === null) throw new TypeError((label || 'Tool call') + ' arguments must be a JSON object, not null.');
   let parsed = value;
   if (typeof value === 'string') {
     try {
