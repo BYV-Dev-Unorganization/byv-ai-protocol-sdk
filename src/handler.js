@@ -1,6 +1,6 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, uuid } = require('./config');
+const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, PROVIDER_MODEL, uuid } = require('./config');
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
@@ -134,9 +134,28 @@ function enforceProviderBudget(capabilities, estimatedInputTokens, requestedOutp
   }
 }
 
-async function requestCompletion(messages, body, signal, provider = {}, capabilities = null) {
-  const estimatedInputTokens = estimateProviderInputTokens(messages);
-  enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
+async function requestCompletion(messages, body, signal, provider = {}, capabilities = null, diagnostic = {}) {
+  const startedAt = Date.now();
+  const requestId = diagnostic.requestId || null;
+  const attempt = Number.isInteger(diagnostic.attempt) ? diagnostic.attempt : null;
+  const phase = diagnostic.phase || 'initial';
+  let estimatedInputTokens = null;
+  let upstreamStarted = false;
+  const record = (event, fields = {}) => {
+    if (typeof diagnostic.logEvent !== 'function') return;
+    try {
+      diagnostic.logEvent(event, {
+        request_id: requestId,
+        provider_attempt: attempt,
+        phase,
+        recovery_attempt: Number.isInteger(diagnostic.recoveryAttempt) ? diagnostic.recoveryAttempt : null,
+        ...fields
+      });
+    } catch {
+      // Diagnostics are best-effort and must not affect provider calls.
+    }
+  };
+
   const options = {
     max_tokens: body.max_tokens,
     temperature: body.temperature,
@@ -146,25 +165,70 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     tools: body.tools,
     tool_choice: body.tool_choice
   };
-  const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
-  const normalCall = provider.createChatCompletion || createChatCompletion;
-  const result = body.stream === true
-    ? await streamCall(messages, options, signal)
-    : await normalCall(messages, options, signal);
-  if (!result || typeof result.text !== 'string') {
-    throw Object.assign(new Error('Provider completion did not contain text output.'), {
-      statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
+
+  try {
+    estimatedInputTokens = estimateProviderInputTokens(messages);
+    enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
+
+    record('provider.request.started', {
+      provider_model: PROVIDER_MODEL || null,
+      stream: body.stream === true,
+      max_tokens: body.max_tokens,
+      message_count: messages.length,
+      tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
+      tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
+      estimated_input_tokens: estimatedInputTokens,
+      content: { messages, options }
     });
-  }
-  const nativeToolOutputChars = Array.isArray(result.tool_calls)
-    ? JSON.stringify(result.tool_calls).length
-    : 0;
-  if (result.text.length + nativeToolOutputChars > MAX_OUTPUT_CHARS) {
-    throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
-      statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+    upstreamStarted = true;
+
+    const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
+    const normalCall = provider.createChatCompletion || createChatCompletion;
+    const result = body.stream === true
+      ? await streamCall(messages, options, signal)
+      : await normalCall(messages, options, signal);
+    if (!result || typeof result.text !== 'string') {
+      throw Object.assign(new Error('Provider completion did not contain text output.'), {
+        statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
+      });
+    }
+    const nativeToolOutputChars = Array.isArray(result.tool_calls)
+      ? JSON.stringify(result.tool_calls).length
+      : 0;
+    if (result.text.length + nativeToolOutputChars > MAX_OUTPUT_CHARS) {
+      throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
+        statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+      });
+    }
+
+    record('provider.response.completed', {
+      provider_model: result.provider_model || PROVIDER_MODEL || null,
+      duration_ms: Date.now() - startedAt,
+      response_chars: result.text.length,
+      tool_call_count: Array.isArray(result.tool_calls) ? result.tool_calls.length : 0,
+      finish_reason: result.finish_reason || null,
+      usage: result.usage || null,
+      content: {
+        text: result.text,
+        tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
+        reasoning: result.reasoning || '',
+        finish_reason: result.finish_reason || null
+      }
     });
+    return { ...result, input_tokens_estimated: estimatedInputTokens };
+  } catch (error) {
+    record(upstreamStarted ? 'provider.request.failed' : 'provider.request.rejected', {
+      level: upstreamStarted ? 'error' : 'warn',
+      provider_model: PROVIDER_MODEL || null,
+      upstream_started: upstreamStarted,
+      estimated_input_tokens: estimatedInputTokens,
+      error_code: error.code || 'PROVIDER_ERROR',
+      status: error.statusCode || 502,
+      message: String(error.message || error).slice(0, 1000),
+      duration_ms: Date.now() - startedAt
+    });
+    throw error;
   }
-  return { ...result, input_tokens_estimated: estimatedInputTokens };
 }
 
 function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIVE_TOOL_CALLING) {
@@ -373,7 +437,16 @@ async function handleMessages(body, options = {}) {
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
     : await getModelCapabilities();
-  let completion = await requestCompletion(providerMessages, requestBody, signal, provider, providerCapabilities);
+  let providerAttempt = 0;
+  const complete = (messages, phase = 'initial', recoveryAttempt = null) =>
+    requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
+      logEvent: options.diagnostics,
+      requestId: options.requestId,
+      attempt: ++providerAttempt,
+      phase,
+      recoveryAttempt
+    });
+  let completion = await complete(providerMessages);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
@@ -423,7 +496,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text')
       }]);
-      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+      completion = await complete(retryMessages, 'text_recovery', attempt);
       const textRecovery = validateTextOnlyCompletion(completion);
       logToolCallValidation({
         logger: options.logger,
@@ -464,7 +537,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
       }]);
-      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+      completion = await complete(retryMessages, 'tool_recovery', attempt);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
         continue;
@@ -513,7 +586,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
         }]);
-        completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+        completion = await complete(retryMessages, 'required_tool_recovery', attempt);
         parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
