@@ -2,7 +2,7 @@
 
 const crypto = require('node:crypto');
 
-const DSML_TAG_SOURCE = '<\\s*(\\/?)\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*(calls|tool_calls|invoke|parameter)\\b([^>]*)>';
+const DSML_TAG_SOURCE = '<\\s*(\\/?)\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*(calls|tool_calls|function_calls|invoke|parameter)\\b([^>]*)>';
 
 function createTagRegex() {
   return new RegExp(DSML_TAG_SOURCE, 'gi');
@@ -73,14 +73,15 @@ function convertParameter(attributesText, rawValue) {
     attributes = Object.create(null);
   }
 
-  const name = safeAttribute(attributes.name, /^[A-Za-z_][A-Za-z0-9_-]*$/);
+  const name = safeAttribute(attributes.name, /^[A-Za-z0-9_-][A-Za-z0-9_.:-]{0,127}$/);
   const stringFlag = String(attributes.string || '').toLowerCase();
   let type = 'invalid';
   let value = rawValue;
 
   if (stringFlag === 'true') {
     type = 'string';
-    value = escapeBYVString(rawValue);
+    const decoded = rawValue.replace(/<\\(\/\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*parameter\\s*)>/gi, '<$1>');
+    value = escapeBYVString(decoded);
   } else if (stringFlag === 'false') {
     try {
       const parsed = JSON.parse(rawValue.trim());
@@ -127,7 +128,7 @@ function convertDsmlToBYV(input, options = {}) {
     const closing = match[1] === '/';
     const tag = match[2].toLowerCase();
 
-    if (tag === 'calls' || tag === 'tool_calls') {
+    if (tag === 'calls' || tag === 'tool_calls' || tag === 'function_calls') {
       output += closing ? '</|BYV| calls>' : '<|BYV| calls>';
       cursor = pattern.lastIndex;
       continue;
