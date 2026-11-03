@@ -206,7 +206,7 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY) {
 
     // Keep tool schemas close to the latest request/results. The replay truncator
     // preserves the tail, so long histories cannot silently cut off the tool contract.
-    const toolPrompt = toolsToPrompt(tools, { nativeToolCalling });
+    const toolPrompt = toolsToPrompt(tools);
     if (toolPrompt) parts.push('### TOOLS\n' + toolPrompt);
 
     if (lastHasToolResult) {
@@ -231,7 +231,7 @@ function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay 
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
 
     if (isToolResultTurn) {
-        const toolPrompt = toolsToPrompt(tools, { nativeToolCalling });
+        const toolPrompt = toolsToPrompt(tools);
         const parts = [];
         if (system) parts.push('### SYSTEM\n' + flattenContent(system));
         parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
@@ -352,7 +352,7 @@ function buildSystemPrompt(body = {}, options = {}) {
         ].join('\n'));
     }
 
-    const toolPrompt = toolsToPrompt(tools);
+    const toolPrompt = toolsToPrompt(tools, { nativeToolCalling });
     if (toolPrompt) {
         sections.push('### TOOLS\n' + toolPrompt);
     } else {
