@@ -60,6 +60,9 @@ const MAX_OUTPUT_CHARS = boundedInteger('MAX_OUTPUT_CHARS', 2 * 1024 * 1024, 102
 const MAX_PROMPT_CHARS = boundedInteger('MAX_PROMPT_CHARS', 4000000, 8192, 8000000);
 const MAX_PENDING_REQUESTS = boundedInteger('MAX_PENDING_REQUESTS', 8, 1, 128);
 const MAX_RECOVERY_ATTEMPTS = boundedInteger('MAX_RECOVERY_ATTEMPTS', 2, 0, 5);
+const LOG_CAPTURE_CONTENT = booleanFlag('LOG_CAPTURE_CONTENT', false);
+const LOG_MAX_FILE_BYTES = boundedInteger('LOG_MAX_FILE_BYTES', 10 * 1024 * 1024, 1024, 100 * 1024 * 1024);
+const LOG_ROTATION_FILES = boundedInteger('LOG_ROTATION_FILES', 3, 0, 20);
 const TOKEN_FILE = path.join(ROOT_DIR, '.byv-gateway-token');
 
 function loadGatewayToken() {
@@ -110,6 +113,9 @@ module.exports = {
   MAX_PROMPT_CHARS,
   MAX_PENDING_REQUESTS,
   MAX_RECOVERY_ATTEMPTS,
+  LOG_CAPTURE_CONTENT,
+  LOG_MAX_FILE_BYTES,
+  LOG_ROTATION_FILES,
   TOKEN_FILE,
   GATEWAY_API_KEY: gatewayAuth.token,
   GATEWAY_API_KEY_SOURCE: gatewayAuth.source,
