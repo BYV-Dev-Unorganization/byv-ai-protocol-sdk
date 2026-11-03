@@ -93,16 +93,33 @@ function createDiagnostics(options = {}) {
 
   function write(category, entry) {
     const filePath = path.join(directory, category + '.jsonl');
-    const line = JSON.stringify(entry) + '\n';
     try {
       fs.mkdirSync(directory, { recursive: true });
+      let line = JSON.stringify(entry) + '\n';
+      let lineBytes = Buffer.byteLength(line, 'utf8');
+
+      // A single request can be larger than the rotation threshold. Preserve a
+      // compact event marker rather than allowing one oversized line to bypass it.
+      if (lineBytes > maxFileBytes) {
+        line = JSON.stringify({
+          timestamp: entry.timestamp,
+          event: entry.event,
+          request_id: entry.request_id || null,
+          level: entry.level || null,
+          error_code: entry.error_code || null,
+          record_omitted: true,
+          original_bytes: lineBytes
+        }) + '\n';
+        lineBytes = Buffer.byteLength(line, 'utf8');
+      }
+
       let currentSize = 0;
       try {
         currentSize = fs.statSync(filePath).size;
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
-      if (currentSize > 0 && currentSize + Buffer.byteLength(line, 'utf8') > maxFileBytes) {
+      if (currentSize > 0 && currentSize + lineBytes > maxFileBytes) {
         rotateFile(filePath, rotations);
       }
       fs.appendFileSync(filePath, line, { encoding: 'utf8', mode: 0o600 });
