@@ -232,7 +232,14 @@ test('rejects provider-native calls and recovers with DSML when native calling i
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].at(-1).content, /Output only one DeepSeek DSML calls block/);
+  const recoveryPrompt = seenMessages[1].at(-1).content;
+  assert.match(recoveryPrompt, /Output exactly one DeepSeek DSML calls block/);
+  assert.match(recoveryPrompt, /PROVIDER_NATIVE_DISABLED/);
+  assert.match(recoveryPrompt, /provider-native function call/i);
+  assert.match(recoveryPrompt, /was NOT executed/i);
+  assert.match(recoveryPrompt, /"tool_name": "Read"/);
+  assert.match(recoveryPrompt, /README\.md/);
+  assert.equal(recoveryPrompt.includes('call_native_disabled'), false);
   assert.equal(result.stop_reason, 'tool_use');
   assert.equal(result.content[0].type, 'tool_use');
   assert.equal(result.content[0].name, 'Read');
@@ -257,6 +264,45 @@ test('rejects provider-native calls and recovers with DSML when native calling i
       validation_reason: null
     }
   ]);
+});
+
+
+test('second recovery explains a repeated native-call rejection before accepting DSML', async () => {
+  let count = 0;
+  const seenMessages = [];
+  const result = await handleMessages(body(), {
+    nativeToolCalling: false,
+    provider: {
+      createChatCompletion: async (messages) => {
+        count++;
+        seenMessages.push(messages);
+        if (count <= 2) {
+          return {
+            text: '',
+            tool_calls: [{
+              id: 'call_rejected_' + count,
+              type: 'function',
+              function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
+            }],
+            finish_reason: 'tool_calls',
+            usage: null
+          };
+        }
+        return {
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"><｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>',
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+  assert.equal(count, 3);
+  assert.match(seenMessages[1].at(-1).content, /previous provider response returned a provider-native function call/i);
+  assert.match(seenMessages[2].at(-1).content, /previous recovery response again returned a provider-native function call/i);
+  assert.match(seenMessages[2].at(-1).content, /final recovery attempt/i);
+  assert.match(seenMessages[2].at(-1).content, /README\.md/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
 });
 
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {

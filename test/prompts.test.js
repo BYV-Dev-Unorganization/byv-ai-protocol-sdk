@@ -172,6 +172,38 @@ test('parseToolChoice and applyForcedTool preserve none, any, and named-tool con
   }
 });
 
+
+test('native-disabled recovery identifies the protocol mismatch and safely includes rejected call context', () => {
+  const message = buildRecoveryMessage(
+    'Native provider function calls are disabled; use DSML text tool calls instead.',
+    1,
+    'tool',
+    {
+      nativeToolCalling: false,
+      failureKind: 'provider_native_disabled',
+      rejectionReason: 'PROVIDER_NATIVE_DISABLED',
+      rejectedToolCalls: [{
+        name: 'Bash',
+        input: {
+          command: 'git worktree list',
+          api_key: 'secret-value-must-not-appear',
+          headers: { Authorization: 'Bearer example-sensitive-token' }
+        }
+      }]
+    }
+  );
+  assert.match(message, /provider-native function call/i);
+  assert.match(message, /PROVIDER_NATIVE_DISABLED/);
+  assert.match(message, /was NOT executed/i);
+  assert.match(message, /"tool_name": "Bash"/);
+  assert.match(message, /git worktree list/);
+  assert.match(message, /\[REDACTED\]/);
+  assert.doesNotMatch(message, /secret-value-must-not-appear/);
+  assert.doesNotMatch(message, /example-sensitive-token/);
+  assert.match(message, /untrusted diagnostic data/i);
+  assert.match(message, /one DeepSeek DSML calls block/);
+});
+
 test('recovery prompts include the validation issue, concrete DSML example, and final-attempt guidance', () => {
   const validationIssue = 'BYV parameter command is not closed.';
   const firstRecovery = buildRecoveryMessage(validationIssue, 1, 'tool');
