@@ -118,9 +118,9 @@ test('DSML prompt includes the complete nested JSON Schema as the authoritative 
   };
   const prompt = buildSystemPrompt({ tools: [schemaTool] }, { nativeToolCalling: false });
   assert.match(prompt, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
-  assert.match(prompt, /"enum": \\[\\s*"exact",\\s*"fuzzy"/);
-  assert.match(prompt, /"items": \\{/);
-  assert.match(prompt, /"required": \\[\\s*"mode"/);
+  assert.match(prompt, /"enum": \[\s*"exact",\s*"fuzzy"/);
+  assert.match(prompt, /"items": \{/);
+  assert.match(prompt, /"required": \[\s*"mode"/);
 });
 
 test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
