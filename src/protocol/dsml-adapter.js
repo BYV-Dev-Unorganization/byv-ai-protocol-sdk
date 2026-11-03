@@ -169,7 +169,7 @@ function convertDsmlToBYV(input, options = {}) {
         } catch {
           attributes = Object.create(null);
         }
-        const name = safeAttribute(attributes.name, /^[A-Za-z_][A-Za-z0-9_-]*$/);
+        const name = safeAttribute(attributes.name, /^[A-Za-z0-9_-][A-Za-z0-9_.:-]{0,127}$/);
         output += '<|BYV| parameter name="' + name + '" type="invalid">' +
           source.slice(valueStart);
         cursor = source.length;
