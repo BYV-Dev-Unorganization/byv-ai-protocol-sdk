@@ -231,7 +231,7 @@ function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay 
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
 
     if (isToolResultTurn) {
-        const toolPrompt = toolsToPrompt(tools);
+        const toolPrompt = toolsToPrompt(tools, { nativeToolCalling });
         const parts = [];
         if (system) parts.push('### SYSTEM\n' + flattenContent(system));
         parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
@@ -317,7 +317,7 @@ function applyForcedTool(prompt, force, options = {}) {
         return required + '\n\n' + prompt;
     }
     if (force.mode === 'any') {
-        const required = PROVIDER_NATIVE_TOOL_CALLING
+        const required = nativeToolCalling
             ? '[REQUIRED: Call at least one native function from the declared tool list. Do not answer in plain text.]'
             : '[REQUIRED: Call at least one tool from the list below. Output only one DSML calls block. Do NOT answer in plain text.]';
         return required + '\n\n' + prompt;
