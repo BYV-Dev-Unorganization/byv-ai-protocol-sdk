@@ -446,7 +446,7 @@ async function handleMessages(body, options = {}) {
   // Enforce loop prevention at both layers: the system prompt and provider API.
   // Reuse this effective body for every retry so recovery cannot re-enable tools.
   const requestBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
-  const providerMessages = buildProviderMessages(requestBody);
+  const providerMessages = buildProviderMessages(requestBody, { nativeToolCalling });
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
