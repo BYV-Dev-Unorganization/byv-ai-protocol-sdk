@@ -664,3 +664,48 @@ test('maps reported cache creation tokens without inventing cache metrics', () =
     cache_read_input_tokens: 20
   });
 });
+
+
+test('native-disabled provider receives DSML history and structured tool results', async () => {
+  const messages = [
+    { role: 'user', content: 'Inspect the repository, then answer.' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'toolu_history', name: 'Read', input: { file_path: 'README.md' } }]
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'toolu_history', content: 'README body' }]
+    },
+    { role: 'user', content: 'Summarize the result.' }
+  ];
+  let sentMessages;
+  const result = await handleMessages(body({ messages }), {
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (providerMessages) => {
+        sentMessages = providerMessages;
+        return { text: 'The README was inspected.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(sentMessages[0].role, 'system');
+  assert.match(sentMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.equal(sentMessages.some((message) => message.role === 'tool'), false);
+  const historicalAssistant = sentMessages.find((message) =>
+    message.role === 'assistant' && typeof message.content === 'string' &&
+    message.content.includes('HISTORICAL TOOL INVOCATIONS')
+  );
+  assert.ok(historicalAssistant);
+  assert.match(historicalAssistant.content, /<｜DSML｜tool_calls>/);
+  const historicalResult = sentMessages.find((message) =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('HISTORICAL TOOL RESULTS')
+  );
+  assert.ok(historicalResult);
+  assert.match(historicalResult.content, /README body/);
+  assert.equal(sentMessages.some((message) => Array.isArray(message.tool_calls)), false);
+});
