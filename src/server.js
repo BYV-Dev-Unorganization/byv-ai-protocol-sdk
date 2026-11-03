@@ -15,13 +15,23 @@ const { sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
+const { createDiagnostics } = require('./diagnostics');
 
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
+  const diagnostics = options.diagnostics || createDiagnostics();
+  const recordDiagnostic = typeof diagnostics === 'function'
+    ? diagnostics
+    : typeof diagnostics.record === 'function'
+      ? diagnostics.record.bind(diagnostics)
+      : () => {};
   const toolCallLogger = typeof options.toolCallLogger === 'function'
     ? options.toolCallLogger
-    : (entry) => console.log(JSON.stringify(entry));
+    : (entry) => {
+      console.log(JSON.stringify(entry));
+      recordDiagnostic(entry.event, entry);
+    };
   const rateLimiter = options.rateLimiter || createRateLimiter({
     limit: 30,
     windowMs: 60_000
@@ -117,6 +127,15 @@ function createServer(options = {}) {
     try {
       body = await readBody(req);
     } catch (error) {
+      recordDiagnostic('request.body.rejected', {
+        level: 'error',
+        request_id: requestId,
+        method: req.method,
+        route,
+        status: error.statusCode || 400,
+        error_code: error.code || 'INVALID_REQUEST_BODY',
+        message: String(error.message || error).slice(0, 500)
+      });
       return jsonError(res, error.statusCode || 400, 'invalid_request_error', error.message);
     }
 
@@ -125,26 +144,76 @@ function createServer(options = {}) {
     const countTokens = route === '/v1/messages/count_tokens';
     const validationError = validateMessagesRequest(body, { countTokens });
     if (validationError) {
+      recordDiagnostic('request.validation.rejected', {
+        level: 'warn',
+        request_id: requestId,
+        model_profile: body.model || null,
+        error_code: 'INVALID_REQUEST',
+        message: validationError.message
+      });
       return jsonError(res, 400, validationError.type, validationError.message);
     }
     if (!isSupportedModel(body.model)) {
+      recordDiagnostic('request.validation.rejected', {
+        level: 'warn',
+        request_id: requestId,
+        model_profile: body.model,
+        error_code: 'UNSUPPORTED_MODEL_PROFILE',
+        message: 'Unsupported BYV model profile.'
+      });
       return jsonError(res, 400, 'invalid_request_error', 'Unsupported BYV model profile: ' + body.model, 'UNSUPPORTED_MODEL_PROFILE');
     }
+
+    const requestContent = {
+      request_id: requestId,
+      method: req.method,
+      route,
+      model_profile: body.model,
+      stream: body.stream === true,
+      max_tokens: Number.isSafeInteger(body.max_tokens) ? body.max_tokens : null,
+      message_count: body.messages.length,
+      tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
+      tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
+      body_bytes: Number.isSafeInteger(Number(req.headers['content-length'])) ? Number(req.headers['content-length']) : null,
+      normalized_instruction_messages: normalized.normalizedInstructionMessages
+    };
+    recordDiagnostic('request.received', {
+      ...requestContent,
+      content: { body }
+    });
 
     if (countTokens) {
       let estimated;
       try {
         estimated = estimateProviderInputTokens(buildProviderMessages(body));
       } catch (error) {
+        recordDiagnostic('request.token_estimation.failed', {
+          level: 'warn',
+          request_id: requestId,
+          error_code: error.code || 'TOKEN_ESTIMATION_FAILED',
+          status: error.statusCode || 400,
+          message: String(error.message || error).slice(0, 500)
+        });
         return jsonError(res, error.statusCode || 400, error.type || 'invalid_request_error',
           error.message || 'Could not estimate provider input tokens.', error.code || 'TOKEN_ESTIMATION_FAILED');
       }
+      recordDiagnostic('request.token_estimation.completed', {
+        request_id: requestId,
+        estimated_input_tokens: estimated
+      });
       res.setHeader('X-Token-Usage-Estimated', 'true');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ input_tokens: estimated }));
     }
 
     if (activeRequests >= MAX_PENDING_REQUESTS) {
+      recordDiagnostic('request.concurrency.rejected', {
+        level: 'warn',
+        request_id: requestId,
+        error_code: 'GATEWAY_BUSY',
+        active_requests: activeRequests,
+        max_pending_requests: MAX_PENDING_REQUESTS
+      });
       return jsonError(res, 429, 'rate_limit_error', 'Gateway is at its configured request concurrency limit.', 'GATEWAY_BUSY');
     }
     activeRequests++;
@@ -161,7 +230,8 @@ function createServer(options = {}) {
       const result = await runHandler(body, {
         signal: controller.signal,
         requestId,
-        logger: toolCallLogger
+        logger: toolCallLogger,
+        diagnostics: recordDiagnostic
       });
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
@@ -189,7 +259,7 @@ function createServer(options = {}) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(payload));
       }
-      console.log(JSON.stringify({
+      const completionLog = {
         level: 'info',
         event: 'request.completed',
         request_id: requestId,
@@ -205,10 +275,20 @@ function createServer(options = {}) {
         output_tokens: result.usage.output_tokens,
         cache_read_input_tokens: result.usage.cache_read_input_tokens ?? null,
         cache_creation_input_tokens: result.usage.cache_creation_input_tokens ?? null
-      }));
+      };
+      console.log(JSON.stringify(completionLog));
+      recordDiagnostic('request.completed', completionLog);
+      recordDiagnostic('gateway.response.completed', {
+        request_id: requestId,
+        model_profile: body.model,
+        stream: isStream,
+        stop_reason: result.stop_reason,
+        usage: result.usage,
+        content: { content: result.content, stop_reason: result.stop_reason, usage: result.usage }
+      });
     } catch (error) {
       if (res.destroyed || res.writableEnded || controller.signal.aborted) return;
-      console.error(JSON.stringify({
+      const failureLog = {
         level: 'error',
         event: 'request.failed',
         request_id: requestId,
@@ -217,7 +297,9 @@ function createServer(options = {}) {
         status: error.statusCode || 500,
         message: String(error.message || error).slice(0, 500),
         duration_ms: Date.now() - startedAt
-      }));
+      };
+      console.error(JSON.stringify(failureLog));
+      recordDiagnostic('request.failed', failureLog);
       if (isStream && res.headersSent) {
         sendEvent(res, 'error', {
           type: 'error',
