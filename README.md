@@ -137,6 +137,29 @@ All application API routes require the gateway key using either Authorization: B
 
 Authenticated API requests are limited to **30 requests per rolling 60 seconds per client IP**. The limit applies across authenticated endpoints and returns HTTP 429 with a `Retry-After` header when exceeded. The unauthenticated `HEAD /api/hello` probe and CORS `OPTIONS` preflight requests are excluded.
 
+## Local diagnostics logs
+
+The gateway writes structured JSON Lines files to the local `logs/` directory. Each event includes an ISO timestamp and, when associated with a message request, the same `request_id` returned in the `X-Gateway-Request-ID` response header.
+
+| File | Contents |
+| --- | --- |
+| `requests.jsonl` | Incoming request metadata and each upstream provider attempt |
+| `responses.jsonl` | Completed upstream provider responses and normalized gateway responses |
+| `errors.jsonl` | Provider, transport, request-validation, parser, and tool-call failures/rejections |
+| `timeline.jsonl` | Unified chronological event stream for correlation |
+
+Content capture is **off by default**. Metadata logs include model/profile, message and tool counts, tool names, estimated input tokens, provider attempt number and phase, response sizes, token usage, durations, and error codes. Prompt text, tool arguments, tool results, and model response text are omitted.
+
+To explicitly capture request and response content for local debugging, set:
+
+```env
+LOG_CAPTURE_CONTENT=true
+```
+
+When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
+
+Each JSONL file is limited to 10 MiB by default and keeps three rotated backups. Override with `LOG_MAX_FILE_BYTES` and `LOG_ROTATION_FILES`. The entire `logs/` directory is excluded from Git.
+
 Example request:
 
 ~~~sh
