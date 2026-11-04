@@ -775,3 +775,53 @@ test('explicit tool_choice none keeps DSML unavailable in text-only inference', 
   assert.deepEqual(result.toolCalls, []);
   assert.match(result.text, /explicitly disables tools/);
 });
+
+
+test('treats Claude Code compaction as a text-only summary even when tools are declared', async () => {
+  let calls = 0;
+  let providerOptions;
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const instructions = [
+    'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
+    'Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.',
+    'Respond with plain text only — an <analysis> block followed by a <summary> block.',
+    'Summarize the conversation.'
+  ].join('\n');
+  const summary = [
+    '<analysis>Summary with a literal example ' + tick + '<|BYV| calls>' + tick + '.</analysis>',
+    '<summary>',
+    'The DSML syntax is documentation only:',
+    fence + 'text',
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>',
+    fence,
+    '</summary>'
+  ].join('\n');
+
+  const result = await handleMessages(body({
+    messages: [{ role: 'user', content: instructions }],
+    tool_choice: undefined
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        calls++;
+        providerOptions = options;
+        return { text: summary, finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(providerOptions.tool_choice, 'none');
+  assert.deepEqual(providerOptions.tools, []);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+  assert.equal(result.text, summary);
+});
