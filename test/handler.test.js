@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { handleMessages, normalizeUsage, detectToolLoop } = require('../src/handler');
+const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets } = require('../src/handler');
 const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
 
 function body(options = {}) {
@@ -826,6 +826,92 @@ test('treats Claude Code compaction as a text-only summary even when tools are d
   assert.equal(result.text, summary);
 });
 
+
+
+test('uses bounded model-capability-aware replay and output budgets for Claude Code autocompaction', async () => {
+  const longToolResult = 'TOOL_OUTPUT_MARKER '.repeat(12000);
+  const compactionInstruction = [
+    'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
+    'Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.',
+    'Respond with plain text only, an <analysis> block followed by a <summary> block.',
+    'Summarize the conversation.'
+  ].join('\n');
+  const conversation = [
+    { role: 'user', content: 'Original task: implement a provider-neutral gateway feature.' },
+    { role: 'assistant', content: 'I will inspect the API contract and repository structure.' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_large', name: 'Read', input: { file_path: 'README.md' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_large', content: longToolResult }] },
+    { role: 'assistant', content: 'The repository details have been reviewed.' },
+    { role: 'user', content: compactionInstruction }
+  ];
+  let receivedMessages;
+  let receivedOptions;
+  const diagnostics = [];
+  const result = await handleMessages(body({
+    max_tokens: 128000,
+    output_config: { effort: 'high' },
+    messages: conversation,
+    tool_choice: undefined
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    requestId: 'req_compaction_budget',
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => ({
+        context_window_tokens: 65536,
+        max_input_tokens: 40000,
+        max_output_tokens: 4096
+      }),
+      createChatCompletion: async (messages, options) => {
+        receivedMessages = messages;
+        receivedOptions = options;
+        return {
+          text: '<analysis>Conversation reviewed.</analysis>\n<summary>Original task and latest results retained.</summary>',
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(receivedMessages.length, 2);
+  assert.equal(receivedMessages[0].role, 'system');
+  assert.equal(receivedMessages[1].role, 'user');
+  assert.match(receivedMessages[0].content, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.match(receivedMessages[1].content, /Original task: implement a provider-neutral gateway feature/);
+  assert.match(receivedMessages[1].content, /CRITICAL: Respond with TEXT ONLY/);
+  assert.match(receivedMessages[1].content, /Tool call Read/);
+  assert.match(receivedMessages[1].content, /older conversation history omitted/);
+  assert.ok(receivedMessages[1].content.length < longToolResult.length);
+  assert.equal(receivedOptions.max_tokens, 4096);
+  assert.equal(receivedOptions.reasoning_effort, 'high');
+  assert.deepEqual(receivedOptions.tools, []);
+  assert.equal(receivedOptions.tool_choice, 'none');
+  assert.ok(diagnostics.some((entry) =>
+    entry.event === 'provider.request.started' &&
+    entry.request_intent === 'claude_code_compaction' &&
+    entry.compaction_max_input_tokens === 32768 &&
+    entry.compaction_max_output_tokens === 4096
+  ));
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+});
+
+test('derives compaction budgets from generic provider input, output, and context capabilities', () => {
+  assert.deepEqual(resolveCompactionBudgets({
+    context_window_tokens: 16384,
+    max_input_tokens: 12000,
+    max_output_tokens: 4096
+  }, 128000), {
+    maxInputTokens: 12000,
+    maxOutputTokens: 4096
+  });
+  assert.deepEqual(resolveCompactionBudgets(null, 128000), {
+    maxInputTokens: 32768,
+    maxOutputTokens: 8192
+  });
+});
 
 test('retries one transient transport failure and logs the retry without entering tool recovery', async () => {
   let calls = 0;
