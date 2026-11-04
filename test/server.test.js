@@ -225,3 +225,44 @@ test('exposes provider context and token limits through an authenticated capabil
   assert.equal(result.supports_prompt_caching, true);
   assert.equal(forceRefresh, true);
 });
+
+
+test('text-only experiment overrides client tool_choice before calling the runtime', async (t) => {
+  let receivedBody;
+  let receivedOptions;
+  const base = await withServer(t, {
+    noToolExperiment: true,
+    experimentVariant: 'B',
+    handleMessages: async (body, options) => {
+      receivedBody = body;
+      receivedOptions = options;
+      return {
+        id: 'msg_text_only',
+        content: [{ type: 'text', text: 'Text-only response.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 2 },
+        usage_estimated: false
+      };
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'byv-flash-v1',
+      max_tokens: 64,
+      tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } }],
+      tool_choice: 'auto',
+      messages: [{ role: 'user', content: 'Answer in text only.' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(receivedBody.tool_choice, 'none');
+  assert.equal(receivedOptions.noToolExperiment, true);
+  assert.equal(receivedOptions.experimentVariant, 'B');
+  const result = await response.json();
+  assert.deepEqual(result.content, [{ type: 'text', text: 'Text-only response.' }]);
+});
