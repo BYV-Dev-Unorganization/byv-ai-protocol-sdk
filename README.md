@@ -417,7 +417,11 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
 | PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
-| PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |\n| PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |\n| COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |\n| COMPACTION_MAX_OUTPUT_TOKENS | 8192 | Generic maximum output-token budget for autocompaction, reduced by detected provider limits |\n| COMPACTION_MAX_SYSTEM_CHARS | 8000 | Maximum external system/developer instruction characters retained during autocompaction |
+| PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
+| PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
+| COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |
+| COMPACTION_MAX_OUTPUT_TOKENS | 8192 | Generic maximum output-token budget for autocompaction, reduced by detected provider limits |
+| COMPACTION_MAX_SYSTEM_CHARS | 8000 | Maximum external system/developer instruction characters retained during autocompaction |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
