@@ -261,3 +261,36 @@ test('recovery prompts include the validation issue, concrete DSML example, and 
   assert.match(textRecovery, /Do not emit DSML calls/);
   assert.doesNotMatch(textRecovery, /Output exactly one complete DSML calls block/);
 });
+
+
+test('text-only experiment omits callable tool protocols in both metadata variants', () => {
+  const request = {
+    model: 'byv-flash-v1',
+    tools: [readTool],
+    tool_choice: 'auto',
+    messages: [{ role: 'user', content: 'Read README.md.' }]
+  };
+
+  const variantA = buildSystemPrompt(request, {
+    noToolExperiment: true,
+    experimentVariant: 'A',
+    nativeToolCalling: true
+  });
+  assert.match(variantA, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.match(variantA, /tool_choice = none/);
+  assert.doesNotMatch(variantA, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
+  assert.doesNotMatch(variantA, /Read a file from the workspace/);
+  assert.doesNotMatch(variantA, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+
+  const variantB = buildSystemPrompt(request, {
+    noToolExperiment: true,
+    experimentVariant: 'B',
+    nativeToolCalling: true
+  });
+  assert.match(variantB, /TOOLS LISTED FOR REFERENCE ONLY/);
+  assert.match(variantB, /Read: Read a file from the workspace/);
+  assert.match(variantB, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.doesNotMatch(variantB, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
+  assert.doesNotMatch(variantB, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.doesNotMatch(variantB, /<｜DSML｜|<\|BYV\|/);
+});
