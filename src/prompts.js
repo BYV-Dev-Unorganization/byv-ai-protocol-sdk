@@ -1,7 +1,12 @@
 'use strict';
 
 const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages } = require('./content');
-const { MAX_PROMPT_CHARS, PROVIDER_NATIVE_TOOL_CALLING } = require('./config');
+const {
+    MAX_PROMPT_CHARS,
+    PROVIDER_NATIVE_TOOL_CALLING,
+    COMPACTION_MAX_INPUT_TOKENS,
+    COMPACTION_MAX_SYSTEM_CHARS
+} = require('./config');
 const { modelProfilePrompt } = require('./model-profiles');
 const { renderToolSchemaPrompt } = require('./protocol/schema-renderer');
 
@@ -487,6 +492,123 @@ function buildProviderMessages(body = {}, options = {}) {
     return [
         { role: 'system', content: buildSystemPrompt(body, { nativeToolCalling, noToolExperiment, experimentVariant: options.experimentVariant }) },
         ...convertAnthropicMessages(messages, { nativeToolCalling, textOnly })
+    ];
+}
+
+
+function formatCompactionMessage(message) {
+    const role = message && message.role === 'assistant' ? 'ASSISTANT' : 'USER';
+    return '[' + role + ']\n' + renderMessage(message);
+}
+
+// Keep the initial user task, the most recent conversation turns, and the
+// actual compaction instruction. Large middle sections are omitted explicitly.
+function buildCompactionTranscript(messages, maxChars) {
+    const source = Array.isArray(messages) ? messages : [];
+    if (!source.length) return '';
+
+    const entries = source.map(formatCompactionMessage);
+    const complete = entries.join('\n\n');
+    if (complete.length <= maxChars) return complete;
+
+    const latestIndex = entries.length - 1;
+    const latestLimit = Math.min(
+        entries[latestIndex].length,
+        Math.max(1024, Math.floor(maxChars * 0.3))
+    );
+    const latest = truncateTextPreservingEnds(
+        entries[latestIndex],
+        latestLimit,
+        '\n[...middle of the latest compaction instruction omitted...]\n'
+    );
+
+    const firstUserIndex = source.findIndex((message) => message && message.role === 'user');
+    const firstIndex = firstUserIndex >= 0 ? firstUserIndex : 0;
+    const hasDistinctFirst = firstIndex !== latestIndex;
+    let remaining = Math.max(0, maxChars - latest.length - 160);
+    let first = '';
+
+    if (hasDistinctFirst && remaining > 0) {
+        const firstLimit = Math.min(8000, Math.floor(remaining * 0.2));
+        if (firstLimit > 0) {
+            first = truncateTextPreservingEnds(
+                entries[firstIndex],
+                firstLimit,
+                '\n[...middle of the original user message omitted...]\n'
+            );
+            remaining -= first.length;
+        }
+    }
+
+    const recent = [];
+    let omitted = false;
+    for (let index = latestIndex - 1; index >= 0; index--) {
+        if (index === firstIndex) continue;
+        const entry = entries[index];
+        if (entry.length <= remaining) {
+            recent.unshift(entry);
+            remaining -= entry.length;
+            continue;
+        }
+        omitted = true;
+        if (remaining >= 512) {
+            recent.unshift(truncateTextPreservingEnds(
+                entry,
+                remaining,
+                '\n[...middle of this conversation message omitted...]\n'
+            ));
+            remaining = 0;
+        }
+        break;
+    }
+
+    const sections = [];
+    if (first) sections.push(first);
+    if (omitted || first || recent.length < entries.length - (hasDistinctFirst ? 2 : 1)) {
+        sections.push('[...older conversation history omitted to fit the model input budget...]');
+    }
+    sections.push(...recent, latest);
+    return truncateTextPreservingEnds(sections.join('\n\n'), maxChars);
+}
+
+// The OpenAI-compatible Chat Completions contract is stateless. For an
+// autocompact turn, send a bounded, ordered transcript rather than forwarding
+// every raw Anthropic block as a separate provider message. No provider- or
+// model-specific fields are introduced here.
+function buildCompactionProviderMessages(body = {}, options = {}) {
+    const requestedInputTokens = Number.isSafeInteger(options.maxInputTokens) && options.maxInputTokens > 0
+        ? options.maxInputTokens
+        : COMPACTION_MAX_INPUT_TOKENS;
+    // Use a conservative character/token ratio; the handler performs a second
+    // estimate against the exact provider messages before sending the request.
+    const maxPromptChars = Math.max(1024, Math.floor(requestedInputTokens * 3));
+    const systemSource = flattenContent(body.system);
+    const systemLimit = Math.min(
+        COMPACTION_MAX_SYSTEM_CHARS,
+        Math.max(1024, Math.floor(maxPromptChars * 0.16))
+    );
+    const compactedSystem = truncateTextPreservingEnds(
+        systemSource,
+        systemLimit,
+        '\n[...middle of external system/developer instructions compacted; beginning and end retained...]\n'
+    );
+
+    const systemPrompt = buildSystemPrompt({
+        ...body,
+        system: compactedSystem,
+        messages: [],
+        tools: [],
+        tool_choice: 'none'
+    }, {
+        nativeToolCalling: false,
+        noToolExperiment: true
+    });
+    const transcriptBudget = Math.max(512, maxPromptChars - systemPrompt.length - 512);
+    const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
+
+    return [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: transcript }
     ];
 }
 
