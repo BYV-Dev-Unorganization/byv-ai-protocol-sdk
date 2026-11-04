@@ -21,7 +21,8 @@ const { createDiagnostics } = require('./diagnostics');
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
-  // This experiment branch is strictly text-only; callers cannot re-enable tools.
+  // Provider inference is text-only: native tools stay disabled, while textual
+  // DeepSeek DSML remains available for the gateway's parser and validator.
   const noToolExperiment = true;
   const experimentVariant = options.experimentVariant === 'B' || options.experimentVariant === 'A'
     ? options.experimentVariant
@@ -181,8 +182,14 @@ function createServer(options = {}) {
       tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
       tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
       no_tool_experiment: noToolExperiment,
+      text_only_inference: noToolExperiment,
+      textual_dsml_tool_calling: noToolExperiment && body.tool_choice !== 'none' && Array.isArray(body.tools) && body.tools.length > 0,
       no_tool_experiment_variant: noToolExperiment ? experimentVariant : null,
-      callable_tool_count: noToolExperiment || body.tool_choice === 'none' ? 0 : (Array.isArray(body.tools) ? body.tools.length : 0),
+      callable_tool_count: body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
+        ? 0
+        : (Array.isArray(body.tools) ? body.tools.length : 0),
+      provider_native_tool_count: 0,
+      provider_tool_choice: 'none',
       body_bytes: Number.isSafeInteger(Number(req.headers['content-length'])) ? Number(req.headers['content-length']) : null,
       normalized_instruction_messages: normalized.normalizedInstructionMessages
     };
@@ -191,7 +198,9 @@ function createServer(options = {}) {
       content: { body }
     });
 
-    const inferenceBody = noToolExperiment ? { ...body, tool_choice: 'none' } : body;
+    // Keep the client's gateway-level tool_choice intact. The provider adapter
+    // independently sends tool_choice=none and no native tool definitions.
+    const inferenceBody = body;
 
     if (countTokens) {
       let estimated;
@@ -345,7 +354,7 @@ function start() {
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
     console.log('Tool transport: ' + (PROVIDER_NATIVE_TOOL_CALLING
       ? 'provider-native function calling (explicit opt-in)'
-      : 'BYV Format Block (default)'));
+      : 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'));
     console.log('Gateway auth source: ' + GATEWAY_API_KEY_SOURCE);
     console.log('Gateway API key: ' + (GATEWAY_API_KEY_SOURCE === 'environment'
       ? 'provided through GATEWAY_API_KEY'
