@@ -13,7 +13,6 @@ const { buildProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
-const { buildProviderMessages } = require('./prompts');
 const { sendAnthropicMessageStart, sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
