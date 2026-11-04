@@ -8,7 +8,7 @@ function sendEvent(res, event, data) {
   return res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n');
 }
 
-function sendAnthropicMessageStart(res, model, inputTokens) {
+function sendAnthropicMessageStart(res, model, inputTokens, usage = {}) {
   const messageId = uuid('msg');
   sendEvent(res, 'message_start', {
     type: 'message_start',
@@ -20,14 +20,21 @@ function sendAnthropicMessageStart(res, model, inputTokens) {
       content: [],
       stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: inputTokens, output_tokens: 0 }
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: 0,
+        ...(Number.isInteger(usage.cache_creation_input_tokens)
+          ? { cache_creation_input_tokens: usage.cache_creation_input_tokens } : {}),
+        ...(Number.isInteger(usage.cache_read_input_tokens)
+          ? { cache_read_input_tokens: usage.cache_read_input_tokens } : {})
+      }
     }
   });
   return messageId;
 }
 
 function sendAnthropicStream(res, result, model, inputTokens, options = {}) {
-  if (!options.messageStarted) sendAnthropicMessageStart(res, model, inputTokens);
+  if (!options.messageStarted) sendAnthropicMessageStart(res, model, inputTokens, result.usage || {});
 
   let index = 0;
   if (result.text) {
