@@ -825,3 +825,29 @@ test('treats Claude Code compaction as a text-only summary even when tools are d
   assert.deepEqual(result.toolCalls, []);
   assert.equal(result.text, summary);
 });
+
+
+test('retries one transient transport failure and logs the retry without entering tool recovery', async () => {
+  let calls = 0;
+  const diagnostics = [];
+  const result = await handleMessages(body(), {
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async () => {
+        calls++;
+        if (calls === 1) {
+          throw Object.assign(new Error('temporary provider timeout'), {
+            statusCode: 504,
+            code: 'PROVIDER_TIMEOUT'
+          });
+        }
+        return { text: 'Recovered after transport retry.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.match(result.text, /Recovered after transport retry/);
+  assert.equal(diagnostics.filter((item) => item.event === 'provider.request.retry_scheduled').length, 1);
+});
