@@ -128,3 +128,26 @@ test('DSML history rejects orphaned and duplicate tool results', () => {
     ] }
   ], { nativeToolCalling: false }), /Duplicate tool_result/);
 });
+
+
+test('text-only history preserves prior results without serializing callable tool syntax', () => {
+  const messages = convertAnthropicMessages([
+    { role: 'user', content: 'Read README.md, then summarize it.' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'toolu_previous', name: 'Read', input: { file_path: 'README.md' } }]
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'toolu_previous', content: 'Historical README output' }]
+    }
+  ], { nativeToolCalling: true, textOnly: true });
+
+  assert.equal(messages.some((message) => message.role === 'tool'), false);
+  assert.equal(messages.some((message) => Array.isArray(message.tool_calls)), false);
+  assert.match(messages[1].content, /HISTORICAL TOOL INVOCATIONS \(context only; not callable/);
+  assert.match(messages[2].content, /HISTORICAL TOOL RESULTS/);
+  assert.match(messages[2].content, /Historical README output/);
+  assert.doesNotMatch(messages[1].content, /<｜DSML｜|<\|BYV\|/);
+  assert.ok(messages[1].content.includes('\n'));
+});
