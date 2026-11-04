@@ -51,7 +51,6 @@ test('builds native function tools and maps tool_choice without assuming provide
     function: { name: 'Read' }
   });
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
@@ -79,6 +78,7 @@ test('preserves provider-default reasoning when native tool choice is auto', () 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.tool_choice, 'auto');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
