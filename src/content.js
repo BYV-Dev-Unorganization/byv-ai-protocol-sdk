@@ -48,6 +48,7 @@ function convertAnthropicMessages(messages, options = {}) {
   // Keep the historical native-message behavior for direct callers that do
   // not specify a mode. The gateway passes its effective mode explicitly.
   const nativeToolCalling = options.nativeToolCalling !== false;
+  const textOnly = options.textOnly === true;
 
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
@@ -74,7 +75,21 @@ function convertAnthropicMessages(messages, options = {}) {
         knownToolUses.set(block.id, block.name);
       }
 
-      if (nativeToolCalling) {
+      if (textOnly) {
+        const parts = [];
+        if (text) parts.push(text);
+        if (toolUses.length) {
+          parts.push([
+            'HISTORICAL TOOL INVOCATIONS (context only; not callable in this request):',
+            JSON.stringify(toolUses.map((block) => ({
+              id: block.id,
+              name: block.name,
+              input: block.input || {}
+            })), null, 2)
+          ].join('\\n'));
+        }
+        if (parts.length) output.push({ role: 'assistant', content: parts.join('\\n\\n') });
+      } else if (nativeToolCalling) {
         const toolCalls = toolUses.map((block) => ({
           id: block.id,
           type: 'function',
@@ -105,7 +120,7 @@ function convertAnthropicMessages(messages, options = {}) {
     const toolResults = blocks.filter((block) => block && block.type === 'tool_result');
     const text = flattenText(blocks.filter((block) => block && block.type === 'text'));
 
-    if (nativeToolCalling) {
+    if (nativeToolCalling && !textOnly) {
       if (text) output.push({ role: 'user', content: text });
       for (const result of toolResults) {
         assertToolUseReference(result, knownToolUses, consumedToolUseIds);
