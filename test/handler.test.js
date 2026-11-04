@@ -711,58 +711,51 @@ test('native-disabled provider receives DSML history and structured tool results
 });
 
 
-test('no-tool experiment overrides client auto and rejects native calls before any execution', async () => {
+test('text-only inference converts DSML text to tool_use while provider-native tools stay disabled', async () => {
   let count = 0;
-  const attempts = [];
+  let receivedMessages;
+  let receivedOptions;
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
     noToolExperiment: true,
     experimentVariant: 'B',
     nativeToolCalling: true,
     provider: {
+      getModelCapabilities: async () => null,
       createChatCompletion: async (messages, options) => {
         count++;
-        attempts.push({ messages, options });
-        assert.equal(options.tool_choice, 'none');
-        assert.deepEqual(options.tools, []);
-        if (count === 1) {
-          return {
-            text: '',
-            tool_calls: [{
-              id: 'call_must_not_execute',
-              type: 'function',
-              function: {
-                name: 'Read',
-                arguments: '{"file_path":"README.md"}'
-              }
-            }],
-            finish_reason: 'tool_calls'
-          };
-        }
-        return {
-          text: 'I cannot inspect README.md because tools are disabled for this request.',
-          finish_reason: 'stop'
-        };
+        receivedMessages = messages;
+        receivedOptions = options;
+        return { text: dsml, finish_reason: 'stop', usage: null };
       }
     }
   });
 
-  assert.equal(count, 2);
-  assert.equal(result.stop_reason, 'end_turn');
-  assert.deepEqual(result.toolCalls, []);
-  assert.match(result.text, /tools are disabled/);
-  assert.match(attempts[0].messages[0].content, /TEXT-ONLY OUTPUT CONTRACT/);
-  assert.match(attempts[0].messages[0].content, /TOOLS LISTED FOR REFERENCE ONLY/);
-  assert.doesNotMatch(attempts[0].messages[0].content, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
-  assert.doesNotMatch(attempts[0].messages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
-  assert.match(attempts[1].messages.at(-1).content, /Answer in plain text/);
-  assert.ok(attempts.every((attempt) => attempt.options.tool_choice === 'none'));
-  assert.ok(attempts.every((attempt) => attempt.options.tools.length === 0));
+  assert.equal(count, 1);
+  assert.equal(receivedOptions.tool_choice, 'none');
+  assert.deepEqual(receivedOptions.tools, []);
+  assert.equal(receivedMessages.length, 1);
+  assert.equal(receivedMessages[0].role, 'user');
+  assert.match(receivedMessages[0].content, /### TOOLS/);
+  assert.match(receivedMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(receivedMessages[0].content, /DeepSeek DSML markup format/);
+  assert.doesNotMatch(receivedMessages[0].content, /NATIVE TOOL CALL PROTOCOL/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.content[0].type, 'tool_use');
 });
 
-
-test('text-only gateway recovers from a legacy TOOL_CALL wrapper in an initial response', async () => {
+test('explicit tool_choice none keeps DSML unavailable in text-only inference', async () => {
   let count = 0;
-  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+  const result = await handleMessages(body({ tool_choice: 'none' }), {
     noToolExperiment: true,
     provider: {
       createChatCompletion: async (_messages, options) => {
@@ -770,8 +763,8 @@ test('text-only gateway recovers from a legacy TOOL_CALL wrapper in an initial r
         assert.equal(options.tool_choice, 'none');
         assert.deepEqual(options.tools, []);
         return count === 1
-          ? { text: '<TOOL_CALL>{"tool_calls":[{"name":"Read"}]}</TOOL_CALL>', finish_reason: 'stop' }
-          : { text: 'I can explain how to read the file, but I cannot execute tools here.', finish_reason: 'stop' };
+          ? { text: dsml, finish_reason: 'stop' }
+          : { text: 'I can explain how to read the file, but this request explicitly disables tools.', finish_reason: 'stop' };
       }
     }
   });
@@ -779,5 +772,5 @@ test('text-only gateway recovers from a legacy TOOL_CALL wrapper in an initial r
   assert.equal(count, 2);
   assert.equal(result.stop_reason, 'end_turn');
   assert.deepEqual(result.toolCalls, []);
-  assert.match(result.text, /cannot execute tools/);
+  assert.match(result.text, /explicitly disables tools/);
 });
