@@ -320,7 +320,7 @@ function validateTextOnlyCompletion(completion) {
       error: 'The provider returned a tool-call finish reason while tool use was disabled.'
     };
   }
-  if (textOnlyProtocolMarker.test(result.parsed.text)) {
+  if (TEXT_ONLY_TOOL_CALL_MARKER.test(result.parsed.text)) {
     return {
       ...base,
       valid: false,
