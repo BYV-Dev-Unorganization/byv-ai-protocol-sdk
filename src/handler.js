@@ -157,14 +157,19 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     }
   };
 
+  const nativeToolCalling = typeof diagnostic.nativeToolCalling === 'boolean'
+    ? diagnostic.nativeToolCalling
+    : PROVIDER_NATIVE_TOOL_CALLING;
+  const gatewayToolChoiceNone = body.tool_choice === 'none';
   const options = {
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
-    tools: body.tool_choice === 'none' ? [] : body.tools,
-    tool_choice: body.tool_choice === 'none' ? 'none' : body.tool_choice
+    // Native tool schemas never cross the provider boundary in DSML text mode.
+    tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
+    tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none'
   };
 
   try {
@@ -451,17 +456,20 @@ function logToolCallValidation(options = {}) {
 
 async function handleMessages(body, options = {}) {
   const signal = options.signal;
-  const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+  const noToolExperiment = options.noToolExperiment === true;
+  const configuredNativeToolCalling = typeof options.nativeToolCalling === 'boolean'
     ? options.nativeToolCalling
     : PROVIDER_NATIVE_TOOL_CALLING;
+  // The experiment disables only provider-native function calling. DSML text
+  // remains callable through the gateway adapter when the client's choice allows it.
+  const nativeToolCalling = noToolExperiment ? false : configuredNativeToolCalling;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
-  const noToolExperiment = options.noToolExperiment === true;
   const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
-  // The experiment is an execution policy, not a prompt suggestion. It overrides
-  // every client tool_choice value and remains in effect for all recovery attempts.
-  const force = noToolExperiment || repeatedToolLoop || tools.length === 0
+  // Only a repeated tool loop, an explicit client tool_choice=none, or a request
+  // without declared schemas disables gateway-level DSML calls.
+  const force = repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
   const requestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
@@ -481,7 +489,8 @@ async function handleMessages(body, options = {}) {
       requestId: options.requestId,
       attempt: ++providerAttempt,
       phase,
-      recoveryAttempt
+      recoveryAttempt,
+      nativeToolCalling
     });
   let completion = await complete(providerMessages);
 
