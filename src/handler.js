@@ -9,6 +9,7 @@ const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls } = require('./provider/tool-calls');
+const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
 
 function parseToolChoice(choice) {
   if (!choice) return { mode: 'auto' };
@@ -302,7 +303,6 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
 
 function validateTextOnlyCompletion(completion) {
   const result = parseCompletionToolCalls(completion, false);
-  const textOnlyProtocolMarker = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -496,6 +496,7 @@ async function handleMessages(body, options = {}) {
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
   const malformedProtocol = Boolean(parseError) ||
+    (toolsDisabled && TEXT_ONLY_TOOL_CALL_MARKER.test(parsed.text)) ||
     (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
   const emptyTextResponse = calls.length === 0 &&
     !parsed.hasProtocol &&
@@ -519,7 +520,7 @@ async function handleMessages(body, options = {}) {
     let lastError = unexpectedCalls
       ? 'The model attempted to call a tool while tool use was disabled.'
       : malformedProtocol
-        ? (parseError || parsed.errors[0] || 'Malformed BYV output while tool use was disabled.')
+        ? (parseError || parsed.errors[0] || 'The model emitted tool-call syntax while tool use was disabled.')
         : 'The model returned an empty response while tool use was disabled.';
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
