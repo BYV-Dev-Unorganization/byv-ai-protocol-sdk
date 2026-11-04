@@ -546,7 +546,7 @@ async function handleMessages(body, options = {}) {
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
   const malformedProtocol = Boolean(parseError) ||
-    (toolsDisabled && (TEXT_ONLY_TOOL_CALL_MARKER.test(parsed.text) || completion.finish_reason === 'tool_calls')) ||
+    (toolsDisabled && (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(parsed.text)) || completion.finish_reason === 'tool_calls')) ||
     (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
   const emptyTextResponse = calls.length === 0 &&
     !parsed.hasProtocol &&
