@@ -86,7 +86,10 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  if (PROVIDER_NATIVE_TOOL_CALLING && Array.isArray(options.tools) && options.tools.length) {
+  if (options.tool_choice === 'none') {
+    // Keep the provider-side control explicit even though no callable tools are sent.
+    payload.tool_choice = 'none';
+  } else if (PROVIDER_NATIVE_TOOL_CALLING && Array.isArray(options.tools) && options.tools.length) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
