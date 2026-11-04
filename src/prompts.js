@@ -1,6 +1,6 @@
 'use strict';
 
-const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages } = require('./content');
+const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
     PROVIDER_NATIVE_TOOL_CALLING,
@@ -603,13 +603,49 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
         nativeToolCalling: false,
         noToolExperiment: true
     });
-    const transcriptBudget = Math.max(512, maxPromptChars - systemPrompt.length - 512);
-    const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
+    const systemMessage = { role: 'system', content: systemPrompt };
+    const systemOnlyMessages = [systemMessage, { role: 'user', content: '' }];
+    const systemOnlyEstimate = estimateProviderInputTokens(systemOnlyMessages);
+    if (systemOnlyEstimate > requestedInputTokens) {
+        throw Object.assign(new Error(
+            'The provider input budget is too small for the required system and project instructions in an autocompaction request.'
+        ), {
+            statusCode: 400,
+            type: 'invalid_request_error',
+            code: 'PROVIDER_COMPACTION_SYSTEM_PROMPT_EXCEEDS_BUDGET'
+        });
+    }
 
-    return [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: transcript }
+    let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
+    for (let attempt = 0; attempt < 12; attempt++) {
+        const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
+        const providerMessages = [systemMessage, { role: 'user', content: transcript }];
+        const estimatedTokens = estimateProviderInputTokens(providerMessages);
+        if (estimatedTokens <= requestedInputTokens) return providerMessages;
+
+        const transcriptEstimate = Math.max(1, estimatedTokens - systemOnlyEstimate);
+        const availableTranscriptTokens = Math.max(0, requestedInputTokens - systemOnlyEstimate);
+        const ratio = Math.min(0.8, (availableTranscriptTokens / transcriptEstimate) * 0.9);
+        const nextBudget = Math.floor(transcriptBudget * ratio);
+        transcriptBudget = nextBudget < transcriptBudget
+            ? nextBudget
+            : Math.max(0, transcriptBudget - 512);
+    }
+
+    const finalMessages = [
+        systemMessage,
+        { role: 'user', content: buildCompactionTranscript(body.messages, transcriptBudget) }
     ];
+    if (estimateProviderInputTokens(finalMessages) > requestedInputTokens) {
+        throw Object.assign(new Error(
+            'The compaction transcript could not be reduced to the configured provider input budget.'
+        ), {
+            statusCode: 400,
+            type: 'invalid_request_error',
+            code: 'PROVIDER_COMPACTION_INPUT_BUDGET_EXCEEDED'
+        });
+    }
+    return finalMessages;
 }
 
 const RECOVERY_CONTEXT_MAX_CHARS = 6000;
