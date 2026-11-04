@@ -754,7 +754,7 @@ test('no-tool experiment overrides client auto and rejects native calls before a
   assert.match(attempts[0].messages[0].content, /TOOLS LISTED FOR REFERENCE ONLY/);
   assert.doesNotMatch(attempts[0].messages[0].content, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
   assert.doesNotMatch(attempts[0].messages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
-  assert.match(attempts[1].messages.at(-1).content, /Respond in plain text only/);
+  assert.match(attempts[1].messages.at(-1).content, /Answer in plain text/);
   assert.ok(attempts.every((attempt) => attempt.options.tool_choice === 'none'));
   assert.ok(attempts.every((attempt) => attempt.options.tools.length === 0));
 });
