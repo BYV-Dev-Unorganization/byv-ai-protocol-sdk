@@ -45,7 +45,6 @@ const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
 const PROVIDER_NATIVE_TOOL_CALLING = booleanFlag('PROVIDER_NATIVE_TOOL_CALLING', false);
-const NO_TOOL_EXPERIMENT_ENABLED = booleanFlag('NO_TOOL_EXPERIMENT_ENABLED', true);
 const rawNoToolExperimentVariant = String(process.env.NO_TOOL_EXPERIMENT_VARIANT || 'A').trim().toUpperCase();
 const NO_TOOL_EXPERIMENT_VARIANT = ['A', 'B'].includes(rawNoToolExperimentVariant)
   ? rawNoToolExperimentVariant
@@ -106,7 +105,6 @@ module.exports = {
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
-  NO_TOOL_EXPERIMENT_ENABLED,
   NO_TOOL_EXPERIMENT_VARIANT,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_TIMEOUT_MS,
