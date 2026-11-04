@@ -307,6 +307,8 @@ Example model output:
 
 The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
 
+On the `experiment/text-only-inference` branch, `NO_TOOL_EXPERIMENT_ENABLED=true` overrides incoming `tool_choice` with `none` for every inference request. The gateway sends no callable tool definitions to the provider, explicitly requests `tool_choice: none`, accepts plain-text answers only, and rejects DSML, BYV, or native function-call output. Recovery remains text-only and never re-enables tools. Variant A hides tool metadata; Variant B lists tool names and descriptions as reference-only. Both variants keep tools non-callable.
+
 The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
 - `auto`: the model may call an available tool when needed;
 - `any`: the model must emit at least one valid DSML invocation;
@@ -405,6 +407,8 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
 | PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
+| NO_TOOL_EXPERIMENT_ENABLED | true on the text-only experiment branch | Override tool choice to `none`, omit callable provider tools, and require plain-text responses |
+| NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
 | PROVIDER_NATIVE_REASONING_EFFORT | true | Forward Anthropic output_config.effort as native reasoning_effort; set false for providers that do not support it |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
