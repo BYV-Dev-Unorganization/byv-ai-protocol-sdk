@@ -1,6 +1,6 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, PROVIDER_MODEL, uuid } = require('./config');
+const { MAX_RECOVERY_ATTEMPTS, MAX_PROVIDER_RETRIES, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, PROVIDER_MODEL, uuid } = require('./config');
 const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
@@ -9,6 +9,8 @@ const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls } = require('./provider/tool-calls');
+const { maskMarkdownCode } = require('./protocol/markdown-code');
+const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
 
 function parseToolChoice(choice) {
@@ -325,7 +327,7 @@ function validateTextOnlyCompletion(completion) {
       error: 'The provider returned a tool-call finish reason while tool use was disabled.'
     };
   }
-  if (TEXT_ONLY_TOOL_CALL_MARKER.test(result.parsed.text)) {
+  if (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(result.parsed.text))) {
     return {
       ...base,
       valid: false,
@@ -467,9 +469,10 @@ async function handleMessages(body, options = {}) {
   const tools = Array.isArray(body.tools) ? body.tools : [];
   const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
-  // Only a repeated tool loop, an explicit client tool_choice=none, or a request
-  // without declared schemas disables gateway-level DSML calls.
-  const force = repeatedToolLoop || tools.length === 0
+  const compactionRequest = isClaudeCodeCompactionRequest(body);
+  // Compaction is a text-only summary turn even when Claude Code repeats its
+  // normal tool catalog. Never interpret summary examples as executable calls.
+  const force = compactionRequest || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
   const requestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
@@ -483,15 +486,46 @@ async function handleMessages(body, options = {}) {
     ? await provider.getModelCapabilities()
     : await getModelCapabilities();
   let providerAttempt = 0;
-  const complete = (messages, phase = 'initial', recoveryAttempt = null) =>
-    requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
-      logEvent: options.diagnostics,
-      requestId: options.requestId,
-      attempt: ++providerAttempt,
-      phase,
-      recoveryAttempt,
-      nativeToolCalling
-    });
+  const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
+    let retry = 0;
+    while (true) {
+      try {
+        return await requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
+          logEvent: options.diagnostics,
+          requestId: options.requestId,
+          attempt: ++providerAttempt,
+          phase,
+          recoveryAttempt,
+          nativeToolCalling
+        });
+      } catch (error) {
+        const code = String(error && error.code || '');
+        const retryable = !signal?.aborted &&
+          code !== 'CLIENT_DISCONNECTED' &&
+          code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' &&
+          code !== 'PROVIDER_MAX_OUTPUT_EXCEEDED' &&
+          (['PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'PROVIDER_STREAM_INCOMPLETE'].includes(code) ||
+            /^UPSTREAM_HTTP_(500|502|503|504|529)$/.test(code));
+        if (!retryable || retry >= MAX_PROVIDER_RETRIES) throw error;
+        retry++;
+        if (typeof options.diagnostics === 'function') {
+          try {
+            options.diagnostics('provider.request.retry_scheduled', {
+              level: 'warn', request_id: options.requestId || null, phase,
+              recovery_attempt: recoveryAttempt, retry_number: retry,
+              previous_error_code: code, delay_ms: 250 * retry
+            });
+          } catch {}
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * retry));
+        if (signal?.aborted) {
+          throw Object.assign(new Error('Provider retry cancelled because the client disconnected.'), {
+            statusCode: 499, type: 'api_error', code: 'CLIENT_DISCONNECTED'
+          });
+        }
+      }
+    }
+  };
   let completion = await complete(providerMessages);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {

@@ -307,7 +307,7 @@ Example model output:
 
 The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
 
-On the `experiment/text-only-inference` branch, incoming `tool_choice` is unconditionally overridden with `none` for every inference request. This is an invariant, not an environment toggle. The gateway sends no callable tool definitions to the provider, explicitly requests `tool_choice: none`, accepts plain-text answers only, and rejects DSML, BYV, native function-call output, legacy wrappers, JSON function-call wrappers, and tool-call finish reasons. Recovery remains text-only and never re-enables tools. Variant A hides tool metadata; Variant B lists tool names and descriptions as reference-only. Both variants keep tools non-callable.
+On the `experiment/text-only-inference` branch, provider-native function calling is disabled, but the gateway-level Anthropic `tool_choice` is preserved. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to BYV, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is detected as a special text-only summary turn when its final instruction explicitly forbids tools, requires plain text, and requests the `<analysis>`/`<summary>` structure.
 
 The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
 - `auto`: the model may call an available tool when needed;
@@ -315,7 +315,7 @@ The Anthropic `tool_choice` setting is enforced through the gateway's runtime pr
 - `none`: the model must return text and must not emit a tool invocation;
 - a specific tool: the model must emit an invocation for that exact tool.
 
-The provider adapter does not send OpenAI-compatible `tools` or `tool_choice` fields in the default DSML mode. This means the configured model does not need native provider function-calling support. It only needs to produce DSML tool-call markup in ordinary Chat Completions text.
+The provider adapter sends no native OpenAI-compatible `tools` definitions and explicitly sets `tool_choice: none` in default DSML mode. The configured model does not need native provider function-calling support; it only needs to produce DSML tool-call markup in ordinary Chat Completions text.
 
 ### Optional provider-native function calling
 
@@ -331,6 +331,7 @@ The gateway does not execute tools. The client executes the requested tool, then
 
 Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 
+- ping (periodic keep-alive while validated provider output is pending)
 - message_start
 - content_block_start
 - content_block_delta
@@ -339,7 +340,7 @@ Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 - message_stop
 - error on a gateway failure after SSE begins
 
-The upstream provider is requested with stream: true. BYV currently buffers the upstream stream until the complete response has been parsed and validated, then emits the Anthropic SSE sequence. This ensures that malformed or schema-invalid tool batches are never partially forwarded. It preserves the SSE event contract but does not yet provide token-by-token latency from the upstream model.
+The upstream provider is requested with `stream: true`. BYV opens the Anthropic SSE response immediately and emits a `ping` immediately and then every `STREAM_PING_INTERVAL_MS` (default 15 seconds) while inference runs. It still buffers provider output until DSML conversion, parsing, allowlist checks, and JSON Schema validation finish; only then are content blocks emitted. This prevents partial or unvalidated tool batches from reaching Claude Code and keeps the HTTP stream alive, but does not yet provide token-by-token model output. Provider streams that end without `[DONE]` are rejected as incomplete rather than accepted as partial completions.
 
 ## Supported request fields and current limitations
 
@@ -413,6 +414,8 @@ Do not bind this development gateway to a public interface without adding deploy
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
 | PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |
+| MAX_PROVIDER_RETRIES | 1 | Bounded retries for transient transport/5xx errors; client disconnects and context overflow are not retried |
+| STREAM_PING_INTERVAL_MS | 15000 | Anthropic SSE keep-alive ping interval while inference is pending |
 | PROVIDER_MAX_REQUESTS_PER_MINUTE | 0 (disabled) | Maximum outbound inference requests in a rolling 60-second window; 0 disables this limit |
 | PROVIDER_MAX_CONCURRENT_REQUESTS | 0 (disabled) | Maximum simultaneous outbound inference requests; 0 disables this limit |
 | PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |

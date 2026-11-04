@@ -539,10 +539,14 @@ function formatRejectedToolCalls(toolCalls) {
 function buildRecoveryMessage(error, attempt, mode, options = {}) {
     if (mode === 'text') {
         return [
-            'RECOVERY REQUIRED: the previous output attempted a tool call even though tool use is disabled.',
-            'Do not emit DSML calls, invoke, or parameter tags. Do not request or claim tool execution.',
-            'Answer in plain text using only the existing conversation and available results.',
-            'Do not repeat tool calls or introduce a new task.'
+            '=== TEXT-ONLY RESPONSE RECOVERY ===',
+            'The previous response did not satisfy the required plain-text response contract.',
+            'Correction required: ' + String(error || 'Return a non-empty plain-text answer.'),
+            'Do not emit DSML calls, invoke, or parameter tags, legacy tool wrappers, or JSON tool-call output.',
+            'Do not request or claim tool execution.',
+            'Answer the original request in plain text using the conversation and available results.',
+            'Preserve any requested summary structure, including analysis and summary sections.',
+            'Do not introduce a new task.'
         ].join('\n');
     }
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'

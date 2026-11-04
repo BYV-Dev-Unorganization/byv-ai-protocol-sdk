@@ -165,10 +165,11 @@ async function readProviderError(response) {
       ? String(parsed.error.message || parsed.error.code)
       : detail;
   } catch {}
+  const contextOverflow = /context_length_exceeded|maximum context length|context window.{0,40}(?:exceed|limit|token)|(?:prompt|input).{0,40}(?:too long|too many tokens|exceed.{0,20}context)/i.test(detail);
   return new ProviderError(
     'OpenAI-compatible provider returned HTTP ' + response.status + (detail ? ': ' + detail : ''),
-    502,
-    'UPSTREAM_HTTP_' + response.status
+    contextOverflow ? 400 : 502,
+    contextOverflow ? 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' : 'UPSTREAM_HTTP_' + response.status
   );
 }
 
@@ -300,6 +301,13 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
         }
       }
       if (buffer.trim()) processEvent(buffer);
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      if (signal && signal.aborted) {
+        throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
+      }
+      if (timedOut) throw new ProviderError('Provider streaming response timed out.', 504, 'PROVIDER_TIMEOUT');
+      throw new ProviderError('Provider streaming response ended unexpectedly: ' + (error.message || String(error)), 502, 'PROVIDER_STREAM_INCOMPLETE');
     } finally {
       clearTimeout(streamTimer);
       if (signal) signal.removeEventListener('abort', abortStream);
@@ -311,6 +319,9 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     }
     if (signal && signal.aborted) {
       throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
+    }
+    if (!done) {
+      throw new ProviderError('Provider stream ended before the [DONE] marker; partial output was discarded.', 502, 'PROVIDER_STREAM_INCOMPLETE');
     }
 
     return {

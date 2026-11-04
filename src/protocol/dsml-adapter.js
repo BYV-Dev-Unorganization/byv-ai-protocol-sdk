@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { findMarkdownCodeRanges, isInMarkdownCode } = require('./markdown-code');
 
 const DSML_TAG_SOURCE = '<\\s*(\\/?)\\s*[｜|]{1,2}\\s*DSML\\s*[｜|]{1,2}\\s*(calls|tool_calls|function_calls|invoke|parameter)\\b([^>]*)>';
 
@@ -53,12 +54,13 @@ function escapeBYVJson(value) {
   );
 }
 
-function findClosingParameter(source, fromIndex) {
+function findClosingParameter(source, fromIndex, codeRanges) {
   const pattern = createTagRegex();
   pattern.lastIndex = fromIndex;
   let match;
   while ((match = pattern.exec(source)) !== null) {
-    if (match[1] === '/' && match[2].toLowerCase() === 'parameter') {
+    if (match[1] === '/' && match[2].toLowerCase() === 'parameter' &&
+        !isInMarkdownCode(codeRanges, match.index)) {
       return match;
     }
   }
@@ -112,6 +114,7 @@ function convertParameter(attributesText, rawValue) {
 function convertDsmlToBYV(input, options = {}) {
   const source = String(input || '');
   const pattern = createTagRegex();
+  const codeRanges = findMarkdownCodeRanges(source);
   let output = '';
   let cursor = 0;
   let match;
@@ -122,6 +125,7 @@ function convertDsmlToBYV(input, options = {}) {
     : () => 'dsml_call_' + crypto.randomBytes(12).toString('hex');
 
   while ((match = pattern.exec(source)) !== null) {
+    if (isInMarkdownCode(codeRanges, match.index)) continue;
     detected = true;
     output += source.slice(cursor, match.index);
 
@@ -161,7 +165,7 @@ function convertDsmlToBYV(input, options = {}) {
       }
 
       const valueStart = pattern.lastIndex;
-      const close = findClosingParameter(source, valueStart);
+      const close = findClosingParameter(source, valueStart, codeRanges);
       if (!close) {
         let attributes;
         try {

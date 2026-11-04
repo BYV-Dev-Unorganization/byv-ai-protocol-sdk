@@ -4,7 +4,8 @@ const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
-  NO_TOOL_EXPERIMENT_VARIANT
+  NO_TOOL_EXPERIMENT_VARIANT,
+  STREAM_PING_INTERVAL_MS
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages } = require('./handler');
@@ -13,6 +14,7 @@ const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
 const { sendAnthropicStream, sendEvent } = require('./sse-sink');
+const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
@@ -39,6 +41,9 @@ function createServer(options = {}) {
       console.log(JSON.stringify(entry));
       recordDiagnostic(entry.event, entry);
     };
+  const streamPingIntervalMs = Number.isSafeInteger(options.streamPingIntervalMs) && options.streamPingIntervalMs >= 1
+    ? options.streamPingIntervalMs
+    : STREAM_PING_INTERVAL_MS;
   const rateLimiter = options.rateLimiter || createRateLimiter({
     limit: 30,
     windowMs: 60_000
@@ -171,8 +176,11 @@ function createServer(options = {}) {
       return jsonError(res, 400, 'invalid_request_error', 'Unsupported BYV model profile: ' + body.model, 'UNSUPPORTED_MODEL_PROFILE');
     }
 
+    const compactionRequest = isClaudeCodeCompactionRequest(body);
     const requestContent = {
       request_id: requestId,
+      request_intent: compactionRequest ? 'claude_code_compaction' : 'normal',
+      is_compaction_request: compactionRequest,
       method: req.method,
       route,
       model_profile: body.model,
@@ -183,9 +191,9 @@ function createServer(options = {}) {
       tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
       no_tool_experiment: noToolExperiment,
       text_only_inference: noToolExperiment,
-      textual_dsml_tool_calling: noToolExperiment && body.tool_choice !== 'none' && Array.isArray(body.tools) && body.tools.length > 0,
+      textual_dsml_tool_calling: !compactionRequest && noToolExperiment && body.tool_choice !== 'none' && Array.isArray(body.tools) && body.tools.length > 0,
       no_tool_experiment_variant: noToolExperiment ? experimentVariant : null,
-      callable_tool_count: body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
+      callable_tool_count: compactionRequest || body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
         ? 0
         : (Array.isArray(body.tools) ? body.tools.length : 0),
       provider_native_tool_count: 0,
@@ -198,9 +206,8 @@ function createServer(options = {}) {
       content: { body }
     });
 
-    // Keep the client's gateway-level tool_choice intact. The provider adapter
-    // independently sends tool_choice=none and no native tool definitions.
-    const inferenceBody = body;
+    // Compaction summary turns are explicitly text-only; normal tool_choice remains intact.
+    const inferenceBody = compactionRequest ? { ...body, tool_choice: 'none' } : body;
 
     if (countTokens) {
       let estimated;
@@ -243,13 +250,40 @@ function createServer(options = {}) {
 
     const isStream = body.stream === true;
     const controller = new AbortController();
+    const startedAt = Date.now();
+    let pingTimer = null;
     const onClose = () => {
-      if (!res.writableEnded) controller.abort(new Error('Client disconnected.'));
+      if (!res.writableEnded && !controller.signal.aborted) {
+        controller.abort(new Error('Client disconnected.'));
+        recordDiagnostic('request.cancelled', {
+          level: 'warn',
+          event: 'request.cancelled',
+          request_id: requestId,
+          model_profile: body.model,
+          error_code: 'CLIENT_DISCONNECTED',
+          status: 499,
+          phase: 'client_disconnect',
+          duration_ms: Date.now() - startedAt
+        });
+      }
     };
     res.once('close', onClose);
 
-    const startedAt = Date.now();
     try {
+      if (isStream) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no'
+        });
+        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+        if (!sendEvent(res, 'ping', { type: 'ping' })) return;
+        pingTimer = setInterval(() => {
+          if (!sendEvent(res, 'ping', { type: 'ping' })) clearInterval(pingTimer);
+        }, streamPingIntervalMs);
+        if (typeof pingTimer.unref === 'function') pingTimer.unref();
+      }
       const result = await runHandler(inferenceBody, {
         signal: controller.signal,
         requestId,
@@ -261,13 +295,10 @@ function createServer(options = {}) {
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
       if (isStream) {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache, no-transform',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no'
-        });
-        if (typeof res.flushHeaders === 'function') res.flushHeaders();
+        if (pingTimer) {
+          clearInterval(pingTimer);
+          pingTimer = null;
+        }
         sendAnthropicStream(res, result, body.model, result.usage.input_tokens);
         res.end();
       } else {
@@ -312,7 +343,11 @@ function createServer(options = {}) {
         content: { content: result.content, stop_reason: result.stop_reason, usage: result.usage }
       });
     } catch (error) {
-      if (res.destroyed || res.writableEnded || controller.signal.aborted) return;
+      if (controller.signal.aborted || res.destroyed || res.writableEnded) return;
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
       const failureLog = {
         level: 'error',
         event: 'request.failed',
@@ -340,6 +375,7 @@ function createServer(options = {}) {
           error.message || 'Gateway request failed.', error.code || 'GATEWAY_ERROR');
       }
     } finally {
+      if (pingTimer) clearInterval(pingTimer);
       res.removeListener('close', onClose);
       activeRequests = Math.max(0, activeRequests - 1);
     }
