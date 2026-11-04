@@ -3,7 +3,9 @@
 const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING
+  PROVIDER_NATIVE_TOOL_CALLING,
+  NO_TOOL_EXPERIMENT_ENABLED,
+  NO_TOOL_EXPERIMENT_VARIANT
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages } = require('./handler');
@@ -20,6 +22,12 @@ const { createDiagnostics } = require('./diagnostics');
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
+  const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+    ? options.noToolExperiment
+    : NO_TOOL_EXPERIMENT_ENABLED;
+  const experimentVariant = options.experimentVariant === 'B' || options.experimentVariant === 'A'
+    ? options.experimentVariant
+    : NO_TOOL_EXPERIMENT_VARIANT;
   const diagnostics = options.diagnostics || createDiagnostics();
   const recordDiagnostic = typeof diagnostics === 'function'
     ? diagnostics
@@ -174,6 +182,9 @@ function createServer(options = {}) {
       message_count: body.messages.length,
       tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
       tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
+      no_tool_experiment: noToolExperiment,
+      no_tool_experiment_variant: noToolExperiment ? experimentVariant : null,
+      callable_tool_count: noToolExperiment || body.tool_choice === 'none' ? 0 : (Array.isArray(body.tools) ? body.tools.length : 0),
       body_bytes: Number.isSafeInteger(Number(req.headers['content-length'])) ? Number(req.headers['content-length']) : null,
       normalized_instruction_messages: normalized.normalizedInstructionMessages
     };
@@ -182,10 +193,15 @@ function createServer(options = {}) {
       content: { body }
     });
 
+    const inferenceBody = noToolExperiment ? { ...body, tool_choice: 'none' } : body;
+
     if (countTokens) {
       let estimated;
       try {
-        estimated = estimateProviderInputTokens(buildProviderMessages(body));
+        estimated = estimateProviderInputTokens(buildProviderMessages(inferenceBody, {
+          noToolExperiment,
+          experimentVariant
+        }));
       } catch (error) {
         recordDiagnostic('request.token_estimation.failed', {
           level: 'warn',
@@ -227,11 +243,13 @@ function createServer(options = {}) {
 
     const startedAt = Date.now();
     try {
-      const result = await runHandler(body, {
+      const result = await runHandler(inferenceBody, {
         signal: controller.signal,
         requestId,
         logger: toolCallLogger,
-        diagnostics: recordDiagnostic
+        diagnostics: recordDiagnostic,
+        noToolExperiment,
+        experimentVariant
       });
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
