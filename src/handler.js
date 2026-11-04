@@ -1,7 +1,17 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_PROVIDER_RETRIES, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, PROVIDER_MODEL, uuid } = require('./config');
-const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
+const {
+  MAX_RECOVERY_ATTEMPTS,
+  MAX_PROVIDER_RETRIES,
+  MAX_OUTPUT_CHARS,
+  CONTEXT_WINDOW_SAFETY_TOKENS,
+  COMPACTION_MAX_INPUT_TOKENS,
+  COMPACTION_MAX_OUTPUT_TOKENS,
+  PROVIDER_NATIVE_TOOL_CALLING,
+  PROVIDER_MODEL,
+  uuid
+} = require('./config');
+const { buildProviderMessages, buildCompactionProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
@@ -91,6 +101,45 @@ function normalizeUsage(providerUsage, inputEstimate, outputEstimate) {
 function hasProviderTokenTotals(providerUsage) {
   return usageCount(providerUsage, ['prompt_tokens', 'input_tokens']) !== null &&
     usageCount(providerUsage, ['completion_tokens', 'output_tokens']) !== null;
+}
+
+function resolveCompactionBudgets(capabilities, requestedOutputTokens) {
+  const outputLimits = [COMPACTION_MAX_OUTPUT_TOKENS, requestedOutputTokens];
+  const inputLimits = [COMPACTION_MAX_INPUT_TOKENS];
+
+  if (capabilities && Number.isSafeInteger(capabilities.max_output_tokens) && capabilities.max_output_tokens > 0) {
+    outputLimits.push(capabilities.max_output_tokens);
+  }
+  if (capabilities && Number.isSafeInteger(capabilities.max_input_tokens) && capabilities.max_input_tokens > 0) {
+    inputLimits.push(capabilities.max_input_tokens);
+  }
+
+  let maxOutputTokens = Math.min(...outputLimits);
+  if (capabilities && Number.isSafeInteger(capabilities.context_window_tokens) && capabilities.context_window_tokens > 0) {
+    // Reserve the same safety margin used by the normal provider budget check.
+    // Summary output is capped to 25% of the remaining context, leaving the
+    // majority available for the transcript across small and large models.
+    const availableContext = capabilities.context_window_tokens - CONTEXT_WINDOW_SAFETY_TOKENS;
+    const contextOutputLimit = Math.max(1, Math.floor(availableContext * 0.25));
+    maxOutputTokens = Math.min(maxOutputTokens, contextOutputLimit);
+    inputLimits.push(Math.max(0,
+      capabilities.context_window_tokens - maxOutputTokens - CONTEXT_WINDOW_SAFETY_TOKENS
+    ));
+  }
+
+  const maxInputTokens = Math.min(...inputLimits);
+  if (!Number.isSafeInteger(maxInputTokens) || maxInputTokens < 1 ||
+      !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1) {
+    throw Object.assign(new Error(
+      'The provider context limits do not leave enough room for an autocompaction request.'
+    ), {
+      statusCode: 400,
+      type: 'invalid_request_error',
+      code: 'PROVIDER_COMPACTION_BUDGET_UNAVAILABLE'
+    });
+  }
+
+  return { maxInputTokens, maxOutputTokens };
 }
 
 function enforceProviderBudget(capabilities, estimatedInputTokens, requestedOutputTokens) {
@@ -186,6 +235,9 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
       tool_count: Array.isArray(options.tools) ? options.tools.length : 0,
       tool_names: Array.isArray(options.tools) ? options.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
       estimated_input_tokens: estimatedInputTokens,
+      request_intent: diagnostic.requestIntent || 'normal',
+      compaction_max_input_tokens: diagnostic.compactionMaxInputTokens || null,
+      compaction_max_output_tokens: diagnostic.compactionMaxOutputTokens || null,
       content: { messages, options }
     });
     upstreamStarted = true;
@@ -475,16 +527,26 @@ async function handleMessages(body, options = {}) {
   const force = compactionRequest || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
-  const requestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
-  const providerMessages = buildProviderMessages(requestBody, {
-    nativeToolCalling,
-    noToolExperiment,
-    experimentVariant
-  });
+  const baseRequestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
     : await getModelCapabilities();
+  const compactionBudgets = compactionRequest
+    ? resolveCompactionBudgets(providerCapabilities, body.max_tokens)
+    : null;
+  const requestBody = compactionBudgets
+    ? { ...baseRequestBody, max_tokens: compactionBudgets.maxOutputTokens }
+    : baseRequestBody;
+  const providerMessages = compactionRequest
+    ? buildCompactionProviderMessages(requestBody, {
+        maxInputTokens: compactionBudgets.maxInputTokens
+      })
+    : buildProviderMessages(requestBody, {
+        nativeToolCalling,
+        noToolExperiment,
+        experimentVariant
+      });
   let providerAttempt = 0;
   const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
     let retry = 0;
@@ -496,7 +558,10 @@ async function handleMessages(body, options = {}) {
           attempt: ++providerAttempt,
           phase,
           recoveryAttempt,
-          nativeToolCalling
+          nativeToolCalling,
+          requestIntent: compactionRequest ? 'claude_code_compaction' : 'normal',
+          compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
+          compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null
         });
       } catch (error) {
         const code = String(error && error.code || '');
@@ -771,5 +836,6 @@ module.exports = {
   normalizeUsage,
   hasProviderTokenTotals,
   enforceProviderBudget,
+  resolveCompactionBudgets,
   parseCompletionToolCalls
 };
