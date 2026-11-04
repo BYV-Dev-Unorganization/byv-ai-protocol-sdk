@@ -272,6 +272,9 @@ function createServer(options = {}) {
 
     try {
       if (isStream) {
+        const streamPrompt = buildProviderMessages(inferenceBody, { noToolExperiment, experimentVariant });
+        const estimatedInputTokens = estimateProviderInputTokens(streamPrompt);
+        res.setHeader('X-Token-Usage-Estimated', 'true');
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache, no-transform',
@@ -279,11 +282,8 @@ function createServer(options = {}) {
           'X-Accel-Buffering': 'no'
         });
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
-        const streamPrompt = buildProviderMessages(inferenceBody, { noToolExperiment, experimentVariant });
-        const estimatedInputTokens = estimateProviderInputTokens(streamPrompt);
         const messageId = sendAnthropicMessageStart(res, body.model, estimatedInputTokens);
         if (!messageId || !sendEvent(res, 'ping', { type: 'ping' })) return;
-        res.setHeader('X-Token-Usage-Estimated', 'true');
         pingTimer = setInterval(() => {
           if (!sendEvent(res, 'ping', { type: 'ping' })) clearInterval(pingTimer);
         }, streamPingIntervalMs);
