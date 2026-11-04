@@ -13,7 +13,8 @@ const { buildProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
-const { sendAnthropicStream, sendEvent } = require('./sse-sink');
+const { buildProviderMessages } = require('./prompts');
+const { sendAnthropicMessageStart, sendAnthropicStream, sendEvent } = require('./sse-sink');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
@@ -278,7 +279,11 @@ function createServer(options = {}) {
           'X-Accel-Buffering': 'no'
         });
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
-        if (!sendEvent(res, 'ping', { type: 'ping' })) return;
+        const streamPrompt = buildProviderMessages(inferenceBody, { noToolExperiment, experimentVariant });
+        const estimatedInputTokens = estimateProviderInputTokens(streamPrompt);
+        const messageId = sendAnthropicMessageStart(res, body.model, estimatedInputTokens);
+        if (!messageId || !sendEvent(res, 'ping', { type: 'ping' })) return;
+        res.setHeader('X-Token-Usage-Estimated', 'true');
         pingTimer = setInterval(() => {
           if (!sendEvent(res, 'ping', { type: 'ping' })) clearInterval(pingTimer);
         }, streamPingIntervalMs);
@@ -299,7 +304,7 @@ function createServer(options = {}) {
           clearInterval(pingTimer);
           pingTimer = null;
         }
-        sendAnthropicStream(res, result, body.model, result.usage.input_tokens);
+        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, { messageStarted: true });
         res.end();
       } else {
         const payload = {

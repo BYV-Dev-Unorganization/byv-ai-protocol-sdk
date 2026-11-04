@@ -539,7 +539,7 @@ function formatRejectedToolCalls(toolCalls) {
 function buildRecoveryMessage(error, attempt, mode, options = {}) {
     if (mode === 'text') {
         return [
-            '=== TEXT-ONLY RESPONSE RECOVERY ===',
+            'RECOVERY REQUIRED: TEXT-ONLY RESPONSE RECOVERY',
             'The previous response did not satisfy the required plain-text response contract.',
             'Correction required: ' + String(error || 'Return a non-empty plain-text answer.'),
             'Do not emit DSML calls, invoke, or parameter tags, legacy tool wrappers, or JSON tool-call output.',
