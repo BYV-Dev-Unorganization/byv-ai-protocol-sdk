@@ -80,3 +80,23 @@ test('rejects multiple outer calls blocks and incomplete protocol markup', () =>
   assert.match(parseBYVOutput(twice).errors[0], /Only one outer/);
   assert.match(parseBYVOutput('<|BYV| calls>').errors[0], /incomplete/);
 });
+
+test('does not interpret BYV markers in inline or fenced Markdown code as tool calls', () => {
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const source = [
+    'The BYV marker ' + tick + '<|BYV| calls>' + tick + ' is documented here.',
+    '',
+    fence + 'text',
+    '<|BYV| calls>',
+    '<|BYV| invoke name="Read" id="example"></|BYV| invoke>',
+    '</|BYV| calls>',
+    fence,
+    'This is explanatory prose.'
+  ].join('\n');
+  const parsed = parseBYVOutput(source);
+  assert.equal(parsed.hasProtocol, false);
+  assert.deepEqual(parsed.calls, []);
+  assert.deepEqual(parsed.errors, []);
+  assert.equal(parsed.text, source);
+});
