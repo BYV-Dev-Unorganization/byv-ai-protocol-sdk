@@ -98,13 +98,13 @@ function parseInvocationBlock(raw) {
   const calls = [];
   let cursor = 0;
   while (cursor < raw.length) {
-    while (/\s/.test(raw[cursor] || '') && cursor < raw.length) cursor++;
+    while (/\s/.test(masked[cursor] || '') && cursor < raw.length) cursor++;
     if (cursor >= raw.length) break;
 
-    if (!raw.startsWith(OPEN_INVOKE, cursor)) {
+    if (!masked.startsWith(OPEN_INVOKE, cursor)) {
       throw new Error('Unexpected content inside BYV calls block; expected invoke.');
     }
-    const headerEnd = raw.indexOf('>', cursor);
+    const headerEnd = masked.indexOf('>', cursor);
     if (headerEnd < 0) throw new Error('BYV invoke header is incomplete.');
     const header = raw.slice(cursor + OPEN_INVOKE.length, headerEnd);
     const attrs = parseOrderedAttributes(header, ['name', 'id'], 'BYV invoke');
@@ -115,15 +115,15 @@ function parseInvocationBlock(raw) {
 
     while (cursor < raw.length) {
       while (/\s/.test(raw[cursor] || '') && cursor < raw.length) cursor++;
-      if (raw.startsWith(CLOSE_INVOKE, cursor)) {
+      if (masked.startsWith(CLOSE_INVOKE, cursor)) {
         cursor += CLOSE_INVOKE.length;
         invokeClosed = true;
         break;
       }
-      if (!raw.startsWith(OPEN_PARAMETER, cursor)) {
+      if (!masked.startsWith(OPEN_PARAMETER, cursor)) {
         throw new Error('Unexpected content inside invoke ' + attrs.id + '; expected parameter or invoke close.');
       }
-      const parameterHeaderEnd = raw.indexOf('>', cursor);
+      const parameterHeaderEnd = masked.indexOf('>', cursor);
       if (parameterHeaderEnd < 0) throw new Error('BYV parameter header is incomplete.');
       const parameterHeader = raw.slice(cursor + OPEN_PARAMETER.length, parameterHeaderEnd);
       const parameterAttrs = parseOrderedAttributes(parameterHeader, ['name', 'type'], 'BYV parameter');
