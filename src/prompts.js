@@ -188,7 +188,10 @@ function toolsToPrompt(tools, options = {}) {
     return lines.join('\n');
 }
 
-function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY) {
+function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, options = {}) {
+    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+        ? options.nativeToolCalling
+        : PROVIDER_NATIVE_TOOL_CALLING;
     const parts = [];
     if (system) parts.push('### SYSTEM\n' + flattenContent(system));
     parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
@@ -206,7 +209,7 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY) {
 
     // Keep tool schemas close to the latest request/results. The replay truncator
     // preserves the tail, so long histories cannot silently cut off the tool contract.
-    const toolPrompt = toolsToPrompt(tools);
+    const toolPrompt = toolsToPrompt(tools, { nativeToolCalling });
     if (toolPrompt) parts.push('### TOOLS\n' + toolPrompt);
 
     if (lastHasToolResult) {
@@ -224,7 +227,13 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY) {
         parts.push('Respond as the assistant. If calling a tool, output only one DSML calls block using invoke and parameter tags, as defined above.');
     }
 
-    return parts.join('\n\n');
+    const prompt = parts.join('\n\n');
+    if (prompt.length > MAX_PROMPT_CHARS) {
+        throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schemas or client system instructions.'), {
+            statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+        });
+    }
+    return prompt;
 }
 
 function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY) {
@@ -341,15 +350,19 @@ function toolsAsReference(tools) {
 }
 
 function buildSystemPrompt(body = {}, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
     const noToolExperiment = options.noToolExperiment === true;
+    // Text-only inference disables provider-native functions but still permits
+    // textual DSML calls for the gateway adapter.
+    const nativeToolCalling = noToolExperiment
+        ? false
+        : (typeof options.nativeToolCalling === 'boolean'
+            ? options.nativeToolCalling
+            : PROVIDER_NATIVE_TOOL_CALLING);
     const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
     const system = flattenContent(body.system);
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
-    const force = noToolExperiment ? { mode: 'none' } : parseToolChoice(body.tool_choice);
+    const force = parseToolChoice(body.tool_choice);
     const textOnly = force.mode === 'none' || tools.length === 0;
     const sections = [];
 
@@ -357,14 +370,10 @@ function buildSystemPrompt(body = {}, options = {}) {
     sections.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
 
     if (textOnly) {
-        if (noToolExperiment && experimentVariant === 'B' && tools.length > 0) {
-            sections.push(toolsAsReference(tools));
-        } else {
-            sections.push([
-                '=== NO TOOLS AVAILABLE ===',
-                'No tools are callable for this request. Do not invent tools or claim that a tool was executed.'
-            ].join('\n'));
-        }
+        sections.push([
+            '=== NO TOOLS AVAILABLE ===',
+            'No tools are callable for this request because tool_choice is none or no tool schemas were supplied.'
+        ].join('\n'));
 
         const last = messages[messages.length - 1] || { role: 'user', content: '' };
         const lastHasToolResult = blocksOf(last.content).some((block) => block && block.type === 'tool_result');
@@ -446,15 +455,38 @@ function buildSystemPrompt(body = {}, options = {}) {
     return prompt;
 }
 function buildProviderMessages(body = {}, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
     const noToolExperiment = options.noToolExperiment === true;
-    const force = noToolExperiment ? { mode: 'none' } : parseToolChoice(body.tool_choice);
-    const textOnly = force.mode === 'none' || !Array.isArray(body.tools) || body.tools.length === 0;
+    const nativeToolCalling = noToolExperiment
+        ? false
+        : (typeof options.nativeToolCalling === 'boolean'
+            ? options.nativeToolCalling
+            : PROVIDER_NATIVE_TOOL_CALLING);
+    const force = parseToolChoice(body.tool_choice);
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const tools = Array.isArray(body.tools) ? body.tools : [];
+    const textOnly = force.mode === 'none' || tools.length === 0;
+
+    // Match deepseek-super's browser request shape: one consolidated text prompt
+    // containing instructions, history, schemas, tool results, and latest request.
+    // Provider-native tool definitions remain absent; DSML is the text protocol.
+    if (noToolExperiment && !textOnly) {
+        let prompt = buildFullPrompt(body.system, messages, tools, MAX_REPLAY, {
+            nativeToolCalling: false
+        });
+        const profile = modelProfilePrompt(body.model);
+        if (profile) prompt += '\n\n' + profile;
+        prompt = applyForcedTool(prompt, force, { nativeToolCalling: false });
+        if (prompt.length > MAX_PROMPT_CHARS) {
+            throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schemas or client system instructions.'), {
+                statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+            });
+        }
+        return [{ role: 'user', content: prompt }];
+    }
+
     return [
         { role: 'system', content: buildSystemPrompt(body, { nativeToolCalling, noToolExperiment, experimentVariant: options.experimentVariant }) },
-        ...convertAnthropicMessages(Array.isArray(body.messages) ? body.messages : [], { nativeToolCalling, textOnly })
+        ...convertAnthropicMessages(messages, { nativeToolCalling, textOnly })
     ];
 }
 
