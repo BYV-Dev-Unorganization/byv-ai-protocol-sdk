@@ -263,34 +263,38 @@ test('recovery prompts include the validation issue, concrete DSML example, and 
 });
 
 
-test('text-only experiment omits callable tool protocols in both metadata variants', () => {
+test('text-only inference uses the DeepSeek-style consolidated DSML prompt without native tool schemas', () => {
   const request = {
     model: 'byv-flash-v1',
+    system: 'Follow the repository instructions.',
     tools: [readTool],
     tool_choice: 'auto',
     messages: [{ role: 'user', content: 'Read README.md.' }]
   };
 
-  const variantA = buildSystemPrompt(request, {
-    noToolExperiment: true,
-    experimentVariant: 'A',
-    nativeToolCalling: true
-  });
-  assert.match(variantA, /TEXT-ONLY OUTPUT CONTRACT/);
-  assert.match(variantA, /tool_choice = none/);
-  assert.doesNotMatch(variantA, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
-  assert.doesNotMatch(variantA, /Read a file from the workspace/);
-  assert.doesNotMatch(variantA, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
-
-  const variantB = buildSystemPrompt(request, {
+  const systemPrompt = buildSystemPrompt(request, {
     noToolExperiment: true,
     experimentVariant: 'B',
     nativeToolCalling: true
   });
-  assert.match(variantB, /TOOLS LISTED FOR REFERENCE ONLY/);
-  assert.match(variantB, /\"Read\": \"Read a file from the workspace\"/);
-  assert.match(variantB, /TEXT-ONLY OUTPUT CONTRACT/);
-  assert.doesNotMatch(variantB, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
-  assert.doesNotMatch(variantB, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
-  assert.doesNotMatch(variantB, /<｜DSML｜|<\|BYV\|/);
-});
+  assert.match(systemPrompt, /DSML TOOL CALL PROTOCOL/);
+  assert.match(systemPrompt, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.doesNotMatch(systemPrompt, /NATIVE TOOL CALL PROTOCOL/);
+  assert.doesNotMatch(systemPrompt, /TEXT-ONLY OUTPUT CONTRACT/);
+
+  const providerMessages = buildProviderMessages(request, {
+    noToolExperiment: true,
+    experimentVariant: 'B',
+    nativeToolCalling: true
+  });
+  assert.equal(providerMessages.length, 1);
+  assert.equal(providerMessages[0].role, 'user');
+  assert.match(providerMessages[0].content, /### SYSTEM/);
+  assert.match(providerMessages[0].content, /Follow the repository instructions/);
+  assert.match(providerMessages[0].content, /### TOOLS/);
+  assert.match(providerMessages[0].content, /Read\\(file_path\\*: string/);
+  assert.match(providerMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(providerMessages[0].content, /### LATEST USER MESSAGE/);
+  assert.match(providerMessages[0].content, /DeepSeek DSML markup format/);
+  assert.doesNotMatch(providerMessages[0].content, /NATIVE TOOL CALL PROTOCOL/);
+});;
