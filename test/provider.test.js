@@ -146,7 +146,7 @@ test('sends tool_choice none without exposing provider callable tool definitions
     "  tool_choice: 'none'",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
-  ].join('\\n');
+  ].join('\n');
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
