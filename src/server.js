@@ -8,8 +8,8 @@ const {
   STREAM_PING_INTERVAL_MS
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
-const { handleMessages } = require('./handler');
-const { buildProviderMessages } = require('./prompts');
+const { handleMessages, resolveCompactionBudgets } = require('./handler');
+const { buildProviderMessages, buildCompactionProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
@@ -212,10 +212,19 @@ function createServer(options = {}) {
     if (countTokens) {
       let estimated;
       try {
-        estimated = estimateProviderInputTokens(buildProviderMessages(inferenceBody, {
-          noToolExperiment,
-          experimentVariant
-        }));
+        if (compactionRequest) {
+          const capabilities = await readProviderCapabilities();
+          const budgets = resolveCompactionBudgets(capabilities, inferenceBody.max_tokens);
+          const compactedBody = { ...inferenceBody, max_tokens: budgets.maxOutputTokens };
+          estimated = estimateProviderInputTokens(buildCompactionProviderMessages(compactedBody, {
+            maxInputTokens: budgets.maxInputTokens
+          }));
+        } else {
+          estimated = estimateProviderInputTokens(buildProviderMessages(inferenceBody, {
+            noToolExperiment,
+            experimentVariant
+          }));
+        }
       } catch (error) {
         recordDiagnostic('request.token_estimation.failed', {
           level: 'warn',
