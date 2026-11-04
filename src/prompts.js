@@ -773,6 +773,8 @@ module.exports = {
     applyForcedTool,
     buildSystemPrompt,
     buildProviderMessages,
+    buildCompactionProviderMessages,
+    buildCompactionTranscript,
     buildRecoveryMessage,
     originalUserRequestBlock,
     truncateTextPreservingEnds
