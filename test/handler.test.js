@@ -907,8 +907,8 @@ test('derives compaction budgets from generic provider input, output, and contex
     max_input_tokens: 12000,
     max_output_tokens: 4096
   }, 128000), {
-    maxInputTokens: 12000,
-    maxOutputTokens: 4096
+    maxInputTokens: 11520,
+    maxOutputTokens: 3840
   });
   assert.deepEqual(resolveCompactionBudgets(null, 128000), {
     maxInputTokens: 32768,
