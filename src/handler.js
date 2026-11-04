@@ -302,7 +302,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
 
 function validateTextOnlyCompletion(completion) {
   const result = parseCompletionToolCalls(completion, false);
-  const textOnlyProtocolMarker = /(?:<\\|(?:BYV|DSML)\\||<｜DSML｜|<\\/?TOOL_CALL\\b|[\"'](?:tool_calls|function_call)[\"']\\s*:)/i;
+  const textOnlyProtocolMarker = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -312,6 +312,13 @@ function validateTextOnlyCompletion(completion) {
 
   if (result.error) {
     return { ...base, valid: false, error: result.error };
+  }
+  if (textOnlyProtocolMarker.test(result.parsed.text)) {
+    return {
+      ...base,
+      valid: false,
+      error: 'The model emitted a legacy or JSON tool-call wrapper while tool use was disabled.'
+    };
   }
   if (result.calls.length > 0) {
     return {
