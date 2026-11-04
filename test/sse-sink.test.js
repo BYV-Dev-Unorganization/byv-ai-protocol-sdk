@@ -48,3 +48,20 @@ test('includes provider cache usage in the Anthropic streaming message_start usa
     cache_read_input_tokens: 80
   });
 });
+
+
+test('does not duplicate message_start when inference completes after stream initialization', () => {
+  const chunks = [];
+  const response = { destroyed: false, writableEnded: false, write(value) { chunks.push(value); return true; } };
+  const { sendAnthropicMessageStart } = require('../src/sse-sink');
+  sendAnthropicMessageStart(response, 'claude-sonnet-5-5', 17);
+  sendAnthropicStream(response, {
+    text: 'Finished.',
+    toolCalls: [],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 17, output_tokens: 2 }
+  }, 'claude-sonnet-5-5', 17, { messageStarted: true });
+  assert.equal(chunks.filter((chunk) => chunk.startsWith('event: message_start')).length, 1);
+  assert.ok(chunks.findIndex((chunk) => chunk.startsWith('event: message_delta')) >
+    chunks.findIndex((chunk) => chunk.startsWith('event: message_start')));
+});
