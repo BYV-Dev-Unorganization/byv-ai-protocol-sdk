@@ -331,8 +331,8 @@ The gateway does not execute tools. The client executes the requested tool, then
 
 Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 
+- message_start (sent immediately with estimated input-token usage)
 - ping (periodic keep-alive while validated provider output is pending)
-- message_start
 - content_block_start
 - content_block_delta
 - content_block_stop
@@ -340,7 +340,7 @@ Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 - message_stop
 - error on a gateway failure after SSE begins
 
-The upstream provider is requested with `stream: true`. BYV opens the Anthropic SSE response immediately and emits a `ping` immediately and then every `STREAM_PING_INTERVAL_MS` (default 15 seconds) while inference runs. It still buffers provider output until DSML conversion, parsing, allowlist checks, and JSON Schema validation finish; only then are content blocks emitted. This prevents partial or unvalidated tool batches from reaching Claude Code and keeps the HTTP stream alive, but does not yet provide token-by-token model output. Provider streams that end without `[DONE]` are rejected as incomplete rather than accepted as partial completions.
+The upstream provider is requested with `stream: true`. BYV opens the Anthropic SSE response immediately with `message_start` (using an estimated input-token count), then emits a `ping` and repeats it every `STREAM_PING_INTERVAL_MS` (default 15 seconds) while inference runs. It still buffers provider output until DSML conversion, parsing, allowlist checks, and JSON Schema validation finish; only then are content blocks emitted. The `X-Token-Usage-Estimated: true` response header marks the early input-token estimate. This prevents partial or unvalidated tool batches from reaching Claude Code and keeps the HTTP stream alive, but does not yet provide token-by-token model output. Provider streams that end without `[DONE]` are rejected as incomplete rather than accepted as partial completions.
 
 ## Supported request fields and current limitations
 
