@@ -334,7 +334,7 @@ function toolsAsReference(tools) {
         ''
     ];
     for (const tool of tools) {
-        lines.push('- ' + tool.name + ': ' + (tool.description || ''));
+        lines.push('- ' + JSON.stringify(tool.name) + ': ' + JSON.stringify(tool.description || ''));
     }
     return lines.join('\n');
 }
