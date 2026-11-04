@@ -266,3 +266,43 @@ test('text-only inference preserves gateway tool_choice while selecting provider
   const result = await response.json();
   assert.deepEqual(result.content, [{ type: 'text', text: 'Text-only response.' }]);
 });
+
+
+test('starts Anthropic SSE with message_start and keeps it alive with ping before inference completes', async (t) => {
+  const base = await withServer(t, {
+    streamPingIntervalMs: 10,
+    handleMessages: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 55));
+      return {
+        id: 'msg_delayed_stream',
+        text: 'Done.',
+        content: [{ type: 'text', text: 'Done.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 2 },
+        usage_estimated: false
+      };
+    }
+  });
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 64,
+      stream: true,
+      messages: [{ role: 'user', content: 'Hello' }]
+    })
+  });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /text\\/event-stream/);
+  const stream = await response.text();
+  const startIndex = stream.indexOf('event: message_start');
+  const pingIndex = stream.indexOf('event: ping');
+  const deltaIndex = stream.indexOf('event: content_block_delta');
+  assert.ok(startIndex >= 0);
+  assert.ok(pingIndex > startIndex);
+  assert.ok(deltaIndex > pingIndex);
+  assert.match(stream, /event: message_stop/);
+  assert.equal(response.headers.get('x-token-usage-estimated'), 'true');
+});
