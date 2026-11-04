@@ -321,7 +321,7 @@ The provider adapter sends neither native OpenAI-compatible `tools` definitions 
 
 Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
 
-For DeepSeek Chat Completions models in this optional mode, the adapter sets `reasoning_effort: "none"` on forced-tool requests. This is separate from the default DSML-to-BYV path.
+Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
 
 Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
 
@@ -370,7 +370,7 @@ The current version is a compatibility layer, not a complete reimplementation of
 
 ### Native reasoning effort
 
-When `PROVIDER_NATIVE_REASONING_EFFORT=true` (the default), BYV forwards Anthropic `output_config.effort` as the top-level OpenAI-compatible `reasoning_effort` parameter. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Set `PROVIDER_NATIVE_REASONING_EFFORT=false` when an upstream provider does not support this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
+When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards Anthropic `output_config.effort` as the top-level provider `reasoning_effort` parameter. This non-standard extension is disabled by default for compatibility. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Enable `PROVIDER_NATIVE_REASONING_EFFORT` only when the configured provider supports this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
 
 ### Provider capabilities and context budgeting
 
@@ -417,7 +417,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
 | PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
-| PROVIDER_NATIVE_REASONING_EFFORT | true | Forward Anthropic output_config.effort as native reasoning_effort; set false for providers that do not support it |
+| PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |\n| PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |\n| COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |\n| COMPACTION_MAX_OUTPUT_TOKENS | 8192 | Generic maximum output-token budget for autocompaction, reduced by detected provider limits |\n| COMPACTION_MAX_SYSTEM_CHARS | 8000 | Maximum external system/developer instruction characters retained during autocompaction |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
