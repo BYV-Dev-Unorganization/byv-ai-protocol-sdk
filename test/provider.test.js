@@ -168,7 +168,7 @@ test('sends tool_choice none without exposing provider callable tool definitions
 
 test('rejects an upstream SSE stream that closes without the DONE marker', () => {
   const script = [
-    "global.fetch = async () => new Response('data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"}]}\\\\n\\\\n', {",
+    "global.fetch = async () => new Response('data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"}]}' + String.fromCharCode(10) + String.fromCharCode(10), {",
     "  status: 200, headers: { 'Content-Type': 'text/event-stream' }",
     "});",
     "const { createStreamingChatCompletion } = require('./src/provider/openai-compatible');",
@@ -178,7 +178,7 @@ test('rejects an upstream SSE stream that closes without the DONE marker', () =>
     "    if (error.code !== 'PROVIDER_STREAM_INCOMPLETE') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
     "    else process.stdout.write(error.code);",
     "  });"
-  ].join('\\n');
+  ].join(String.fromCharCode(10));
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
@@ -206,7 +206,7 @@ test('classifies upstream context-window rejection separately from transient HTT
     "    if (error.code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
     "    else process.stdout.write(error.code);",
     "  });"
-  ].join('\\n');
+  ].join(String.fromCharCode(10));
   const result = spawnSync(process.execPath, ['-e', script], {
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
