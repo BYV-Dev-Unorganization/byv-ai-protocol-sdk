@@ -849,9 +849,11 @@ test('uses bounded model-capability-aware replay and output budgets for Claude C
   ];
   let receivedMessages;
   let receivedOptions;
+  let streamCalls = 0;
   const diagnostics = [];
   const result = await handleMessages(body({
     max_tokens: 128000,
+    stream: true,
     output_config: { effort: 'high' },
     messages: conversation,
     tool_choice: undefined
@@ -866,7 +868,8 @@ test('uses bounded model-capability-aware replay and output budgets for Claude C
         max_input_tokens: 40000,
         max_output_tokens: 4096
       }),
-      createChatCompletion: async (messages, options) => {
+      createStreamingChatCompletion: async (messages, options) => {
+        streamCalls++;
         receivedMessages = messages;
         receivedOptions = options;
         return {
@@ -878,6 +881,7 @@ test('uses bounded model-capability-aware replay and output budgets for Claude C
     }
   });
 
+  assert.equal(streamCalls, 1);
   assert.equal(receivedMessages.length, 2);
   assert.equal(receivedMessages[0].role, 'system');
   assert.equal(receivedMessages[1].role, 'user');
