@@ -2,9 +2,9 @@ name: BYV SDK checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, experiment/text-only-inference]
   pull_request:
-    branches: [main]
+    branches: [main, feat/dsml-prompt-byv-adapter]
 
 jobs:
   test:
