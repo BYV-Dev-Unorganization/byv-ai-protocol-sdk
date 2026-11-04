@@ -299,10 +299,11 @@ function applyForcedTool(prompt, force, options = {}) {
     if (force.mode === 'none') {
         return [
             '=== STOP: DO NOT CALL TOOLS ===',
+            'GATEWAY CONTROL: tool_choice = none. Text-only output required.',
             'Using ALL information already available in the context above, answer the user NOW in plain text.',
             '',
             'MANDATORY RULES:',
-            '1. Do NOT emit DSML calls/invoke/parameter tags or legacy <TOOL_CALL> tags.',
+            '1. Do not emit DSML calls, invoke, or parameter tags, or legacy <TOOL_CALL> tags.',
             '2. Do NOT call any tools. All tools are disabled for this turn.',
             '3. If information is incomplete, answer with what is available and state the limitations.',
             '4. Respond in the language the user is currently using unless they explicitly request another language.',
