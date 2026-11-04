@@ -109,7 +109,7 @@ test('disables DeepSeek thinking for Anthropic any tool_choice mapped to require
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
-test('sends tool_choice none and omits native tool fields when native calling is disabled', () => {
+test('omits native tool fields entirely when native calling is disabled', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -133,11 +133,11 @@ test('sends tool_choice none and omits native tool fields when native calling is
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
-  assert.equal(payload.tool_choice, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
 });
 
 
-test('sends tool_choice none without exposing provider callable tool definitions', () => {
+test('omits provider tool_choice when the gateway has disabled tools for the turn', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Answer without tools.' }], {",
@@ -161,7 +161,7 @@ test('sends tool_choice none without exposing provider callable tool definitions
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
-  assert.equal(payload.tool_choice, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
 });
 
