@@ -295,7 +295,7 @@ test('starts Anthropic SSE with message_start and keeps it alive with ping befor
     })
   });
   assert.equal(response.status, 200);
-  assert.match(response.headers.get('content-type'), /text\\/event-stream/);
+  assert.match(response.headers.get('content-type'), /text\/event-stream/);
   const stream = await response.text();
   const startIndex = stream.indexOf('event: message_start');
   const pingIndex = stream.indexOf('event: ping');
