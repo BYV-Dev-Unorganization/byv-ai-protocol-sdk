@@ -709,3 +709,52 @@ test('native-disabled provider receives DSML history and structured tool results
   assert.match(historicalResult.content, /README body/);
   assert.equal(sentMessages.some((message) => Array.isArray(message.tool_calls)), false);
 });
+
+
+test('no-tool experiment overrides client auto and rejects native calls before any execution', async () => {
+  let count = 0;
+  const attempts = [];
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: true,
+    experimentVariant: 'B',
+    nativeToolCalling: true,
+    provider: {
+      createChatCompletion: async (messages, options) => {
+        count++;
+        attempts.push({ messages, options });
+        assert.equal(options.tool_choice, 'none');
+        assert.deepEqual(options.tools, []);
+        if (count === 1) {
+          return {
+            text: '',
+            tool_calls: [{
+              id: 'call_must_not_execute',
+              type: 'function',
+              function: {
+                name: 'Read',
+                arguments: '{"file_path":"README.md"}'
+              }
+            }],
+            finish_reason: 'tool_calls'
+          };
+        }
+        return {
+          text: 'I cannot inspect README.md because tools are disabled for this request.',
+          finish_reason: 'stop'
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+  assert.match(result.text, /tools are disabled/);
+  assert.match(attempts[0].messages[0].content, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.match(attempts[0].messages[0].content, /TOOLS LISTED FOR REFERENCE ONLY/);
+  assert.doesNotMatch(attempts[0].messages[0].content, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
+  assert.doesNotMatch(attempts[0].messages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(attempts[1].messages.at(-1).content, /Respond in plain text only/);
+  assert.ok(attempts.every((attempt) => attempt.options.tool_choice === 'none'));
+  assert.ok(attempts.every((attempt) => attempt.options.tools.length === 0));
+});
