@@ -447,7 +447,7 @@ async function handleMessages(body, options = {}) {
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
   // The experiment is an execution policy, not a prompt suggestion. It overrides
   // every client tool_choice value and remains in effect for all recovery attempts.
-  const force = noToolExperiment || repeatedToolLoop
+  const force = noToolExperiment || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
   const requestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
