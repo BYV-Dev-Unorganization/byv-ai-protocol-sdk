@@ -372,7 +372,7 @@ function buildSystemPrompt(body = {}, options = {}) {
     if (textOnly) {
         sections.push([
             '=== NO TOOLS AVAILABLE ===',
-            'No tools are callable for this request because tool_choice is none or no tool schemas were supplied.'
+            'No tools are callable for this request because tool_choice is none or no tool schemas were supplied. Do not invent tools or claim that a tool was executed.'
         ].join('\n'));
 
         const last = messages[messages.length - 1] || { role: 'user', content: '' };
