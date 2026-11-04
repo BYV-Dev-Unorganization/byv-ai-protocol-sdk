@@ -135,3 +135,32 @@ test('omits provider-native tool fields when native function calling is disabled
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
 });
+
+
+test('sends tool_choice none without exposing provider callable tool definitions', () => {
+  const script = [
+    "const { buildPayload } = require('./src/provider/openai-compatible');",
+    "const { payload } = buildPayload([{ role: 'user', content: 'Answer without tools.' }], {",
+    "  max_tokens: 256,",
+    "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: { file_path: { type: 'string' } } } }],",
+    "  tool_choice: 'none'",
+    "});",
+    "process.stdout.write(JSON.stringify(payload));"
+  ].join('\\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.tool_choice, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
+});
