@@ -315,7 +315,7 @@ The Anthropic `tool_choice` setting is enforced through the gateway's runtime pr
 - `none`: the model must return text and must not emit a tool invocation;
 - a specific tool: the model must emit an invocation for that exact tool.
 
-The provider adapter sends no native OpenAI-compatible `tools` definitions and explicitly sets `tool_choice: none` in default DSML mode. The configured model does not need native provider function-calling support; it only needs to produce DSML tool-call markup in ordinary Chat Completions text.
+The provider adapter sends neither native OpenAI-compatible `tools` definitions nor `tool_choice` in default DSML mode. The gateway describes callable tools in the prompt, parses textual DSML, and enforces the client allowlist locally. This avoids requiring provider-native function-calling support or an unnecessary provider-specific tool-choice parameter.
 
 ### Optional provider-native function calling
 
@@ -326,6 +326,14 @@ For DeepSeek Chat Completions models in this optional mode, the adapter sets `re
 Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
 
 The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and normalized to BYV before parsing.
+
+### Claude Code autocompaction over the stateless API
+
+OpenAI-compatible Chat Completions is a stateless request contract, so this gateway cannot reuse a hidden browser-side conversation thread. For Claude Code autocompaction, BYV instead builds a bounded replay containing a system prompt and one ordered user transcript. Historical assistant tool requests and tool results are rendered as text context; no provider-native tools or tool schemas are attached to the summary request.
+
+The replay preserves the original user task, recent conversation turns, and the latest compaction instruction. Oversized external system/developer instructions and older or oversized history are compacted with explicit omission markers. The budget is model-neutral and reduced further when provider model metadata reports smaller input, output, or context limits. It does not branch on provider names or model IDs.
+
+Defaults are COMPACTION_MAX_INPUT_TOKENS=32768, COMPACTION_MAX_OUTPUT_TOKENS=8192, and COMPACTION_MAX_SYSTEM_CHARS=8000. Provider metadata can reduce these limits; environment values can lower the generic budgets for providers whose model metadata is unavailable or incomplete.
 
 ## Streaming
 
