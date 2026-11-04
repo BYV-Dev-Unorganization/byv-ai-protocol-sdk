@@ -90,3 +90,23 @@ test('malformed DSML is converted into malformed BYV for the unchanged parser to
   assert.equal(adapted.detected, true);
   assert.match(parsed.errors[0], /Unsupported BYV parameter type: invalid/);
 });
+
+
+test('does not convert DSML examples inside inline or fenced Markdown code', () => {
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const source = [
+    'The syntax ' + tick + '<｜DSML｜ calls>' + tick + ' is documentation.',
+    fence + 'text',
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>',
+    fence,
+    'No tool should execute.'
+  ].join('\n');
+  const result = convertDsmlToBYV(source);
+  assert.equal(result.detected, false);
+  assert.equal(result.text, source);
+});
