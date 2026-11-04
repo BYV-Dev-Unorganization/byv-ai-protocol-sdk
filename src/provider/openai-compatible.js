@@ -86,11 +86,13 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  if (!PROVIDER_NATIVE_TOOL_CALLING || options.tool_choice === 'none') {
-    // Textual DSML is emitted inside assistant content, not as provider-native
-    // functions. Keep the upstream API explicitly in text-only tool mode.
-    payload.tool_choice = 'none';
-  } else if (Array.isArray(options.tools) && options.tools.length) {
+  // In text-protocol mode, the gateway describes tool schemas in its prompt
+  // and parses calls from assistant text. No provider-native tool fields are
+  // needed: omitting both fields is more portable than sending tool_choice=none
+  // to OpenAI-compatible implementations that reject it without a tools array.
+  if (PROVIDER_NATIVE_TOOL_CALLING &&
+      options.tool_choice !== 'none' &&
+      Array.isArray(options.tools) && options.tools.length) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
