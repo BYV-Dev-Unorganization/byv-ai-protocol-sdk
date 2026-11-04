@@ -302,6 +302,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
 
 function validateTextOnlyCompletion(completion) {
   const result = parseCompletionToolCalls(completion, false);
+  const textOnlyProtocolMarker = /(?:<\\|(?:BYV|DSML)\\||<｜DSML｜|<\\/?TOOL_CALL\\b|[\"'](?:tool_calls|function_call)[\"']\\s*:)/i;
   const base = {
     parsed: result.parsed,
     calls: result.calls,
