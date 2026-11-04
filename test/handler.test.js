@@ -829,7 +829,7 @@ test('treats Claude Code compaction as a text-only summary even when tools are d
 
 
 test('uses bounded model-capability-aware replay and output budgets for Claude Code autocompaction', async () => {
-  const longToolResult = 'TOOL_OUTPUT_MARKER '.repeat(12000);
+  const longToolResult = 'TOOL_OUTPUT_MARKER '.repeat(20000);
   const compactionInstruction = [
     'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
     'Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.',
@@ -839,9 +839,12 @@ test('uses bounded model-capability-aware replay and output budgets for Claude C
   const conversation = [
     { role: 'user', content: 'Original task: implement a provider-neutral gateway feature.' },
     { role: 'assistant', content: 'I will inspect the API contract and repository structure.' },
-    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_large', name: 'Read', input: { file_path: 'README.md' } }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_large', name: 'Read', input: { file_path: 'old.md' } }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_large', content: longToolResult }] },
-    { role: 'assistant', content: 'The repository details have been reviewed.' },
+    { role: 'assistant', content: 'The earlier repository details have been reviewed.' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_recent', name: 'Read', input: { file_path: 'README.md' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_recent', content: 'Recent README result.' }] },
+    { role: 'assistant', content: 'The latest repository details have been reviewed.' },
     { role: 'user', content: compactionInstruction }
   ];
   let receivedMessages;
