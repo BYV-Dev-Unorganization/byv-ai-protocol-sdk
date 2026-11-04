@@ -292,7 +292,7 @@ test('text-only inference uses the DeepSeek-style consolidated DSML prompt witho
   assert.match(providerMessages[0].content, /### SYSTEM/);
   assert.match(providerMessages[0].content, /Follow the repository instructions/);
   assert.match(providerMessages[0].content, /### TOOLS/);
-  assert.match(providerMessages[0].content, /Read\\(file_path\\*: string/);
+  assert.ok(providerMessages[0].content.includes('Read(file_path*: string'));
   assert.match(providerMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
   assert.match(providerMessages[0].content, /### LATEST USER MESSAGE/);
   assert.match(providerMessages[0].content, /DeepSeek DSML markup format/);
