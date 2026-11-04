@@ -313,6 +313,13 @@ function validateTextOnlyCompletion(completion) {
   if (result.error) {
     return { ...base, valid: false, error: result.error };
   }
+  if (completion.finish_reason === 'tool_calls') {
+    return {
+      ...base,
+      valid: false,
+      error: 'The provider returned a tool-call finish reason while tool use was disabled.'
+    };
+  }
   if (textOnlyProtocolMarker.test(result.parsed.text)) {
     return {
       ...base,
@@ -496,7 +503,7 @@ async function handleMessages(body, options = {}) {
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
   const malformedProtocol = Boolean(parseError) ||
-    (toolsDisabled && TEXT_ONLY_TOOL_CALL_MARKER.test(parsed.text)) ||
+    (toolsDisabled && (TEXT_ONLY_TOOL_CALL_MARKER.test(parsed.text) || completion.finish_reason === 'tool_calls')) ||
     (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
   const emptyTextResponse = calls.length === 0 &&
     !parsed.hasProtocol &&
