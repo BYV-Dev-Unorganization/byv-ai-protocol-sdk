@@ -164,3 +164,60 @@ test('sends tool_choice none without exposing provider callable tool definitions
   assert.equal(payload.tool_choice, 'none');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
 });
+
+
+test('rejects an upstream SSE stream that closes without the DONE marker', () => {
+  const script = [
+    "global.fetch = async () => new Response('data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"}]}\\\\n\\\\n', {",
+    "  status: 200, headers: { 'Content-Type': 'text/event-stream' }",
+    "});",
+    "const { createStreamingChatCompletion } = require('./src/provider/openai-compatible');",
+    "createStreamingChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32 }, undefined)",
+    "  .then(() => { process.stderr.write('partial stream was accepted'); process.exitCode = 1; })",
+    "  .catch((error) => {",
+    "    if (error.code !== 'PROVIDER_STREAM_INCOMPLETE') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
+    "    else process.stdout.write(error.code);",
+    "  });"
+  ].join('\\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_TIMEOUT_MS: '2000'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'PROVIDER_STREAM_INCOMPLETE');
+});
+
+test('classifies upstream context-window rejection separately from transient HTTP errors', () => {
+  const script = [
+    "global.fetch = async () => new Response(JSON.stringify({ error: { message: 'maximum context length is 131072 tokens' } }), {",
+    "  status: 400, headers: { 'Content-Type': 'application/json' }",
+    "});",
+    "const { createChatCompletion } = require('./src/provider/openai-compatible');",
+    "createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32 }, undefined)",
+    "  .then(() => { process.stderr.write('context rejection was accepted'); process.exitCode = 1; })",
+    "  .catch((error) => {",
+    "    if (error.code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
+    "    else process.stdout.write(error.code);",
+    "  });"
+  ].join('\\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_TIMEOUT_MS: '2000'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'PROVIDER_CONTEXT_WINDOW_EXCEEDED');
+});
