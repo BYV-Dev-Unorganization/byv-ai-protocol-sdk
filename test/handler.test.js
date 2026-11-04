@@ -758,3 +758,26 @@ test('no-tool experiment overrides client auto and rejects native calls before a
   assert.ok(attempts.every((attempt) => attempt.options.tool_choice === 'none'));
   assert.ok(attempts.every((attempt) => attempt.options.tools.length === 0));
 });
+
+
+test('text-only gateway recovers from a legacy TOOL_CALL wrapper in an initial response', async () => {
+  let count = 0;
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: true,
+    provider: {
+      createChatCompletion: async (_messages, options) => {
+        count++;
+        assert.equal(options.tool_choice, 'none');
+        assert.deepEqual(options.tools, []);
+        return count === 1
+          ? { text: '<TOOL_CALL>{"tool_calls":[{"name":"Read"}]}</TOOL_CALL>', finish_reason: 'stop' }
+          : { text: 'I can explain how to read the file, but I cannot execute tools here.', finish_reason: 'stop' };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+  assert.match(result.text, /cannot execute tools/);
+});
