@@ -6,6 +6,7 @@ const {
   PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_NATIVE_REASONING_EFFORT,
+  PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
   PROVIDER_MAX_REQUESTS_PER_MINUTE,
   PROVIDER_MAX_CONCURRENT_REQUESTS
@@ -96,13 +97,11 @@ function buildPayload(messages, options = {}) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
-      // DeepSeek V4 rejects "required" and named tool choices while thinking
-      // is enabled. NaraRouter documents reasoning_effort="none" as its
-      // supported Chat Completions control for disabling reasoning. Use that
-      // portable field instead of DeepSeek's provider-specific "thinking"
-      // extension, which a router may not forward. Ordinary "auto" calls keep
-      // the provider's default reasoning mode.
-      if (/^deepseek-/i.test(config.model) && requiresNonThinkingToolChoice(options.tool_choice)) {
+      // Some providers require reasoning to be disabled for forced or named
+      // native tool choices. This is an explicit generic compatibility option,
+      // never inferred from a provider or model name.
+      if (PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS &&
+          requiresNonThinkingToolChoice(options.tool_choice)) {
         payload.reasoning_effort = 'none';
       }
     } catch (error) {
