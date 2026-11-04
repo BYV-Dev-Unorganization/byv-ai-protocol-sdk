@@ -231,7 +231,7 @@ test('text-only experiment overrides client tool_choice before calling the runti
   let receivedBody;
   let receivedOptions;
   const base = await withServer(t, {
-    noToolExperiment: true,
+    noToolExperiment: false,
     experimentVariant: 'B',
     handleMessages: async (body, options) => {
       receivedBody = body;
