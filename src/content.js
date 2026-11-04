@@ -86,9 +86,9 @@ function convertAnthropicMessages(messages, options = {}) {
               name: block.name,
               input: block.input || {}
             })), null, 2)
-          ].join('\\n'));
+          ].join('\n'));
         }
-        if (parts.length) output.push({ role: 'assistant', content: parts.join('\\n\\n') });
+        if (parts.length) output.push({ role: 'assistant', content: parts.join('\n\n') });
       } else if (nativeToolCalling) {
         const toolCalls = toolUses.map((block) => ({
           id: block.id,
