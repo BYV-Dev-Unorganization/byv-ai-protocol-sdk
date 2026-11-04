@@ -11,7 +11,7 @@ test('normalizes OpenAI-compatible provider URLs', () => {
   assert.equal(completionsUrl('https://provider.example'), 'https://provider.example/v1/chat/completions');
   assert.equal(completionsUrl('https://provider.example/custom/chat/completions'), 'https://provider.example/custom/chat/completions');
 });
-test('builds native function tools and maps tool_choice into the provider request payload', () => {
+test('builds native function tools and maps tool_choice without assuming provider reasoning extensions', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -25,8 +25,8 @@ test('builds native function tools and maps tool_choice into the provider reques
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
       ...process.env,
-      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
-      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
       PROVIDER_NATIVE_TOOL_CALLING: 'true'
     },
@@ -50,11 +50,12 @@ test('builds native function tools and maps tool_choice into the provider reques
     type: 'function',
     function: { name: 'Read' }
   });
-  assert.equal(payload.reasoning_effort, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
-test('keeps DeepSeek auto tool choice in the provider default thinking mode', () => {
+test('preserves provider-default reasoning when native tool choice is auto', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -68,8 +69,8 @@ test('keeps DeepSeek auto tool choice in the provider default thinking mode', ()
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
       ...process.env,
-      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
-      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
       PROVIDER_NATIVE_TOOL_CALLING: 'true'
     },
