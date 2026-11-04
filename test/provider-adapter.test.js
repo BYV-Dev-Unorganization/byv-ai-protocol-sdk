@@ -100,7 +100,8 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
     stream: false,
     temperature: 0.2,
     top_p: 0.9,
-    stop: ['END']
+    stop: ['END'],
+    tool_choice: 'none'
   });
   assert.deepEqual(result, {
     text: 'Hello from provider.',
