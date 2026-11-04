@@ -4,7 +4,6 @@ const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
-  NO_TOOL_EXPERIMENT_ENABLED,
   NO_TOOL_EXPERIMENT_VARIANT
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
@@ -22,9 +21,8 @@ const { createDiagnostics } = require('./diagnostics');
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
-  const noToolExperiment = typeof options.noToolExperiment === 'boolean'
-    ? options.noToolExperiment
-    : NO_TOOL_EXPERIMENT_ENABLED;
+  // This experiment branch is strictly text-only; callers cannot re-enable tools.
+  const noToolExperiment = true;
   const experimentVariant = options.experimentVariant === 'B' || options.experimentVariant === 'A'
     ? options.experimentVariant
     : NO_TOOL_EXPERIMENT_VARIANT;
