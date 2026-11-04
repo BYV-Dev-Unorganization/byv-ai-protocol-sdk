@@ -11,6 +11,7 @@ const {
   buildResumePrompt,
   buildSystemPrompt,
   buildProviderMessages,
+  buildCompactionProviderMessages,
   parseToolChoice,
   applyForcedTool,
   buildRecoveryMessage
@@ -182,6 +183,43 @@ test('buildProviderMessages preserves provider chat roles while applying the new
   assert.match(messages[3].content, /HISTORICAL TOOL RESULTS/);
   assert.match(messages[3].content, /file content/);
   assert.equal(messages.some((message) => message.role === 'tool'), false);
+});
+
+
+test('buildCompactionProviderMessages creates a bounded provider-neutral transcript', () => {
+  const messages = [
+    { role: 'user', content: 'Original task: implement the feature and preserve its requirements.' },
+    { role: 'assistant', content: 'I will inspect the existing design first.' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'R'.repeat(12000) }] },
+    { role: 'assistant', content: 'The README confirms the project contract.' },
+    { role: 'user', content: [
+      'CRITICAL: Do not call tools. Return an <analysis> followed by a <summary>. Summarize the conversation.'
+    ].join('\\n') }
+  ];
+  const system = 'External system/developer instructions. '.repeat(1200);
+  const providerMessages = buildCompactionProviderMessages({
+    model: 'claude-opus-5-5',
+    system,
+    tools: [readTool],
+    messages
+  }, { maxInputTokens: 5000 });
+
+  assert.equal(providerMessages.length, 2);
+  assert.equal(providerMessages[0].role, 'system');
+  assert.equal(providerMessages[1].role, 'user');
+  assert.match(providerMessages[0].content, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.match(providerMessages[0].content, /MODEL RESPONSE PROFILE/);
+  assert.match(providerMessages[0].content, /External system\\/developer instructions/);
+  assert.match(providerMessages[1].content, /Original task: implement the feature/);
+  assert.match(providerMessages[1].content, /Tool call Read/);
+  assert.match(providerMessages[1].content, /Tool result for call_read/);
+  assert.match(providerMessages[1].content, /CRITICAL: Do not call tools/);
+  assert.match(providerMessages[1].content, /older conversation history omitted/);
+  assert.ok(providerMessages[0].content.length < 30000);
+  assert.ok(providerMessages[1].content.length < 15000);
+  assert.doesNotMatch(providerMessages[0].content, /Read\\(file_path/);
+  assert.doesNotMatch(providerMessages[1].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
 });
 
 test('parseToolChoice and applyForcedTool preserve none, any, and named-tool controls', () => {
