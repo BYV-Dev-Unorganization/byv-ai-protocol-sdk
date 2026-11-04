@@ -227,7 +227,7 @@ test('exposes provider context and token limits through an authenticated capabil
 });
 
 
-test('text-only experiment overrides client tool_choice before calling the runtime', async (t) => {
+test('text-only inference preserves gateway tool_choice while selecting provider text transport', async (t) => {
   let receivedBody;
   let receivedOptions;
   const base = await withServer(t, {
@@ -255,12 +255,12 @@ test('text-only experiment overrides client tool_choice before calling the runti
       max_tokens: 64,
       tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } }],
       tool_choice: 'auto',
-      messages: [{ role: 'user', content: 'Answer in text only.' }]
+      messages: [{ role: 'user', content: 'Read README.md and summarize it.' }]
     })
   });
 
   assert.equal(response.status, 200);
-  assert.equal(receivedBody.tool_choice, 'none');
+  assert.equal(receivedBody.tool_choice, 'auto');
   assert.equal(receivedOptions.noToolExperiment, true);
   assert.equal(receivedOptions.experimentVariant, 'B');
   const result = await response.json();
