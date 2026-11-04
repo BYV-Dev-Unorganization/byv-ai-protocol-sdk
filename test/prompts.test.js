@@ -288,7 +288,7 @@ test('text-only experiment omits callable tool protocols in both metadata varian
     nativeToolCalling: true
   });
   assert.match(variantB, /TOOLS LISTED FOR REFERENCE ONLY/);
-  assert.match(variantB, /Read: Read a file from the workspace/);
+  assert.match(variantB, /\"Read\": \"Read a file from the workspace\"/);
   assert.match(variantB, /TEXT-ONLY OUTPUT CONTRACT/);
   assert.doesNotMatch(variantB, /DSML TOOL CALL PROTOCOL|NATIVE TOOL CALL PROTOCOL/);
   assert.doesNotMatch(variantB, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
