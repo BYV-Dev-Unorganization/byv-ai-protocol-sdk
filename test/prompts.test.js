@@ -17,6 +17,7 @@ const {
   buildRecoveryMessage
 } = require('../src/prompts');
 const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
+const { estimateProviderInputTokens } = require('../src/content');
 
 const PROMPT_ARTIFACT_PATH = path.join(
   __dirname,
@@ -220,6 +221,7 @@ test('buildCompactionProviderMessages creates a bounded provider-neutral transcr
   assert.match(providerMessages[1].content, /older conversation history omitted/);
   assert.ok(providerMessages[0].content.length < 30000);
   assert.ok(providerMessages[1].content.length < 25000);
+  assert.ok(estimateProviderInputTokens(providerMessages) <= 12000);
   assert.equal(providerMessages[0].content.includes('AUTHORITATIVE TOOL INPUT SCHEMAS'), false);
   assert.equal(providerMessages[1].content.includes('AUTHORITATIVE TOOL INPUT SCHEMAS'), false);
 });
