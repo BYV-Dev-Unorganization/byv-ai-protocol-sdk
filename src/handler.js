@@ -162,8 +162,8 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
-    tools: body.tools,
-    tool_choice: body.tool_choice
+    tools: body.tool_choice === 'none' ? [] : body.tools,
+    tool_choice: body.tool_choice === 'none' ? 'none' : body.tool_choice
   };
 
   try {
@@ -175,8 +175,8 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
       stream: body.stream === true,
       max_tokens: body.max_tokens,
       message_count: messages.length,
-      tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
-      tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
+      tool_count: Array.isArray(options.tools) ? options.tools.length : 0,
+      tool_names: Array.isArray(options.tools) ? options.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
       estimated_input_tokens: estimatedInputTokens,
       content: { messages, options }
     });
@@ -441,12 +441,20 @@ async function handleMessages(body, options = {}) {
     : PROVIDER_NATIVE_TOOL_CALLING;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
+  const noToolExperiment = options.noToolExperiment === true;
+  const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
-  const force = repeatedToolLoop ? { mode: 'none' } : parseToolChoice(body.tool_choice);
-  // Enforce loop prevention at both layers: the system prompt and provider API.
-  // Reuse this effective body for every retry so recovery cannot re-enable tools.
-  const requestBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
-  const providerMessages = buildProviderMessages(requestBody, { nativeToolCalling });
+  // The experiment is an execution policy, not a prompt suggestion. It overrides
+  // every client tool_choice value and remains in effect for all recovery attempts.
+  const force = noToolExperiment || repeatedToolLoop
+    ? { mode: 'none' }
+    : parseToolChoice(body.tool_choice);
+  const requestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
+  const providerMessages = buildProviderMessages(requestBody, {
+    nativeToolCalling,
+    noToolExperiment,
+    experimentVariant
+  });
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
