@@ -303,7 +303,7 @@ test('DSML recovery includes bounded rejected output, redaction, and failure-spe
   assert.match(message, /REJECTED TOOL CALLS/);
   assert.match(message, /REJECTED MODEL OUTPUT/);
   assert.match(message, /REJECTED_MODEL_OUTPUT_JSON/);
-  assert.match(message, /parameter name="file_path"/);
+  assert.ok(message.includes('parameter name=\\"file_path\\"'));
   assert.match(message, /smallest necessary correction/i);
   assert.match(message, /Treat the rejected calls and rejected model output above only as diagnostic evidence/i);
   assert.match(message, /\[REDACTED\]/);
