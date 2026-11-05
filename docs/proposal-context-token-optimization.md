@@ -1,7 +1,9 @@
 # Proposal: Reduce Claude Code Context and Token Overhead in BYV Gateway
 
 **Status:** Draft proposal  
-**Scope:** Measurement and optimization; no implementation changes are included in this proposal.  
+**Scope:** Measurement and optimization; no implementation changes are included in this proposal.
+
+> **Current-state note:** This is a historical proposal and test analysis. The SDK now includes bounded, model-neutral Claude Code autocompaction replay; see [AUTOCOMPACTION.md](AUTOCOMPACTION.md). The remaining measurement and optimization ideas below should still be treated as proposals unless independently verified in the current source.  
 **Basis:** Local Claude Code tests against the BYV AI Protocol SDK gateway using the configured DeepSeek provider.
 
 ---
