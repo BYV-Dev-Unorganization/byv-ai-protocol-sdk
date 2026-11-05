@@ -457,7 +457,7 @@ test('DSML schema recovery receives the rejected model output and preserves vali
   const recoveryPrompt = seenMessages[1].at(-1).content;
   assert.match(recoveryPrompt, /REJECTED MODEL OUTPUT/);
   assert.match(recoveryPrompt, /REJECTED_MODEL_OUTPUT_JSON/);
-  assert.match(recoveryPrompt, /parameter name="path"/);
+  assert.ok(recoveryPrompt.includes('parameter name=\\"path\\"'));
   assert.match(recoveryPrompt, /TOOL_SCHEMA_VALIDATION_ERROR/);
   assert.match(recoveryPrompt, /smallest necessary correction/i);
   assert.match(recoveryPrompt, /file_path/);
