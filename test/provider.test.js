@@ -11,7 +11,7 @@ test('normalizes OpenAI-compatible provider URLs', () => {
   assert.equal(completionsUrl('https://provider.example'), 'https://provider.example/v1/chat/completions');
   assert.equal(completionsUrl('https://provider.example/custom/chat/completions'), 'https://provider.example/custom/chat/completions');
 });
-test('builds native function tools and maps tool_choice into the provider request payload', () => {
+test('builds native function tools and maps tool_choice without assuming provider reasoning extensions', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -25,8 +25,8 @@ test('builds native function tools and maps tool_choice into the provider reques
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
       ...process.env,
-      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
-      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
       PROVIDER_NATIVE_TOOL_CALLING: 'true'
     },
@@ -50,11 +50,11 @@ test('builds native function tools and maps tool_choice into the provider reques
     type: 'function',
     function: { name: 'Read' }
   });
-  assert.equal(payload.reasoning_effort, 'none');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
-test('keeps DeepSeek auto tool choice in the provider default thinking mode', () => {
+test('preserves provider-default reasoning when native tool choice is auto', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -68,8 +68,8 @@ test('keeps DeepSeek auto tool choice in the provider default thinking mode', ()
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
       ...process.env,
-      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
-      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
       PROVIDER_NATIVE_TOOL_CALLING: 'true'
     },
@@ -78,10 +78,11 @@ test('keeps DeepSeek auto tool choice in the provider default thinking mode', ()
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.tool_choice, 'auto');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
-test('disables DeepSeek thinking for Anthropic any tool_choice mapped to required', () => {
+test('disables reasoning for forced native tools only when the generic compatibility flag is enabled', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Call an available tool' }], {",
@@ -95,10 +96,11 @@ test('disables DeepSeek thinking for Anthropic any tool_choice mapped to require
     cwd: require('node:path').resolve(__dirname, '..'),
     env: {
       ...process.env,
-      PROVIDER_BASE_URL: 'https://router.bynara.id/v1',
-      PROVIDER_MODEL: 'deepseek-v4-flash',
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
-      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+      PROVIDER_NATIVE_TOOL_CALLING: 'true',
+      PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true'
     },
     encoding: 'utf8'
   });
@@ -109,7 +111,7 @@ test('disables DeepSeek thinking for Anthropic any tool_choice mapped to require
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
-test('omits provider-native tool fields when native function calling is disabled', () => {
+test('omits native tool fields entirely when native calling is disabled', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
@@ -134,4 +136,90 @@ test('omits provider-native tool fields when native function calling is disabled
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
+});
+
+
+test('omits provider tool_choice when the gateway has disabled tools for the turn', () => {
+  const script = [
+    "const { buildPayload } = require('./src/provider/openai-compatible');",
+    "const { payload } = buildPayload([{ role: 'user', content: 'Answer without tools.' }], {",
+    "  max_tokens: 256,",
+    "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: { file_path: { type: 'string' } } } }],",
+    "  tool_choice: 'none'",
+    "});",
+    "process.stdout.write(JSON.stringify(payload));"
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+    },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
+});
+
+
+test('rejects an upstream SSE stream that closes without the DONE marker', () => {
+  const script = [
+    "global.fetch = async () => new Response('data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"stop\"}]}' + String.fromCharCode(10) + String.fromCharCode(10), {",
+    "  status: 200, headers: { 'Content-Type': 'text/event-stream' }",
+    "});",
+    "const { createStreamingChatCompletion } = require('./src/provider/openai-compatible');",
+    "createStreamingChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32 }, undefined)",
+    "  .then(() => { process.stderr.write('partial stream was accepted'); process.exitCode = 1; })",
+    "  .catch((error) => {",
+    "    if (error.code !== 'PROVIDER_STREAM_INCOMPLETE') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
+    "    else process.stdout.write(error.code);",
+    "  });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_TIMEOUT_MS: '2000'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'PROVIDER_STREAM_INCOMPLETE');
+});
+
+test('classifies upstream context-window rejection separately from transient HTTP errors', () => {
+  const script = [
+    "global.fetch = async () => new Response(JSON.stringify({ error: { message: 'maximum context length is 131072 tokens' } }), {",
+    "  status: 400, headers: { 'Content-Type': 'application/json' }",
+    "});",
+    "const { createChatCompletion } = require('./src/provider/openai-compatible');",
+    "createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32 }, undefined)",
+    "  .then(() => { process.stderr.write('context rejection was accepted'); process.exitCode = 1; })",
+    "  .catch((error) => {",
+    "    if (error.code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED') { process.stderr.write(error.code || error.message); process.exitCode = 1; }",
+    "    else process.stdout.write(error.code);",
+    "  });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      PROVIDER_TIMEOUT_MS: '2000'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'PROVIDER_CONTEXT_WINDOW_EXCEEDED');
 });

@@ -1,13 +1,27 @@
 'use strict';
 
-const { MAX_RECOVERY_ATTEMPTS, MAX_OUTPUT_CHARS, CONTEXT_WINDOW_SAFETY_TOKENS, PROVIDER_NATIVE_TOOL_CALLING, uuid } = require('./config');
-const { buildProviderMessages, buildRecoveryMessage } = require('./prompts');
+const {
+  MAX_RECOVERY_ATTEMPTS,
+  MAX_PROVIDER_RETRIES,
+  MAX_OUTPUT_CHARS,
+  CONTEXT_WINDOW_SAFETY_TOKENS,
+  COMPACTION_MAX_INPUT_TOKENS,
+  COMPACTION_MAX_OUTPUT_TOKENS,
+  PROVIDER_NATIVE_TOOL_CALLING,
+  PROVIDER_MODEL,
+  uuid
+} = require('./config');
+const { buildProviderMessages, buildCompactionProviderMessages, buildRecoveryMessage } = require('./prompts');
 const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
+const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls } = require('./provider/tool-calls');
+const { maskMarkdownCode } = require('./protocol/markdown-code');
+const { isClaudeCodeCompactionRequest } = require('./request-intent');
+const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
 
 function parseToolChoice(choice) {
   if (!choice) return { mode: 'auto' };
@@ -89,6 +103,45 @@ function hasProviderTokenTotals(providerUsage) {
     usageCount(providerUsage, ['completion_tokens', 'output_tokens']) !== null;
 }
 
+function resolveCompactionBudgets(capabilities, requestedOutputTokens) {
+  const outputLimits = [COMPACTION_MAX_OUTPUT_TOKENS, requestedOutputTokens];
+  const inputLimits = [COMPACTION_MAX_INPUT_TOKENS];
+
+  if (capabilities && Number.isSafeInteger(capabilities.max_output_tokens) && capabilities.max_output_tokens > 0) {
+    outputLimits.push(capabilities.max_output_tokens);
+  }
+  if (capabilities && Number.isSafeInteger(capabilities.max_input_tokens) && capabilities.max_input_tokens > 0) {
+    inputLimits.push(capabilities.max_input_tokens);
+  }
+
+  let maxOutputTokens = Math.min(...outputLimits);
+  if (capabilities && Number.isSafeInteger(capabilities.context_window_tokens) && capabilities.context_window_tokens > 0) {
+    // Reserve the same safety margin used by the normal provider budget check.
+    // Summary output is capped to 25% of the remaining context, leaving the
+    // majority available for the transcript across small and large models.
+    const availableContext = capabilities.context_window_tokens - CONTEXT_WINDOW_SAFETY_TOKENS;
+    const contextOutputLimit = Math.max(1, Math.floor(availableContext * 0.25));
+    maxOutputTokens = Math.min(maxOutputTokens, contextOutputLimit);
+    inputLimits.push(Math.max(0,
+      capabilities.context_window_tokens - maxOutputTokens - CONTEXT_WINDOW_SAFETY_TOKENS
+    ));
+  }
+
+  const maxInputTokens = Math.min(...inputLimits);
+  if (!Number.isSafeInteger(maxInputTokens) || maxInputTokens < 1 ||
+      !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1) {
+    throw Object.assign(new Error(
+      'The provider context limits do not leave enough room for an autocompaction request.'
+    ), {
+      statusCode: 400,
+      type: 'invalid_request_error',
+      code: 'PROVIDER_COMPACTION_BUDGET_UNAVAILABLE'
+    });
+  }
+
+  return { maxInputTokens, maxOutputTokens };
+}
+
 function enforceProviderBudget(capabilities, estimatedInputTokens, requestedOutputTokens) {
   if (!capabilities) return;
 
@@ -133,71 +186,160 @@ function enforceProviderBudget(capabilities, estimatedInputTokens, requestedOutp
   }
 }
 
-async function requestCompletion(messages, body, signal, provider = {}, capabilities = null) {
-  const estimatedInputTokens = estimateProviderInputTokens(messages);
-  enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
+async function requestCompletion(messages, body, signal, provider = {}, capabilities = null, diagnostic = {}) {
+  const startedAt = Date.now();
+  const requestId = diagnostic.requestId || null;
+  const attempt = Number.isInteger(diagnostic.attempt) ? diagnostic.attempt : null;
+  const phase = diagnostic.phase || 'initial';
+  let estimatedInputTokens = null;
+  let upstreamStarted = false;
+  const record = (event, fields = {}) => {
+    if (typeof diagnostic.logEvent !== 'function') return;
+    try {
+      diagnostic.logEvent(event, {
+        request_id: requestId,
+        provider_attempt: attempt,
+        phase,
+        recovery_attempt: Number.isInteger(diagnostic.recoveryAttempt) ? diagnostic.recoveryAttempt : null,
+        ...fields
+      });
+    } catch {
+      // Diagnostics are best-effort and must not affect provider calls.
+    }
+  };
+
+  const nativeToolCalling = typeof diagnostic.nativeToolCalling === 'boolean'
+    ? diagnostic.nativeToolCalling
+    : PROVIDER_NATIVE_TOOL_CALLING;
+  const gatewayToolChoiceNone = body.tool_choice === 'none';
   const options = {
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
-    tools: body.tools,
-    tool_choice: body.tool_choice
+    // Native tool schemas never cross the provider boundary in DSML text mode.
+    tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
+    tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none'
   };
-  const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
-  const normalCall = provider.createChatCompletion || createChatCompletion;
-  const result = body.stream === true
-    ? await streamCall(messages, options, signal)
-    : await normalCall(messages, options, signal);
-  if (!result || typeof result.text !== 'string') {
-    throw Object.assign(new Error('Provider completion did not contain text output.'), {
-      statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
+
+  try {
+    estimatedInputTokens = estimateProviderInputTokens(messages);
+    enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
+
+    record('provider.request.started', {
+      provider_model: PROVIDER_MODEL || null,
+      stream: body.stream === true,
+      max_tokens: body.max_tokens,
+      message_count: messages.length,
+      tool_count: Array.isArray(options.tools) ? options.tools.length : 0,
+      tool_names: Array.isArray(options.tools) ? options.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
+      estimated_input_tokens: estimatedInputTokens,
+      request_intent: diagnostic.requestIntent || 'normal',
+      compaction_max_input_tokens: diagnostic.compactionMaxInputTokens || null,
+      compaction_max_output_tokens: diagnostic.compactionMaxOutputTokens || null,
+      content: { messages, options }
     });
-  }
-  const nativeToolOutputChars = Array.isArray(result.tool_calls)
-    ? JSON.stringify(result.tool_calls).length
-    : 0;
-  if (result.text.length + nativeToolOutputChars > MAX_OUTPUT_CHARS) {
-    throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
-      statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+    upstreamStarted = true;
+
+    const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
+    const normalCall = provider.createChatCompletion || createChatCompletion;
+    const result = body.stream === true
+      ? await streamCall(messages, options, signal)
+      : await normalCall(messages, options, signal);
+    if (!result || typeof result.text !== 'string') {
+      throw Object.assign(new Error('Provider completion did not contain text output.'), {
+        statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
+      });
+    }
+    const nativeToolOutputChars = Array.isArray(result.tool_calls)
+      ? JSON.stringify(result.tool_calls).length
+      : 0;
+    if (result.text.length + nativeToolOutputChars > MAX_OUTPUT_CHARS) {
+      throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
+        statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+      });
+    }
+
+    record('provider.response.completed', {
+      provider_model: result.provider_model || PROVIDER_MODEL || null,
+      duration_ms: Date.now() - startedAt,
+      response_chars: result.text.length,
+      tool_call_count: Array.isArray(result.tool_calls) ? result.tool_calls.length : 0,
+      finish_reason: result.finish_reason || null,
+      usage: result.usage || null,
+      content: {
+        text: result.text,
+        tool_calls: Array.isArray(result.tool_calls) ? result.tool_calls : [],
+        reasoning: result.reasoning || '',
+        finish_reason: result.finish_reason || null
+      }
     });
+    return { ...result, input_tokens_estimated: estimatedInputTokens };
+  } catch (error) {
+    record(upstreamStarted ? 'provider.request.failed' : 'provider.request.rejected', {
+      level: upstreamStarted ? 'error' : 'warn',
+      provider_model: PROVIDER_MODEL || null,
+      upstream_started: upstreamStarted,
+      estimated_input_tokens: estimatedInputTokens,
+      error_code: error.code || 'PROVIDER_ERROR',
+      status: error.statusCode || 502,
+      message: String(error.message || error).slice(0, 1000),
+      duration_ms: Date.now() - startedAt
+    });
+    throw error;
   }
-  return { ...result, input_tokens_estimated: estimatedInputTokens };
 }
 
 function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIVE_TOOL_CALLING) {
-  const parsed = parseBYVOutput(completion.text);
+  const adapted = convertDsmlToBYV(completion.text);
+  const parsed = parseBYVOutput(adapted.text);
+  parsed.protocolSource = adapted.detected
+    ? 'dsml_converted_to_byv'
+    : parsed.hasProtocol ? 'byv_format_block' : 'unknown';
   const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
   if (!nativeToolCalling && hasNativeToolCalls) {
+    // Normalize only for diagnostic context. These calls are never returned as
+    // executable calls while native provider calling is disabled.
+    const rejectedNative = normalizeProviderToolCalls(completion.tool_calls, () => uuid('rejected_native'));
+    const rejectedToolCalls = rejectedNative.calls.length > 0
+      ? rejectedNative.calls.map((call) => ({ name: call.name, input: call.input }))
+      : completion.tool_calls.slice(0, 8).map((item) => ({
+          name: item && item.function && typeof item.function.name === 'string' ? item.function.name : '[UNKNOWN]',
+          input: null
+        }));
+
     if (parsed.hasProtocol) {
       return {
         parsed,
         calls: [],
         error: parsed.calls.length > 0
-          ? 'Provider returned both native function calls and BYV markup while native function calling is disabled.'
-          : (parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.'),
-        native: true
+          ? 'Provider returned both native function calls and textual tool-call markup while native function calling is disabled.'
+          : (parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.'),
+        native: true,
+        rejectedToolCalls,
+        rejectionReason: 'PROVIDER_NATIVE_DISABLED'
       };
     }
     return {
       parsed,
       calls: [],
-      error: 'Native provider function calls are disabled; use BYV Format Block instead.',
-      native: true
+      error: 'Native provider function calls are disabled; use DSML text tool calls instead.',
+      native: true,
+      rejectedToolCalls,
+      rejectionReason: 'PROVIDER_NATIVE_DISABLED',
+      nativeParseError: rejectedNative.error || null
     };
   }
 
   const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
-  if (native.error) {
-    return { parsed, calls: [], error: native.error, native: true };
-  }
+  if (native.error) return { parsed, calls: [], error: native.error, native: true };
   if (native.calls.length > 0 && parsed.calls.length > 0) {
     return {
       parsed,
       calls: [],
-      error: 'Provider returned both native function calls and BYV markup in the same response.',
+      error: 'Provider returned both native function calls and textual tool-call markup in the same response.',
       native: true
     };
   }
@@ -205,7 +347,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     return {
       parsed,
       calls: [],
-      error: parsed.errors[0] || 'Provider returned native function calls together with BYV protocol markup.',
+      error: parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.',
       native: true
     };
   }
@@ -216,6 +358,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     native: native.calls.length > 0
   };
 }
+
 
 function validateTextOnlyCompletion(completion) {
   const result = parseCompletionToolCalls(completion, false);
@@ -229,6 +372,20 @@ function validateTextOnlyCompletion(completion) {
   if (result.error) {
     return { ...base, valid: false, error: result.error };
   }
+  if (completion.finish_reason === 'tool_calls') {
+    return {
+      ...base,
+      valid: false,
+      error: 'The provider returned a tool-call finish reason while tool use was disabled.'
+    };
+  }
+  if (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(result.parsed.text))) {
+    return {
+      ...base,
+      valid: false,
+      error: 'The model emitted a legacy or JSON tool-call wrapper while tool use was disabled.'
+    };
+  }
   if (result.calls.length > 0) {
     return {
       ...base,
@@ -240,7 +397,7 @@ function validateTextOnlyCompletion(completion) {
     return {
       ...base,
       valid: false,
-      error: result.parsed.errors[0] || 'The model emitted BYV protocol markup while tool use was disabled.'
+      error: result.parsed.errors[0] || 'The model emitted tool-call markup while tool use was disabled.'
     };
   }
   if (typeof result.parsed.text !== 'string' || !result.parsed.text.trim()) {
@@ -284,9 +441,11 @@ function logToolCallValidation(options = {}) {
   const parsed = options.parsed || null;
   const source = options.native
     ? 'provider_native'
-    : parsed && parsed.hasProtocol
-      ? 'byv_format_block'
-      : 'unknown';
+    : parsed && parsed.protocolSource
+      ? parsed.protocolSource
+      : parsed && parsed.hasProtocol
+        ? 'byv_format_block'
+        : 'unknown';
   const validation = validateToolCallRequest(
     calls,
     Array.isArray(options.tools) ? options.tools : [],
@@ -297,7 +456,7 @@ function logToolCallValidation(options = {}) {
   const reason = disabled
     ? 'TOOL_USE_DISABLED'
     : parseError
-      ? (String(parseError).includes('both native function calls and BYV markup')
+      ? (String(parseError).includes('both native function calls and textual tool-call markup')
         ? 'AMBIGUOUS_TOOL_OUTPUT'
         : String(parseError).includes('Native provider function calls are disabled')
           ? 'PROVIDER_NATIVE_DISABLED'
@@ -351,22 +510,88 @@ function logToolCallValidation(options = {}) {
 
 async function handleMessages(body, options = {}) {
   const signal = options.signal;
-  const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+  const noToolExperiment = options.noToolExperiment === true;
+  const configuredNativeToolCalling = typeof options.nativeToolCalling === 'boolean'
     ? options.nativeToolCalling
     : PROVIDER_NATIVE_TOOL_CALLING;
+  // The experiment disables only provider-native function calling. DSML text
+  // remains callable through the gateway adapter when the client's choice allows it.
+  const nativeToolCalling = noToolExperiment ? false : configuredNativeToolCalling;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
+  const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
-  const force = repeatedToolLoop ? { mode: 'none' } : parseToolChoice(body.tool_choice);
-  // Enforce loop prevention at both layers: the system prompt and provider API.
-  // Reuse this effective body for every retry so recovery cannot re-enable tools.
-  const requestBody = repeatedToolLoop ? { ...body, tool_choice: 'none' } : body;
-  const providerMessages = buildProviderMessages(requestBody);
+  const compactionRequest = isClaudeCodeCompactionRequest(body);
+  // Compaction is a text-only summary turn even when Claude Code repeats its
+  // normal tool catalog. Never interpret summary examples as executable calls.
+  const force = compactionRequest || repeatedToolLoop || tools.length === 0
+    ? { mode: 'none' }
+    : parseToolChoice(body.tool_choice);
+  const baseRequestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
     ? await provider.getModelCapabilities()
     : await getModelCapabilities();
-  let completion = await requestCompletion(providerMessages, requestBody, signal, provider, providerCapabilities);
+  const compactionBudgets = compactionRequest
+    ? resolveCompactionBudgets(providerCapabilities, body.max_tokens)
+    : null;
+  const requestBody = compactionBudgets
+    ? { ...baseRequestBody, max_tokens: compactionBudgets.maxOutputTokens }
+    : baseRequestBody;
+  const providerMessages = compactionRequest
+    ? buildCompactionProviderMessages(requestBody, {
+        maxInputTokens: compactionBudgets.maxInputTokens
+      })
+    : buildProviderMessages(requestBody, {
+        nativeToolCalling,
+        noToolExperiment,
+        experimentVariant
+      });
+  let providerAttempt = 0;
+  const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
+    let retry = 0;
+    while (true) {
+      try {
+        return await requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
+          logEvent: options.diagnostics,
+          requestId: options.requestId,
+          attempt: ++providerAttempt,
+          phase,
+          recoveryAttempt,
+          nativeToolCalling,
+          requestIntent: compactionRequest ? 'claude_code_compaction' : 'normal',
+          compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
+          compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null
+        });
+      } catch (error) {
+        const code = String(error && error.code || '');
+        const retryable = !signal?.aborted &&
+          code !== 'CLIENT_DISCONNECTED' &&
+          code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' &&
+          code !== 'PROVIDER_MAX_OUTPUT_EXCEEDED' &&
+          (['PROVIDER_TIMEOUT', 'PROVIDER_CONNECTION_FAILED', 'PROVIDER_STREAM_INCOMPLETE'].includes(code) ||
+            /^UPSTREAM_HTTP_(500|502|503|504|529)$/.test(code));
+        if (!retryable || retry >= MAX_PROVIDER_RETRIES) throw error;
+        retry++;
+        if (typeof options.diagnostics === 'function') {
+          try {
+            options.diagnostics('provider.request.retry_scheduled', {
+              level: 'warn', request_id: options.requestId || null, phase,
+              recovery_attempt: recoveryAttempt, retry_number: retry,
+              previous_error_code: code, delay_ms: 250 * retry
+            });
+          } catch {}
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250 * retry));
+        if (signal?.aborted) {
+          throw Object.assign(new Error('Provider retry cancelled because the client disconnected.'), {
+            statusCode: 499, type: 'api_error', code: 'CLIENT_DISCONNECTED'
+          });
+        }
+      }
+    }
+  };
+  let completion = await complete(providerMessages);
 
   if (completion.text.length > MAX_OUTPUT_CHARS) {
     throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
@@ -386,6 +611,7 @@ async function handleMessages(body, options = {}) {
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
   const malformedProtocol = Boolean(parseError) ||
+    (toolsDisabled && (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(parsed.text)) || completion.finish_reason === 'tool_calls')) ||
     (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
   const emptyTextResponse = calls.length === 0 &&
     !parsed.hasProtocol &&
@@ -409,14 +635,14 @@ async function handleMessages(body, options = {}) {
     let lastError = unexpectedCalls
       ? 'The model attempted to call a tool while tool use was disabled.'
       : malformedProtocol
-        ? (parseError || parsed.errors[0] || 'Malformed BYV output while tool use was disabled.')
+        ? (parseError || parsed.errors[0] || 'The model emitted tool-call syntax while tool use was disabled.')
         : 'The model returned an empty response while tool use was disabled.';
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text')
       }]);
-      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+      completion = await complete(retryMessages, 'text_recovery', attempt);
       const textRecovery = validateTextOnlyCompletion(completion);
       logToolCallValidation({
         logger: options.logger,
@@ -452,23 +678,32 @@ async function handleMessages(body, options = {}) {
   )) {
     let recovered = false;
     let lastError = validation.error || parseError || 'Malformed BYV output.';
+    let recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
+    let rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+    let rejectionReason = parsedResult.rejectionReason || null;
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
+        content: buildRecoveryMessage(lastError, attempt, 'tool', {
+          nativeToolCalling,
+          failureKind: recoveryFailureKind,
+          rejectionReason,
+          rejectedToolCalls
+        })
       }]);
-      completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+      completion = await complete(retryMessages, 'tool_recovery', attempt);
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
+        recoveryFailureKind = 'invalid_tool_call';
+        rejectedToolCalls = [];
+        rejectionReason = null;
         continue;
       }
       parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
       parsed = parsedResult.parsed;
       calls = parsedResult.calls;
       validation = validateToolCallRequest(calls, tools, force);
-      if (!validation.valid && parsedResult.error) {
-        validation.error = parsedResult.error + ' ' + validation.error;
-      }
+      if (!validation.valid && parsedResult.error) validation.error = parsedResult.error + ' ' + validation.error;
       logToolCallValidation({
         logger: options.logger,
         requestId: options.requestId,
@@ -486,6 +721,9 @@ async function handleMessages(body, options = {}) {
         break;
       }
       lastError = validation.error || parsedResult.error || 'The recovery did not return a valid tool call.';
+      recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
+      rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+      rejectionReason = parsedResult.rejectionReason || null;
     }
     if (!recovered) {
       throw Object.assign(new Error(
@@ -501,12 +739,20 @@ async function handleMessages(body, options = {}) {
     if (!calls.length) {
       let recovered = false;
       let lastError = 'tool_choice requires a tool call, but the model returned text.';
+      let recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'tool_call_missing';
+      let rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+      let rejectionReason = parsedResult.rejectionReason || null;
       for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
         const retryMessages = providerMessages.concat([{
           role: 'user',
-          content: buildRecoveryMessage(lastError, attempt, 'tool', { nativeToolCalling })
+          content: buildRecoveryMessage(lastError, attempt, 'tool', {
+            nativeToolCalling,
+            failureKind: recoveryFailureKind,
+            rejectionReason,
+            rejectedToolCalls
+          })
         }]);
-        completion = await requestCompletion(retryMessages, requestBody, signal, provider, providerCapabilities);
+        completion = await complete(retryMessages, 'required_tool_recovery', attempt);
         parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
@@ -531,6 +777,9 @@ async function handleMessages(body, options = {}) {
           break;
         }
         lastError = validation.error || parsedResult.error || 'No valid tool call returned.';
+        recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
+        rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+        rejectionReason = parsedResult.rejectionReason || null;
       }
       if (!recovered) {
         throw Object.assign(new Error('The model did not produce the tool call required by tool_choice.'), {
@@ -587,5 +836,6 @@ module.exports = {
   normalizeUsage,
   hasProviderTokenTotals,
   enforceProviderBudget,
+  resolveCompactionBudgets,
   parseCompletionToolCalls
 };

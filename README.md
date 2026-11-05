@@ -5,7 +5,7 @@ A BYV protocol runtime and Anthropic Messages-compatible gateway for any provide
 BYV sits between an Anthropic Messages client and one configured upstream model:
 
 - Client contract: Anthropic Messages API shape.
-- Tool transport: BYV Format Block in assistant text by default; provider-native function calling is an explicit optional mode.
+- Model-facing tool transport: DeepSeek DSML in assistant text by default; a gateway adapter converts it to the internal BYV representation before parsing and validation. Provider-native function calling is an explicit optional mode.
 - Upstream contract: OpenAI-compatible Chat Completions API. Native function tools are not required.
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
@@ -20,16 +20,16 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               |
               +-- request validation / content normalization
               +-- profile selection
-              +-- BYV system prompt + per-request tool schemas
+              +-- DSML model instructions + per-request tool schemas
               +-- conversation conversion
               +-- OpenAI-compatible provider adapter
               |
               v
     One configured OpenAI-compatible model
               |
-              | assistant text containing BYV Format Block
+              | assistant text containing DeepSeek DSML
               v
-    BYV parser -> typed arguments -> JSON Schema validation
+    DSML adapter -> BYV parser -> typed arguments -> JSON Schema validation
               |
               +-- optional native function-call adapter
               |
@@ -38,7 +38,7 @@ BYV sits between an Anthropic Messages client and one configured upstream model:
               v
     Anthropic message / tool_use / SSE response
 
-Tool execution is intentionally outside the protocol parser and gateway. A tool_use response asks the client or agent runtime to execute a tool. The gateway does not execute a shell command or access client files merely because the model emitted a BYV invocation.
+Tool execution is intentionally outside the protocol parser and gateway. A tool_use response asks the client or agent runtime to execute a tool. The gateway does not execute a shell command or access client files merely because the model emitted a DSML invocation.
 
 ## One upstream model, multiple response profiles
 
@@ -72,7 +72,7 @@ The model profile is selected from the request model field. The upstream request
 ## Requirements
 
 - Node.js 18 or later.
-- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the BYV markup fallback.
+- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
 - A provider API key, when required by that provider.
 
 ## Setup
@@ -89,12 +89,12 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-# Optional only. BYV Format Block is the default.
+# Optional only. DSML model output, normalized to BYV internally, is the default.
 PROVIDER_NATIVE_TOOL_CALLING=false
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. Tool invocations must use BYV Format Block. Set it to `true` only when the configured provider supports native function calling.
+When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. The model is instructed to emit DeepSeek DSML in assistant text; the gateway converts that output to BYV internally before parsing and validation. Set it to `true` only when the configured provider supports native function calling.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
@@ -136,6 +136,29 @@ All application API routes require the gateway key using either Authorization: B
 | POST | /v1/messages/count_tokens | Local input-size estimate |
 
 Authenticated API requests are limited to **30 requests per rolling 60 seconds per client IP**. The limit applies across authenticated endpoints and returns HTTP 429 with a `Retry-After` header when exceeded. The unauthenticated `HEAD /api/hello` probe and CORS `OPTIONS` preflight requests are excluded.
+
+## Local diagnostics logs
+
+The gateway writes structured JSON Lines files to the local `logs/` directory. Each event includes an ISO timestamp and, when associated with a message request, the same `request_id` returned in the `X-Gateway-Request-ID` response header.
+
+| File | Contents |
+| --- | --- |
+| `requests.jsonl` | Incoming request metadata and each upstream provider attempt |
+| `responses.jsonl` | Completed upstream provider responses and normalized gateway responses |
+| `errors.jsonl` | Provider, transport, request-validation, parser, and tool-call failures/rejections |
+| `timeline.jsonl` | Unified chronological event stream for correlation |
+
+Content capture is **off by default**. Metadata logs include model/profile, message and tool counts, tool names, estimated input tokens, provider attempt number and phase, response sizes, token usage, durations, and error codes. Prompt text, tool arguments, tool results, and model response text are omitted.
+
+To explicitly capture request and response content for local debugging, set:
+
+```env
+LOG_CAPTURE_CONTENT=true
+```
+
+When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
+
+Each JSONL file is limited to 10 MiB by default and keeps three rotated backups. Override with `LOG_MAX_FILE_BYTES` and `LOG_ROTATION_FILES`. The entire `logs/` directory is excluded from Git.
 
 Example request:
 
@@ -270,41 +293,56 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-BYV Format Block is the default tool-call protocol. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the BYV system prompt. The upstream model returns a structured block in its assistant text, and BYV parses and validates that block before translating accepted invocations into Anthropic Messages `tool_use` blocks.
+When `PROVIDER_NATIVE_TOOL_CALLING=false` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
 
 Example model output:
 
 ~~~text
-<|BYV| calls>
-<|BYV| invoke name="Read" id="call_001">
-<|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter>
-</|BYV| invoke>
-</|BYV| calls>
+<｜DSML｜ calls>
+<｜DSML｜ invoke name="Read">
+<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>
+</｜DSML｜ invoke>
+</｜DSML｜ calls>
 ~~~
+
+The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
+
+In the default text-protocol path, provider-native function calling is disabled while the gateway preserves Anthropic `tool_choice` semantics. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to the internal BYV representation, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is recognized as a special text-only summary turn when the latest instruction forbids tool use, requires plain text, and requests the `<analysis>`/`<summary>` structure. This behavior is part of the current SDK implementation, not a branch-specific feature.
 
 The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
 - `auto`: the model may call an available tool when needed;
-- `any`: the model must emit at least one valid BYV invocation;
+- `any`: the model must emit at least one valid DSML invocation;
 - `none`: the model must return text and must not emit a tool invocation;
 - a specific tool: the model must emit an invocation for that exact tool.
 
-The provider adapter does not send OpenAI-compatible `tools` or `tool_choice` fields in the default BYV mode. This means the configured model does not need native provider function-calling support. It only needs to follow the BYV Format Block instructions in ordinary Chat Completions text.
+The provider adapter sends neither native OpenAI-compatible `tools` definitions nor `tool_choice` in default DSML mode. The gateway describes callable tools in the prompt, parses textual DSML, and enforces the client allowlist locally. This avoids requiring provider-native function-calling support or an unnecessary provider-specific tool-choice parameter.
 
 ### Optional provider-native function calling
 
-Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation.
+Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
 
-For DeepSeek Chat Completions models in this optional mode, the adapter sets `reasoning_effort: "none"` on forced-tool requests. This is separate from the default BYV Format Block path.
+Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
 
-Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. BYV never forwards a partial or invalid batch.
+Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
 
-The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current assistant output protocol: BYV Format Block remains the default.
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and normalized to BYV before parsing.
+
+### Claude Code autocompaction over the stateless API
+
+OpenAI-compatible Chat Completions is a stateless request contract, so this gateway cannot reuse a hidden browser-side conversation thread. For Claude Code autocompaction, BYV instead builds a bounded replay containing a system prompt and one ordered user transcript. Historical assistant tool requests and tool results are rendered as text context; no provider-native tools or tool schemas are attached to the summary request.
+
+The replay preserves the original user task, recent conversation turns, and the latest compaction instruction. Oversized external system/developer instructions and older or oversized history are compacted with explicit omission markers. The budget is model-neutral and reduced further when provider model metadata reports smaller input, output, or context limits. It does not branch on provider names or model IDs.
+
+Defaults are COMPACTION_MAX_INPUT_TOKENS=32768, COMPACTION_MAX_OUTPUT_TOKENS=8192, and COMPACTION_MAX_SYSTEM_CHARS=8000. Provider metadata can reduce these limits; environment values can lower the generic budgets for providers whose model metadata is unavailable or incomplete.
+
+See [Autocompaction implementation notes](docs/AUTOCOMPACTION.md) for request detection, payload construction, budget calculation, diagnostics, failure codes, and operational limits.
 
 ## Streaming
 
 Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 
-- message_start
+- message_start (sent immediately with estimated input-token usage)
+- ping (periodic keep-alive while validated provider output is pending)
 - content_block_start
 - content_block_delta
 - content_block_stop
@@ -312,7 +350,7 @@ Set stream: true on /v1/messages to receive Anthropic-style SSE events:
 - message_stop
 - error on a gateway failure after SSE begins
 
-The upstream provider is requested with stream: true. BYV currently buffers the upstream stream until the complete response has been parsed and validated, then emits the Anthropic SSE sequence. This ensures that malformed or schema-invalid tool batches are never partially forwarded. It preserves the SSE event contract but does not yet provide token-by-token latency from the upstream model.
+The upstream provider is requested with `stream: true`. BYV opens the Anthropic SSE response immediately with `message_start` (using an estimated input-token count), then emits a `ping` and repeats it every `STREAM_PING_INTERVAL_MS` (default 15 seconds) while inference runs. It still buffers provider output until DSML conversion, parsing, allowlist checks, and JSON Schema validation finish; only then are content blocks emitted. The `X-Token-Usage-Estimated: true` response header marks the early input-token estimate. This prevents partial or unvalidated tool batches from reaching Claude Code and keeps the HTTP stream alive, but does not yet provide token-by-token model output. Provider streams that end without `[DONE]` are rejected as incomplete rather than accepted as partial completions.
 
 ## Supported request fields and current limitations
 
@@ -334,7 +372,7 @@ The current version is a compatibility layer, not a complete reimplementation of
 
 ### Native reasoning effort
 
-When `PROVIDER_NATIVE_REASONING_EFFORT=true` (the default), BYV forwards Anthropic `output_config.effort` as the top-level OpenAI-compatible `reasoning_effort` parameter. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Set `PROVIDER_NATIVE_REASONING_EFFORT=false` when an upstream provider does not support this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
+When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards Anthropic `output_config.effort` as the top-level provider `reasoning_effort` parameter. This non-standard extension is disabled by default for compatibility. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Enable `PROVIDER_NATIVE_REASONING_EFFORT` only when the configured provider supports this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
 
 ### Provider capabilities and context budgeting
 
@@ -342,7 +380,7 @@ BYV performs best-effort model metadata discovery using the configured provider'
 
 OpenAI-compatible APIs do not standardize context-window metadata. When the provider does not publish a limit in its model metadata, set PROVIDER_CONTEXT_WINDOW_TOKENS, PROVIDER_MAX_INPUT_TOKENS, and/or PROVIDER_MAX_OUTPUT_TOKENS explicitly. Explicit environment values override discovered values. BYV never infers a context window from the model name. An unknown limit remains unknown rather than being guessed.
 
-Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the BYV system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate or compact conversation history, and it does not quietly lower max_tokens. If limits are unknown, the regular body and system-prompt size limits still apply.
+Before each upstream completion, including a recovery attempt, BYV estimates the provider-shaped input payload. The estimate includes the DSML system prompt, current tool schemas, client system instructions, converted conversation history, and tool results. When the provider's context/input/output limits are known, BYV rejects a request that cannot fit the input plus requested max_tokens and CONTEXT_WINDOW_SAFETY_TOKENS. It does not silently truncate or compact conversation history, and it does not quietly lower max_tokens. If limits are unknown, the regular body and system-prompt size limits still apply.
 
 `MAX_PROMPT_CHARS` is a character-based safety ceiling for the assembled system prompt only; it is not a token limit or a substitute for provider context budgeting. The default is 4,000,000 characters and the configurable range is 8,192–8,000,000 characters. The complete provider-shaped input is still subject to the discovered or explicitly configured provider token limits.
 
@@ -379,12 +417,19 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; BYV Format Block is the default tool-call protocol |
-| PROVIDER_NATIVE_REASONING_EFFORT | true | Forward Anthropic output_config.effort as native reasoning_effort; set false for providers that do not support it |
+| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
+| NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
+| PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
+| PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
+| COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |
+| COMPACTION_MAX_OUTPUT_TOKENS | 8192 | Generic maximum output-token budget for autocompaction, reduced by detected provider limits |
+| COMPACTION_MAX_SYSTEM_CHARS | 8000 | Maximum external system/developer instruction characters retained during autocompaction |
 | GATEWAY_API_KEY | generated local key | Client-to-BYV authentication key |
 | HOST | 127.0.0.1 | Listener host |
 | PORT | 8787 | Listener port |
 | PROVIDER_TIMEOUT_MS | 300000 | Upstream completion and stream timeout |
+| MAX_PROVIDER_RETRIES | 1 | Bounded retries for transient transport/5xx errors; client disconnects and context overflow are not retried |
+| STREAM_PING_INTERVAL_MS | 15000 | Anthropic SSE keep-alive ping interval while inference is pending |
 | PROVIDER_MAX_REQUESTS_PER_MINUTE | 0 (disabled) | Maximum outbound inference requests in a rolling 60-second window; 0 disables this limit |
 | PROVIDER_MAX_CONCURRENT_REQUESTS | 0 (disabled) | Maximum simultaneous outbound inference requests; 0 disables this limit |
 | PROVIDER_CONTEXT_WINDOW_TOKENS | unset | Optional exact total context-window override; takes precedence over provider metadata |
@@ -399,6 +444,10 @@ Do not bind this development gateway to a public interface without adding deploy
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |
 | MAX_RECOVERY_ATTEMPTS | 2 | Maximum tool-call or text-only recovery attempts |
 | CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
+
+## Additional documentation
+
+See [`docs/README.md`](docs/README.md) for the documentation index, including current implementation notes, historical integration tests, audit snapshots, and proposals.
 
 ## Development
 

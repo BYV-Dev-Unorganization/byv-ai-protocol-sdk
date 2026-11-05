@@ -1,6 +1,6 @@
-# BYV SYSTEM PROMPT ARTIFACT v0.3
+# BYV SYSTEM PROMPT ARTIFACT v0.4
 
-The runtime prompt source of truth is src/prompts.js. This artifact records the prompt architecture and the required output contract for review.
+The runtime prompt source of truth is `src/prompts.js`. This artifact documents the model-facing tool-call instructions and the gateway's internal normalization path.
 
 ## Assistant identity and language
 
@@ -18,28 +18,24 @@ Use an appropriate tool when the task requires a capability it provides. Do not 
 
 When the user gives an exact command or exact argument, preserve it verbatim. Never append, prepend, chain, wrap, redirect, or substitute an exact command. When asked to run exactly one command, make exactly one Bash invocation.
 
-## BYV Format Block tool-call protocol
+## Model-facing DSML tool-call format
 
-BYV Format Block is the primary tool-call protocol. The model emits the following markup as assistant text. The gateway parses the block, validates tool names and arguments against the request schemas, and translates accepted invocations into the Anthropic tool-use response contract.
+When provider-native function calling is disabled, the model is instructed to emit DeepSeek DSML in ordinary assistant text. Use one outer calls block, one invoke per tool call, and parameter tags with exact declared names.
 
 ```text
-<|BYV| calls>
-<|BYV| invoke name="Bash" id="call_001">
-<|BYV| parameter name="command" type="string">pwd</|BYV| parameter>
-</|BYV| invoke>
-</|BYV| calls>
+<｜DSML｜ calls>
+<｜DSML｜ invoke name="Bash">
+<｜DSML｜ parameter name="command" string="true">pwd</｜DSML｜ parameter>
+</｜DSML｜ invoke>
+</｜DSML｜ calls>
 ```
 
-The invoke attributes must appear in this order: name, then id. Parameter attributes must appear in this order: name, then type. Every invocation id must be unique and non-empty.
+A string parameter uses `string="true"` and raw text without JSON quotes. Numbers, booleans, null, arrays, and objects use `string="false"` and one valid JSON value. Do not add prose inside the calls block. The model-facing DSML format does not require invocation IDs.
 
-String parameters use raw UTF-8 text without JSON quotes. Encode a literal backslash as two backslashes, line feed as backslash+n, carriage return as backslash+r, and tab as backslash+t. Escape a literal parameter closing token with one backslash.
+## Internal conversion and validation
 
-Numbers, booleans, null, arrays, and objects use the matching BYV type and exactly one valid JSON value. Do not duplicate parameters, invent tools, or place prose or Markdown inside a calls block. Emit one outer calls block per assistant tool response.
+The gateway converts model-generated DSML into its internal BYV representation before parsing. The adapter generates unique BYV invocation IDs, maps DSML string flags to BYV parameter types, and applies the required BYV string escaping. The existing `src/protocol/parser.js` remains unchanged and is the sole parser for the normalized representation. The same tool allowlist and JSON Schema validation run after conversion, before accepted calls are translated into Anthropic Messages `tool_use` blocks.
 
-When a tool result is received, evaluate whether the original task is complete. If it is complete, answer without another tool call. Otherwise, use the next necessary available tool and continue the original task.
+Malformed DSML is converted into a malformed internal representation so the existing parser rejects it and the bounded tool-recovery path can request a corrected DSML block. Provider-native function calling remains an optional, separately configured mode; when enabled, native functions are requested instead of DSML.
 
-## Runtime controls
-
-The gateway may disable tools, require at least one tool, or require a specific tool. These controls take precedence over general tool-use guidance. Provider-native function calling remains an optional compatibility mode; BYV Format Block is the default.
-
-This documentation artifact summarizes the active prompt. Runtime behavior is implemented by src/prompts.js, src/handler.js, and the BYV protocol parser.
+This artifact summarizes the active prompt contract. Runtime behavior is implemented by `src/prompts.js`, `src/protocol/dsml-adapter.js`, `src/handler.js`, and the unchanged BYV protocol parser.

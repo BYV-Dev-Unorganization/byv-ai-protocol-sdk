@@ -6,6 +6,7 @@ const {
   PROVIDER_MODEL,
   PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_NATIVE_REASONING_EFFORT,
+  PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
   PROVIDER_MAX_REQUESTS_PER_MINUTE,
   PROVIDER_MAX_CONCURRENT_REQUESTS
@@ -86,17 +87,21 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  if (PROVIDER_NATIVE_TOOL_CALLING && Array.isArray(options.tools) && options.tools.length) {
+  // In text-protocol mode, the gateway describes tool schemas in its prompt
+  // and parses calls from assistant text. No provider-native tool fields are
+  // needed: omitting both fields is more portable than sending tool_choice=none
+  // to OpenAI-compatible implementations that reject it without a tools array.
+  if (PROVIDER_NATIVE_TOOL_CALLING &&
+      options.tool_choice !== 'none' &&
+      Array.isArray(options.tools) && options.tools.length) {
     try {
       payload.tools = providerFunctionTools(options.tools);
       payload.tool_choice = providerToolChoice(options.tool_choice);
-      // DeepSeek V4 rejects "required" and named tool choices while thinking
-      // is enabled. NaraRouter documents reasoning_effort="none" as its
-      // supported Chat Completions control for disabling reasoning. Use that
-      // portable field instead of DeepSeek's provider-specific "thinking"
-      // extension, which a router may not forward. Ordinary "auto" calls keep
-      // the provider's default reasoning mode.
-      if (/^deepseek-/i.test(config.model) && requiresNonThinkingToolChoice(options.tool_choice)) {
+      // Some providers require reasoning to be disabled for forced or named
+      // native tool choices. This is an explicit generic compatibility option,
+      // never inferred from a provider or model name.
+      if (PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS &&
+          requiresNonThinkingToolChoice(options.tool_choice)) {
         payload.reasoning_effort = 'none';
       }
     } catch (error) {
@@ -161,10 +166,11 @@ async function readProviderError(response) {
       ? String(parsed.error.message || parsed.error.code)
       : detail;
   } catch {}
+  const contextOverflow = /context_length_exceeded|maximum context length|context window.{0,40}(?:exceed|limit|token)|(?:prompt|input).{0,40}(?:too long|too many tokens|exceed.{0,20}context)/i.test(detail);
   return new ProviderError(
     'OpenAI-compatible provider returned HTTP ' + response.status + (detail ? ': ' + detail : ''),
-    502,
-    'UPSTREAM_HTTP_' + response.status
+    contextOverflow ? 400 : 502,
+    contextOverflow ? 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' : 'UPSTREAM_HTTP_' + response.status
   );
 }
 
@@ -296,6 +302,13 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
         }
       }
       if (buffer.trim()) processEvent(buffer);
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      if (signal && signal.aborted) {
+        throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
+      }
+      if (timedOut) throw new ProviderError('Provider streaming response timed out.', 504, 'PROVIDER_TIMEOUT');
+      throw new ProviderError('Provider streaming response ended unexpectedly: ' + (error.message || String(error)), 502, 'PROVIDER_STREAM_INCOMPLETE');
     } finally {
       clearTimeout(streamTimer);
       if (signal) signal.removeEventListener('abort', abortStream);
@@ -307,6 +320,9 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     }
     if (signal && signal.aborted) {
       throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
+    }
+    if (!done) {
+      throw new ProviderError('Provider stream ended before the [DONE] marker; partial output was discarded.', 502, 'PROVIDER_STREAM_INCOMPLETE');
     }
 
     return {

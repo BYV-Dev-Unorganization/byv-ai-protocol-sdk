@@ -6,6 +6,7 @@ const OPEN_INVOKE = '<|BYV| invoke';
 const CLOSE_INVOKE = '</|BYV| invoke>';
 const OPEN_PARAMETER = '<|BYV| parameter';
 const CLOSE_PARAMETER = '</|BYV| parameter>';
+const { maskMarkdownCode } = require('./markdown-code');
 
 function findUnescaped(source, token, fromIndex) {
   let index = fromIndex || 0;
@@ -93,16 +94,17 @@ function decodeParameter(raw, type, name) {
 }
 
 function parseInvocationBlock(raw) {
+  const masked = maskMarkdownCode(raw);
   const calls = [];
   let cursor = 0;
   while (cursor < raw.length) {
-    while (/\s/.test(raw[cursor] || '') && cursor < raw.length) cursor++;
+    while (/\s/.test(masked[cursor] || '') && cursor < raw.length) cursor++;
     if (cursor >= raw.length) break;
 
-    if (!raw.startsWith(OPEN_INVOKE, cursor)) {
+    if (!masked.startsWith(OPEN_INVOKE, cursor)) {
       throw new Error('Unexpected content inside BYV calls block; expected invoke.');
     }
-    const headerEnd = raw.indexOf('>', cursor);
+    const headerEnd = masked.indexOf('>', cursor);
     if (headerEnd < 0) throw new Error('BYV invoke header is incomplete.');
     const header = raw.slice(cursor + OPEN_INVOKE.length, headerEnd);
     const attrs = parseOrderedAttributes(header, ['name', 'id'], 'BYV invoke');
@@ -113,15 +115,15 @@ function parseInvocationBlock(raw) {
 
     while (cursor < raw.length) {
       while (/\s/.test(raw[cursor] || '') && cursor < raw.length) cursor++;
-      if (raw.startsWith(CLOSE_INVOKE, cursor)) {
+      if (masked.startsWith(CLOSE_INVOKE, cursor)) {
         cursor += CLOSE_INVOKE.length;
         invokeClosed = true;
         break;
       }
-      if (!raw.startsWith(OPEN_PARAMETER, cursor)) {
+      if (!masked.startsWith(OPEN_PARAMETER, cursor)) {
         throw new Error('Unexpected content inside invoke ' + attrs.id + '; expected parameter or invoke close.');
       }
-      const parameterHeaderEnd = raw.indexOf('>', cursor);
+      const parameterHeaderEnd = masked.indexOf('>', cursor);
       if (parameterHeaderEnd < 0) throw new Error('BYV parameter header is incomplete.');
       const parameterHeader = raw.slice(cursor + OPEN_PARAMETER.length, parameterHeaderEnd);
       const parameterAttrs = parseOrderedAttributes(parameterHeader, ['name', 'type'], 'BYV parameter');
@@ -135,7 +137,7 @@ function parseInvocationBlock(raw) {
         throw new Error('Duplicate BYV parameter: ' + name);
       }
       const valueStart = parameterHeaderEnd + 1;
-      const parameterClose = findUnescaped(raw, CLOSE_PARAMETER, valueStart);
+      const parameterClose = findUnescaped(masked, CLOSE_PARAMETER, valueStart);
       if (parameterClose < 0) throw new Error('BYV parameter ' + name + ' is not closed.');
       const rawValue = raw.slice(valueStart, parameterClose);
       input[name] = decodeParameter(rawValue, type, name);
@@ -156,18 +158,18 @@ function parseInvocationBlock(raw) {
 }
 
 
-function findOuterCallsClose(source, fromIndex) {
+function findOuterCallsClose(source, fromIndex, maskedSource = maskMarkdownCode(source)) {
   let cursor = fromIndex;
   while (cursor < source.length) {
-    if (source.startsWith(OPEN_PARAMETER, cursor)) {
-      const headerEnd = source.indexOf('>', cursor);
+    if (maskedSource.startsWith(OPEN_PARAMETER, cursor)) {
+      const headerEnd = maskedSource.indexOf('>', cursor);
       if (headerEnd < 0) return -1;
-      const parameterClose = findUnescaped(source, CLOSE_PARAMETER, headerEnd + 1);
+      const parameterClose = findUnescaped(maskedSource, CLOSE_PARAMETER, headerEnd + 1);
       if (parameterClose < 0) return -1;
       cursor = parameterClose + CLOSE_PARAMETER.length;
       continue;
     }
-    if (source.startsWith(CLOSE_CALLS, cursor)) return cursor;
+    if (maskedSource.startsWith(CLOSE_CALLS, cursor)) return cursor;
     cursor++;
   }
   return -1;
@@ -175,13 +177,14 @@ function findOuterCallsClose(source, fromIndex) {
 
 function parseBYVOutput(text) {
   const source = String(text || '');
-  const openCount = source.split(OPEN_CALLS).length - 1;
+  const maskedSource = maskMarkdownCode(source);
+  const openCount = maskedSource.split(OPEN_CALLS).length - 1;
   if (openCount > 1) {
     return { text: source, calls: [], errors: ['Only one outer BYV calls block is allowed.'], hasProtocol: true };
   }
 
-  const start = source.indexOf(OPEN_CALLS);
-  const anyBYV = /<\s*\/?\s*\|\s*BYV\s*\|/i.test(source);
+  const start = maskedSource.indexOf(OPEN_CALLS);
+  const anyBYV = /<\s*\/?\s*\|\s*BYV\s*\|/i.test(maskedSource);
   if (start < 0) {
     return {
       text: source.trim(),
@@ -191,12 +194,13 @@ function parseBYVOutput(text) {
     };
   }
 
-  const end = findOuterCallsClose(source, start + OPEN_CALLS.length);
+  const end = findOuterCallsClose(source, start + OPEN_CALLS.length, maskedSource);
   if (end < 0) {
     return { text: source.slice(0, start).trim(), calls: [], errors: ['BYV calls block is incomplete.'], hasProtocol: true };
   }
   const after = source.slice(end + CLOSE_CALLS.length);
-  if (after.includes(OPEN_CALLS) || after.includes(CLOSE_CALLS)) {
+  const maskedAfter = maskedSource.slice(end + CLOSE_CALLS.length);
+  if (maskedAfter.includes(OPEN_CALLS) || maskedAfter.includes(CLOSE_CALLS)) {
     return { text: source.slice(0, start).trim(), calls: [], errors: ['Unexpected additional BYV calls wrapper.'], hasProtocol: true };
   }
 

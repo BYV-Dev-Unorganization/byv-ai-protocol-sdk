@@ -15,6 +15,7 @@ function loadConfig(env) {
     "PROVIDER_MODEL: c.PROVIDER_MODEL,",
     "PROVIDER_NATIVE_TOOL_CALLING: c.PROVIDER_NATIVE_TOOL_CALLING,",
     "PROVIDER_NATIVE_REASONING_EFFORT: c.PROVIDER_NATIVE_REASONING_EFFORT,",
+    "PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: c.PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
     "PROVIDER_MAX_REQUESTS_PER_MINUTE: c.PROVIDER_MAX_REQUESTS_PER_MINUTE,",
     "PROVIDER_MAX_CONCURRENT_REQUESTS: c.PROVIDER_MAX_CONCURRENT_REQUESTS,",
@@ -27,6 +28,9 @@ function loadConfig(env) {
     "MAX_BODY_BYTES: c.MAX_BODY_BYTES,",
     "MAX_OUTPUT_CHARS: c.MAX_OUTPUT_CHARS,",
     "MAX_PROMPT_CHARS: c.MAX_PROMPT_CHARS,",
+    "COMPACTION_MAX_INPUT_TOKENS: c.COMPACTION_MAX_INPUT_TOKENS,",
+    "COMPACTION_MAX_OUTPUT_TOKENS: c.COMPACTION_MAX_OUTPUT_TOKENS,",
+    "COMPACTION_MAX_SYSTEM_CHARS: c.COMPACTION_MAX_SYSTEM_CHARS,",
     "MAX_PENDING_REQUESTS: c.MAX_PENDING_REQUESTS,",
     "MAX_RECOVERY_ATTEMPTS: c.MAX_RECOVERY_ATTEMPTS",
     "}));"
@@ -45,6 +49,8 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     PORT: '8877',
     PROVIDER_MODEL: 'configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
+    PROVIDER_NATIVE_REASONING_EFFORT: 'true',
+    PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true',
     PROVIDER_TIMEOUT_MS: '120000',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: '6',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '1',
@@ -57,6 +63,9 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     MAX_BODY_BYTES: '2097152',
     MAX_OUTPUT_CHARS: '1048576',
     MAX_PROMPT_CHARS: '4000000',
+    COMPACTION_MAX_INPUT_TOKENS: '48000',
+    COMPACTION_MAX_OUTPUT_TOKENS: '12000',
+    COMPACTION_MAX_SYSTEM_CHARS: '9000',
     MAX_PENDING_REQUESTS: '12',
     MAX_RECOVERY_ATTEMPTS: '3'
   });
@@ -66,6 +75,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     PROVIDER_MODEL: 'configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_NATIVE_REASONING_EFFORT: true,
+    PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: true,
     PROVIDER_TIMEOUT_MS: 120000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 6,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 1,
@@ -78,6 +88,9 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     MAX_BODY_BYTES: 2097152,
     MAX_OUTPUT_CHARS: 1048576,
     MAX_PROMPT_CHARS: 4000000,
+    COMPACTION_MAX_INPUT_TOKENS: 48000,
+    COMPACTION_MAX_OUTPUT_TOKENS: 12000,
+    COMPACTION_MAX_SYSTEM_CHARS: 9000,
     MAX_PENDING_REQUESTS: 12,
     MAX_RECOVERY_ATTEMPTS: 3
   });
@@ -89,6 +102,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
+    PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'maybe',
     PROVIDER_TIMEOUT_MS: '300000.5',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 'not-a-number',
     PROVIDER_MAX_CONCURRENT_REQUESTS: '129',
@@ -101,6 +115,9 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     MAX_BODY_BYTES: '100',
     MAX_OUTPUT_CHARS: '999999999',
     MAX_PROMPT_CHARS: '1000',
+    COMPACTION_MAX_INPUT_TOKENS: '9999999',
+    COMPACTION_MAX_OUTPUT_TOKENS: '1',
+    COMPACTION_MAX_SYSTEM_CHARS: '999999',
     MAX_PENDING_REQUESTS: '129',
     MAX_RECOVERY_ATTEMPTS: '6'
   });
@@ -110,6 +127,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PROVIDER_MODEL: 'another-configured-model-from-env',
     PROVIDER_NATIVE_TOOL_CALLING: false,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
+    PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
     PROVIDER_TIMEOUT_MS: 300000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 0,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 0,
@@ -122,15 +140,24 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     MAX_BODY_BYTES: 10485760,
     MAX_OUTPUT_CHARS: 2097152,
     MAX_PROMPT_CHARS: 4000000,
+    COMPACTION_MAX_INPUT_TOKENS: 32768,
+    COMPACTION_MAX_OUTPUT_TOKENS: 8192,
+    COMPACTION_MAX_SYSTEM_CHARS: 8000,
     MAX_PENDING_REQUESTS: 8,
     MAX_RECOVERY_ATTEMPTS: 2
   });
 });
 
-test('enables native provider reasoning effort by default and allows disabling it', () => {
-  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, true);
+test('keeps non-standard native provider reasoning effort opt-in', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, false);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'true' }).PROVIDER_NATIVE_REASONING_EFFORT, true);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'false' }).PROVIDER_NATIVE_REASONING_EFFORT, false);
+});
+
+test('keeps provider-specific forced-tool reasoning workarounds opt-in', () => {
+  assert.equal(loadConfig({}).PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS, false);
+  assert.equal(loadConfig({ PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true' }).PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS, true);
+  assert.equal(loadConfig({ PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'false' }).PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS, false);
 });
 
 test('defaults the system prompt character budget to 4 million and accepts an 8 million override', () => {

@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { handleMessages, normalizeUsage, detectToolLoop } = require('../src/handler');
+const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets } = require('../src/handler');
+const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
 
 function body(options = {}) {
   return {
@@ -131,6 +132,35 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
   });
 });
 
+test('converts DSML model output through the unchanged BYV parser before returning tool_use', async () => {
+  const events = [];
+  const output = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+  const result = await handleMessages(body(), {
+    nativeToolCalling: false,
+    requestId: 'req_dsml_adapter',
+    logger: (event) => events.push(event),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async () => ({
+        text: output,
+        reasoning: '',
+        finish_reason: 'stop',
+        usage: null
+      })
+    }
+  });
+
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(result.content[0].name, 'Read');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
+  assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
+  assert.equal(events[0].source, 'dsml_converted_to_byv');
+  assert.equal(events[0].validation_status, 'valid');
+});
+
 test('logs validated BYV tool-call metadata without recording arguments', async () => {
   const events = [];
   const privatePath = '/workspace/private-file-name.txt';
@@ -166,7 +196,7 @@ test('logs validated BYV tool-call metadata without recording arguments', async 
   assert.equal(JSON.stringify(events).includes('file_path'), false);
 });
 
-test('rejects provider-native tool calls when native tool calling is disabled and recovers with BYV', async () => {
+test('rejects provider-native calls and recovers with DSML when native calling is disabled', async () => {
   let count = 0;
   const events = [];
   const seenMessages = [];
@@ -194,7 +224,7 @@ test('rejects provider-native tool calls when native tool calling is disabled an
           };
         }
         return {
-          text: '<|BYV| calls><|BYV| invoke name="Read" id="call_byv_after_native"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"><｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>',
           finish_reason: 'stop',
           usage: null
         };
@@ -203,14 +233,19 @@ test('rejects provider-native tool calls when native tool calling is disabled an
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].at(-1).content, /Output exactly one complete BYV calls block/);
+  const recoveryPrompt = seenMessages[1].at(-1).content;
+  assert.match(recoveryPrompt, /Output exactly one DeepSeek DSML calls block/);
+  assert.match(recoveryPrompt, /PROVIDER_NATIVE_DISABLED/);
+  assert.match(recoveryPrompt, /provider-native function call/i);
+  assert.match(recoveryPrompt, /was NOT executed/i);
+  assert.match(recoveryPrompt, /"tool_name": "Read"/);
+  assert.match(recoveryPrompt, /README\.md/);
+  assert.equal(recoveryPrompt.includes('call_native_disabled'), false);
   assert.equal(result.stop_reason, 'tool_use');
-  assert.deepEqual(result.content[0], {
-    type: 'tool_use',
-    id: 'call_byv_after_native',
-    name: 'Read',
-    input: { file_path: 'README.md' }
-  });
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(result.content[0].name, 'Read');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
+  assert.match(result.content[0].id, /^dsml_call_[a-f0-9]{24}$/);
   assert.deepEqual(events.map((event) => ({
     event: event.event,
     source: event.source,
@@ -225,11 +260,50 @@ test('rejects provider-native tool calls when native tool calling is disabled an
     },
     {
       event: 'tool_call.validated',
-      source: 'byv_format_block',
+      source: 'dsml_converted_to_byv',
       phase: 'tool_recovery',
       validation_reason: null
     }
   ]);
+});
+
+
+test('second recovery explains a repeated native-call rejection before accepting DSML', async () => {
+  let count = 0;
+  const seenMessages = [];
+  const result = await handleMessages(body(), {
+    nativeToolCalling: false,
+    provider: {
+      createChatCompletion: async (messages) => {
+        count++;
+        seenMessages.push(messages);
+        if (count <= 2) {
+          return {
+            text: '',
+            tool_calls: [{
+              id: 'call_rejected_' + count,
+              type: 'function',
+              function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
+            }],
+            finish_reason: 'tool_calls',
+            usage: null
+          };
+        }
+        return {
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"><｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>',
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+  assert.equal(count, 3);
+  assert.match(seenMessages[1].at(-1).content, /previous provider response returned a provider-native function call/i);
+  assert.match(seenMessages[2].at(-1).content, /previous recovery response again returned a provider-native function call/i);
+  assert.match(seenMessages[2].at(-1).content, /final recovery attempt/i);
+  assert.match(seenMessages[2].at(-1).content, /README\.md/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.content[0].input, { file_path: 'README.md' });
 });
 
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {
@@ -302,7 +376,7 @@ test('converts streamed native provider function calls into Anthropic tool_use b
   });
 });
 
-test('recovers invalid BYV Format Block arguments using BYV protocol instructions', async () => {
+test('recovers invalid tool arguments using DSML protocol instructions', async () => {
   let count = 0;
   const seenMessages = [];
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
@@ -324,8 +398,8 @@ test('recovers invalid BYV Format Block arguments using BYV protocol instruction
   });
 
   assert.equal(count, 2);
-  assert.match(seenMessages[1].messages.at(-1).content, /Output exactly one complete BYV calls block/);
-  assert.equal(seenMessages[1].options.tool_choice, 'auto');
+  assert.match(seenMessages[1].messages.at(-1).content, /Output only one DeepSeek DSML calls block/);
+  assert.equal(seenMessages[1].options.tool_choice, PROVIDER_NATIVE_TOOL_CALLING ? 'auto' : 'none');
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
 });
@@ -590,4 +664,283 @@ test('maps reported cache creation tokens without inventing cache metrics', () =
     cache_creation_input_tokens: 30,
     cache_read_input_tokens: 20
   });
+});
+
+
+test('native-disabled provider receives DSML history and structured tool results', async () => {
+  const messages = [
+    { role: 'user', content: 'Inspect the repository, then answer.' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'toolu_history', name: 'Read', input: { file_path: 'README.md' } }]
+    },
+    {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'toolu_history', content: 'README body' }]
+    },
+    { role: 'user', content: 'Summarize the result.' }
+  ];
+  let sentMessages;
+  const result = await handleMessages(body({ messages }), {
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (providerMessages) => {
+        sentMessages = providerMessages;
+        return { text: 'The README was inspected.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(sentMessages[0].role, 'system');
+  assert.match(sentMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.equal(sentMessages.some((message) => message.role === 'tool'), false);
+  const historicalAssistant = sentMessages.find((message) =>
+    message.role === 'assistant' && typeof message.content === 'string' &&
+    message.content.includes('HISTORICAL TOOL INVOCATIONS')
+  );
+  assert.ok(historicalAssistant);
+  assert.match(historicalAssistant.content, /<｜DSML｜tool_calls>/);
+  const historicalResult = sentMessages.find((message) =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('HISTORICAL TOOL RESULTS')
+  );
+  assert.ok(historicalResult);
+  assert.match(historicalResult.content, /README body/);
+  assert.equal(sentMessages.some((message) => Array.isArray(message.tool_calls)), false);
+});
+
+
+test('text-only inference converts DSML text to tool_use while provider-native tools stay disabled', async () => {
+  let count = 0;
+  let receivedMessages;
+  let receivedOptions;
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: true,
+    experimentVariant: 'B',
+    nativeToolCalling: true,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (messages, options) => {
+        count++;
+        receivedMessages = messages;
+        receivedOptions = options;
+        return { text: dsml, finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(count, 1);
+  assert.equal(receivedOptions.tool_choice, 'none');
+  assert.deepEqual(receivedOptions.tools, []);
+  assert.equal(receivedMessages.length, 1);
+  assert.equal(receivedMessages[0].role, 'user');
+  assert.match(receivedMessages[0].content, /### TOOLS/);
+  assert.match(receivedMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(receivedMessages[0].content, /DeepSeek DSML markup format/);
+  assert.doesNotMatch(receivedMessages[0].content, /NATIVE TOOL CALL PROTOCOL/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.content[0].type, 'tool_use');
+});
+
+test('explicit tool_choice none keeps DSML unavailable in text-only inference', async () => {
+  let count = 0;
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+  const result = await handleMessages(body({ tool_choice: 'none' }), {
+    noToolExperiment: true,
+    provider: {
+      createChatCompletion: async (_messages, options) => {
+        count++;
+        assert.equal(options.tool_choice, 'none');
+        assert.deepEqual(options.tools, []);
+        return count === 1
+          ? { text: dsml, finish_reason: 'stop' }
+          : { text: 'I can explain how to read the file, but this request explicitly disables tools.', finish_reason: 'stop' };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+  assert.match(result.text, /explicitly disables tools/);
+});
+
+
+test('treats Claude Code compaction as a text-only summary even when tools are declared', async () => {
+  let calls = 0;
+  let providerOptions;
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const instructions = [
+    'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
+    'Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.',
+    'Respond with plain text only — an <analysis> block followed by a <summary> block.',
+    'Summarize the conversation.'
+  ].join('\n');
+  const summary = [
+    '<analysis>Summary with a literal example ' + tick + '<|BYV| calls>' + tick + '.</analysis>',
+    '<summary>',
+    'The DSML syntax is documentation only:',
+    fence + 'text',
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>',
+    fence,
+    '</summary>'
+  ].join('\n');
+
+  const result = await handleMessages(body({
+    messages: [{ role: 'user', content: instructions }],
+    tool_choice: undefined
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        calls++;
+        providerOptions = options;
+        return { text: summary, finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(providerOptions.tool_choice, 'none');
+  assert.deepEqual(providerOptions.tools, []);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+  assert.equal(result.text, summary);
+});
+
+
+
+test('uses bounded model-capability-aware replay and output budgets for Claude Code autocompaction', async () => {
+  const longToolResult = 'TOOL_OUTPUT_MARKER '.repeat(20000);
+  const compactionInstruction = [
+    'CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.',
+    'Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.',
+    'Respond with plain text only, an <analysis> block followed by a <summary> block.',
+    'Summarize the conversation.'
+  ].join('\n');
+  const conversation = [
+    { role: 'user', content: 'Original task: implement a provider-neutral gateway feature.' },
+    { role: 'assistant', content: 'I will inspect the API contract and repository structure.' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_large', name: 'Read', input: { file_path: 'old.md' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_large', content: longToolResult }] },
+    { role: 'assistant', content: 'The earlier repository details have been reviewed.' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_recent', name: 'Read', input: { file_path: 'README.md' } }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_recent', content: 'Recent README result.' }] },
+    { role: 'assistant', content: 'The latest repository details have been reviewed.' },
+    { role: 'user', content: compactionInstruction }
+  ];
+  let receivedMessages;
+  let receivedOptions;
+  let streamCalls = 0;
+  const diagnostics = [];
+  const result = await handleMessages(body({
+    max_tokens: 128000,
+    stream: true,
+    output_config: { effort: 'high' },
+    messages: conversation,
+    tool_choice: undefined
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    requestId: 'req_compaction_budget',
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => ({
+        context_window_tokens: 65536,
+        max_input_tokens: 40000,
+        max_output_tokens: 4096
+      }),
+      createStreamingChatCompletion: async (messages, options) => {
+        streamCalls++;
+        receivedMessages = messages;
+        receivedOptions = options;
+        return {
+          text: '<analysis>Conversation reviewed.</analysis>\n<summary>Original task and latest results retained.</summary>',
+          finish_reason: 'stop',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(streamCalls, 1);
+  assert.equal(receivedMessages.length, 2);
+  assert.equal(receivedMessages[0].role, 'system');
+  assert.equal(receivedMessages[1].role, 'user');
+  assert.match(receivedMessages[0].content, /TEXT-ONLY OUTPUT CONTRACT/);
+  assert.match(receivedMessages[1].content, /Original task: implement a provider-neutral gateway feature/);
+  assert.match(receivedMessages[1].content, /CRITICAL: Respond with TEXT ONLY/);
+  assert.match(receivedMessages[1].content, /Tool call Read/);
+  assert.match(receivedMessages[1].content, /older conversation history omitted/);
+  assert.ok(receivedMessages[1].content.length < longToolResult.length);
+  assert.equal(receivedOptions.max_tokens, 4096);
+  assert.equal(receivedOptions.reasoning_effort, 'high');
+  assert.deepEqual(receivedOptions.tools, []);
+  assert.equal(receivedOptions.tool_choice, 'none');
+  assert.ok(diagnostics.some((entry) =>
+    entry.event === 'provider.request.started' &&
+    entry.request_intent === 'claude_code_compaction' &&
+    entry.compaction_max_input_tokens === 32768 &&
+    entry.compaction_max_output_tokens === 4096
+  ));
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.toolCalls, []);
+});
+
+test('derives compaction budgets from generic provider input, output, and context capabilities', () => {
+  assert.deepEqual(resolveCompactionBudgets({
+    context_window_tokens: 16384,
+    max_input_tokens: 12000,
+    max_output_tokens: 4096
+  }, 128000), {
+    maxInputTokens: 11520,
+    maxOutputTokens: 3840
+  });
+  assert.deepEqual(resolveCompactionBudgets(null, 128000), {
+    maxInputTokens: 32768,
+    maxOutputTokens: 8192
+  });
+});
+
+test('retries one transient transport failure and logs the retry without entering tool recovery', async () => {
+  let calls = 0;
+  const diagnostics = [];
+  const result = await handleMessages(body(), {
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async () => {
+        calls++;
+        if (calls === 1) {
+          throw Object.assign(new Error('temporary provider timeout'), {
+            statusCode: 504,
+            code: 'PROVIDER_TIMEOUT'
+          });
+        }
+        return { text: 'Recovered after transport retry.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.match(result.text, /Recovered after transport retry/);
+  assert.equal(diagnostics.filter((item) => item.event === 'provider.request.retry_scheduled').length, 1);
 });
