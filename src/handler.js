@@ -425,6 +425,28 @@ function classifyToolCallValidationError(error) {
   return 'TOOL_VALIDATION_FAILED';
 }
 
+function classifyToolRecoveryFailure(parseError, validationError) {
+  const message = String(validationError || '') + ' ' + String(parseError || '');
+  if (/tool_choice requires/i.test(message)) return 'tool_choice_mismatch';
+  if (/was not declared in this request/i.test(message)) return 'tool_not_declared';
+  if (/failed schema validation|must have required property|must be equal to one of the allowed values|must NOT have additional properties/i.test(message)) {
+    return 'schema_validation';
+  }
+  if (parseError) return 'dsml_parse';
+  if (/did not return a tool call|no BYV invocation|no valid tool call/i.test(message)) return 'missing_tool_call';
+  return 'tool_validation';
+}
+
+function rejectedCallsForRecovery(parsedResult, calls) {
+  if (parsedResult && Array.isArray(parsedResult.rejectedToolCalls) && parsedResult.rejectedToolCalls.length) {
+    return parsedResult.rejectedToolCalls;
+  }
+  return (Array.isArray(calls) ? calls : []).map((call) => ({
+    name: call && call.name,
+    input: call && call.input
+  }));
+}
+
 function boundedLogString(value, maxLength) {
   return typeof value === 'string' && value.length
     ? value.slice(0, maxLength)
@@ -678,8 +700,11 @@ async function handleMessages(body, options = {}) {
   )) {
     let recovered = false;
     let lastError = validation.error || parseError || 'Malformed BYV output.';
-    let recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
-    let rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+    let recoveryFailureKind = parsedResult.native && !nativeToolCalling
+      ? 'provider_native_disabled'
+      : classifyToolRecoveryFailure(parseError || parsed.errors[0], validation.error);
+    let rejectedToolCalls = rejectedCallsForRecovery(parsedResult, calls);
+    let rejectedOutput = completion.text;
     let rejectionReason = parsedResult.rejectionReason || null;
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
@@ -688,13 +713,15 @@ async function handleMessages(body, options = {}) {
           nativeToolCalling,
           failureKind: recoveryFailureKind,
           rejectionReason,
-          rejectedToolCalls
+          rejectedToolCalls,
+          rejectedOutput
         })
       }]);
       completion = await complete(retryMessages, 'tool_recovery', attempt);
+      rejectedOutput = completion.text;
       if (completion.text.length > MAX_OUTPUT_CHARS) {
         lastError = 'The recovery output exceeded the configured maximum size.';
-        recoveryFailureKind = 'invalid_tool_call';
+        recoveryFailureKind = 'tool_validation';
         rejectedToolCalls = [];
         rejectionReason = null;
         continue;
@@ -721,8 +748,10 @@ async function handleMessages(body, options = {}) {
         break;
       }
       lastError = validation.error || parsedResult.error || 'The recovery did not return a valid tool call.';
-      recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
-      rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+      recoveryFailureKind = parsedResult.native && !nativeToolCalling
+        ? 'provider_native_disabled'
+        : classifyToolRecoveryFailure(parsedResult.error || parsed.errors[0], validation.error);
+      rejectedToolCalls = rejectedCallsForRecovery(parsedResult, calls);
       rejectionReason = parsedResult.rejectionReason || null;
     }
     if (!recovered) {
@@ -739,8 +768,11 @@ async function handleMessages(body, options = {}) {
     if (!calls.length) {
       let recovered = false;
       let lastError = 'tool_choice requires a tool call, but the model returned text.';
-      let recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'tool_call_missing';
-      let rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+      let recoveryFailureKind = parsedResult.native && !nativeToolCalling
+        ? 'provider_native_disabled'
+        : 'missing_tool_call';
+      let rejectedToolCalls = rejectedCallsForRecovery(parsedResult, calls);
+      let rejectedOutput = completion.text;
       let rejectionReason = parsedResult.rejectionReason || null;
       for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
         const retryMessages = providerMessages.concat([{
@@ -749,10 +781,12 @@ async function handleMessages(body, options = {}) {
             nativeToolCalling,
             failureKind: recoveryFailureKind,
             rejectionReason,
-            rejectedToolCalls
+            rejectedToolCalls,
+            rejectedOutput
           })
         }]);
         completion = await complete(retryMessages, 'required_tool_recovery', attempt);
+        rejectedOutput = completion.text;
         parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
@@ -777,8 +811,10 @@ async function handleMessages(body, options = {}) {
           break;
         }
         lastError = validation.error || parsedResult.error || 'No valid tool call returned.';
-        recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
-        rejectedToolCalls = parsedResult.rejectedToolCalls || [];
+        recoveryFailureKind = parsedResult.native && !nativeToolCalling
+          ? 'provider_native_disabled'
+          : classifyToolRecoveryFailure(parsedResult.error || parsed.errors[0], validation.error);
+        rejectedToolCalls = rejectedCallsForRecovery(parsedResult, calls);
         rejectionReason = parsedResult.rejectionReason || null;
       }
       if (!recovered) {
