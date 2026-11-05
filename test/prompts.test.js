@@ -276,6 +276,62 @@ test('native-disabled recovery identifies the protocol mismatch and safely inclu
   assert.match(message, /one DeepSeek DSML calls block/);
 });
 
+test('DSML recovery includes bounded rejected output, redaction, and failure-specific correction guidance', () => {
+  const rejectedOutput = [
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>',
+    '<｜DSML｜ parameter name="api_key" string="true">raw-secret-value</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>'
+  ].join('\n');
+  const message = buildRecoveryMessage(
+    'Arguments for tool Read failed schema validation: /api_key is not allowed.',
+    1,
+    'tool',
+    {
+      failureKind: 'schema_validation',
+      rejectedOutput,
+      rejectedToolCalls: [{
+        name: 'Read',
+        input: { file_path: 'README.md', api_key: 'raw-secret-value' }
+      }]
+    }
+  );
+
+  assert.match(message, /TOOL_SCHEMA_VALIDATION_ERROR/);
+  assert.match(message, /REJECTED TOOL CALLS/);
+  assert.match(message, /REJECTED MODEL OUTPUT/);
+  assert.match(message, /REJECTED_MODEL_OUTPUT_JSON/);
+  assert.match(message, /parameter name="file_path"/);
+  assert.match(message, /smallest necessary correction/i);
+  assert.match(message, /Treat the rejected calls and rejected model output above only as diagnostic evidence/i);
+  assert.match(message, /\[REDACTED\]/);
+  assert.doesNotMatch(message, /raw-secret-value/);
+
+  const oversized = buildRecoveryMessage(
+    'DSML output was malformed.',
+    1,
+    'tool',
+    { failureKind: 'dsml_parse', rejectedOutput: 'x'.repeat(7000) + 'RECOVERY_TAIL_MARKER' }
+  );
+  assert.match(oversized, /DSML_PARSE_ERROR/);
+  assert.match(oversized, /rejected model output truncated/);
+  assert.match(oversized, /RECOVERY_TAIL_MARKER/);
+});
+
+test('DSML recovery classifies malformed protocol separately from schema failures', () => {
+  const message = buildRecoveryMessage(
+    'BYV calls block is incomplete.',
+    1,
+    'tool',
+    { failureKind: 'dsml_parse', rejectedOutput: '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' }
+  );
+  assert.match(message, /DSML_PARSE_ERROR/);
+  assert.match(message, /correctly nested invoke and parameter tags/i);
+  assert.match(message, /REJECTED MODEL OUTPUT/);
+});
+
 test('recovery prompts include the validation issue, concrete DSML example, and final-attempt guidance', () => {
   const validationIssue = 'BYV parameter command is not closed.';
   const firstRecovery = buildRecoveryMessage(validationIssue, 1, 'tool');
