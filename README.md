@@ -307,7 +307,7 @@ Example model output:
 
 The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
 
-On the `experiment/text-only-inference` branch, provider-native function calling is disabled, but the gateway-level Anthropic `tool_choice` is preserved. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to BYV, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is detected as a special text-only summary turn when its final instruction explicitly forbids tools, requires plain text, and requests the `<analysis>`/`<summary>` structure.
+In the default text-protocol path, provider-native function calling is disabled while the gateway preserves Anthropic `tool_choice` semantics. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to the internal BYV representation, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is recognized as a special text-only summary turn when the latest instruction forbids tool use, requires plain text, and requests the `<analysis>`/`<summary>` structure. This behavior is part of the current SDK implementation, not a branch-specific feature.
 
 The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
 - `auto`: the model may call an available tool when needed;
@@ -334,6 +334,8 @@ OpenAI-compatible Chat Completions is a stateless request contract, so this gate
 The replay preserves the original user task, recent conversation turns, and the latest compaction instruction. Oversized external system/developer instructions and older or oversized history are compacted with explicit omission markers. The budget is model-neutral and reduced further when provider model metadata reports smaller input, output, or context limits. It does not branch on provider names or model IDs.
 
 Defaults are COMPACTION_MAX_INPUT_TOKENS=32768, COMPACTION_MAX_OUTPUT_TOKENS=8192, and COMPACTION_MAX_SYSTEM_CHARS=8000. Provider metadata can reduce these limits; environment values can lower the generic budgets for providers whose model metadata is unavailable or incomplete.
+
+See [Autocompaction implementation notes](docs/AUTOCOMPACTION.md) for request detection, payload construction, budget calculation, diagnostics, failure codes, and operational limits.
 
 ## Streaming
 
@@ -442,6 +444,10 @@ Do not bind this development gateway to a public interface without adding deploy
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |
 | MAX_RECOVERY_ATTEMPTS | 2 | Maximum tool-call or text-only recovery attempts |
 | CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
+
+## Additional documentation
+
+See [`docs/README.md`](docs/README.md) for the documentation index, including current implementation notes, historical integration tests, audit snapshots, and proposals.
 
 ## Development
 
