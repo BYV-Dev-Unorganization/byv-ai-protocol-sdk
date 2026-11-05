@@ -309,6 +309,17 @@ test('DSML recovery includes bounded rejected output, redaction, and failure-spe
   assert.match(message, /\[REDACTED\]/);
   assert.doesNotMatch(message, /raw-secret-value/);
 
+  const malformedSecret = buildRecoveryMessage(
+    'The DSML parameter was not closed.',
+    1,
+    'tool',
+    {
+      failureKind: 'dsml_parse',
+      rejectedOutput: '<｜DSML｜ parameter name="api_key" string="true">unterminated-sensitive-value'
+    }
+  );
+  assert.doesNotMatch(malformedSecret, /unterminated-sensitive-value/);
+
   const oversized = buildRecoveryMessage(
     'DSML output was malformed.',
     1,
