@@ -422,6 +422,49 @@ test('rejects mixed native function calls and BYV markup as an ambiguous respons
   );
 });
 
+test('DSML schema recovery receives the rejected model output and preserves valid intent', async () => {
+  let count = 0;
+  const seenMessages = [];
+  const rejectedDsml = [
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="path" string="true">README.md</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>'
+  ].join('\n');
+  const correctedDsml = [
+    '<｜DSML｜ calls>',
+    '<｜DSML｜ invoke name="Read">',
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>',
+    '</｜DSML｜ invoke>',
+    '</｜DSML｜ calls>'
+  ].join('\n');
+
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    provider: {
+      createChatCompletion: async (messages) => {
+        count++;
+        seenMessages.push(messages);
+        return {
+          text: count === 1 ? rejectedDsml : correctedDsml,
+          finish_reason: 'stop'
+        };
+      }
+    }
+  });
+
+  assert.equal(count, 2);
+  const recoveryPrompt = seenMessages[1].at(-1).content;
+  assert.match(recoveryPrompt, /REJECTED MODEL OUTPUT/);
+  assert.match(recoveryPrompt, /REJECTED_MODEL_OUTPUT_JSON/);
+  assert.match(recoveryPrompt, /parameter name="path"/);
+  assert.match(recoveryPrompt, /TOOL_SCHEMA_VALIDATION_ERROR/);
+  assert.match(recoveryPrompt, /smallest necessary correction/i);
+  assert.match(recoveryPrompt, /file_path/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+});
+
 test('performs bounded recovery for schema-invalid tool arguments', async () => {
   let count = 0;
   const events = [];
