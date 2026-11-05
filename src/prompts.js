@@ -865,7 +865,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
         'Do not change valid calls or valid arguments merely for formatting. Do not invent missing values, tools, parameters, or user intent.',
         '',
         '=== DSML OUTPUT REQUIREMENTS ===',
-        'Output only one complete DeepSeek DSML calls block, with no prose or Markdown outside it.',
+        'Output only one DeepSeek DSML calls block, complete and with no prose or Markdown outside it.',
         'Use one invoke block per tool, and one parameter block per argument.',
         'For string values use string="true" and raw text without JSON quotes. For non-string values use string="false" and exactly one valid JSON value.',
         'Use exact declared tool and parameter names. Do not duplicate parameters. Close every calls, invoke, and parameter tag exactly once.',
