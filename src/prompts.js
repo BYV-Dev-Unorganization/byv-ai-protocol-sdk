@@ -681,7 +681,7 @@ function sanitizeRecoveryOutput(value) {
     if (typeof value !== 'string' || !value) return '';
 
     let output = value;
-    const sensitiveParameter = /(<[^>]*\bparameter\b(?=[^>]*\bname\s*=\s*["'](?:password|passwd|secret|token|api[_-]?key|access[_-]?key|authorization|cookie|credential|private[_-]?key)["'])[^>]*>)[\s\S]*?(<\/[^>]*\bparameter\s*>)/gi;
+    const sensitiveParameter = /(<[^>]*\bparameter\b(?=[^>]*\bname\s*=\s*["'](?:password|passwd|secret|token|api[_-]?key|access[_-]?key|authorization|cookie|credential|private[_-]?key)["'])[^>]*>)[\s\S]*?(<\/[^>]*\bparameter\s*>|$)/gi;
     output = output.replace(sensitiveParameter, '$1[REDACTED]$2');
     output = output
         .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [REDACTED]')
