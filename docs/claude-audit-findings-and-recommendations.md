@@ -8,6 +8,8 @@
 **Date:** 2026-11-03  
 **Scope:** Documentation and recommendations only. No source-code changes are included in this document.
 
+> **Historical snapshot:** This audit describes the `feat/dsml-prompt-byv-adapter` revision identified above, not the current implementation. Use the repository README and [current autocompaction notes](AUTOCOMPACTION.md) for current behavior.
+
 ---
 
 # Bahasa Indonesia
