@@ -63,7 +63,7 @@ function resolveOfficeTunnelConfig(env = process.env) {
     host,
     port,
     publicUrl: 'https://' + hostname,
-    localUrl: 'http://' + (host.includes(':') ? '[' + host.replace(/^\\[|\\]$/g, '') + ']' : host) + ':' + port,
+    localUrl: 'http://' + (host.includes(':') ? '[' + host.replace(/^\[|\]$/g, '') + ']' : host) + ':' + port,
     childEnv
   };
 }
