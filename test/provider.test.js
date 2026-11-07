@@ -246,3 +246,22 @@ test('forwards anthropic-version and preserves provider response IDs for Office 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stdout, 'chatcmpl-office-123');
 });
+
+
+test('preserves the upstream response ID from streaming provider responses', () => {
+  const script = [
+    "const event = { id: 'chatcmpl-office-stream-123', choices: [{ delta: { content: 'streamed' }, finish_reason: null }] };",
+    "global.fetch = async () => new Response('data: ' + JSON.stringify(event) + String.fromCharCode(10) + String.fromCharCode(10) + 'data: [DONE]' + String.fromCharCode(10) + String.fromCharCode(10), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });",
+    "const { createStreamingChatCompletion } = require('./src/provider/openai-compatible');",
+    "createStreamingChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32 })",
+    "  .then((result) => { if (result.id !== event.id) throw new Error('stream response ID was not preserved'); process.stdout.write(result.id); })",
+    "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: { ...process.env, PROVIDER_BASE_URL: 'https://provider.example/v1', PROVIDER_MODEL: 'test-model', PROVIDER_API_KEY: 'unit-test-secret' },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'chatcmpl-office-stream-123');
+});
