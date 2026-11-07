@@ -223,3 +223,26 @@ test('classifies upstream context-window rejection separately from transient HTT
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stdout, 'PROVIDER_CONTEXT_WINDOW_EXCEEDED');
 });
+
+
+test('forwards anthropic-version and preserves provider response IDs for Office gateway requests', () => {
+  const script = [
+    "global.fetch = async (_url, init) => {",
+    "  const headers = new Headers(init.headers);",
+    "  if (headers.get('anthropic-version') !== '2023-06-01') throw new Error('missing Anthropic version header');",
+    "  if (headers.get('authorization') !== 'Bearer unit-test-secret') throw new Error('missing provider authorization');",
+    "  return new Response(JSON.stringify({ id: 'chatcmpl-office-123', model: 'test-model', choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });",
+    "};",
+    "const { createChatCompletion } = require('./src/provider/openai-compatible');",
+    "createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 32, anthropicVersion: '2023-06-01' })",
+    "  .then((result) => { if (result.id !== 'chatcmpl-office-123') throw new Error('provider response ID was not preserved'); process.stdout.write(result.id); })",
+    "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: { ...process.env, PROVIDER_BASE_URL: 'https://provider.example/v1', PROVIDER_MODEL: 'test-model', PROVIDER_API_KEY: 'unit-test-secret' },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'chatcmpl-office-123');
+});
