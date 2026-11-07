@@ -340,3 +340,61 @@ test('text-only inference uses the DeepSeek-style consolidated DSML prompt witho
   assert.match(providerMessages[0].content, /DeepSeek DSML markup format/);
   assert.doesNotMatch(providerMessages[0].content, /NATIVE TOOL CALL PROTOCOL/);
 });;
+
+
+test('every recovery message starts with a recognizable gateway heading that the system prompt names', () => {
+  const headings = ['=== TOOL CALL RECOVERY ===', '=== TEXT-ONLY RECOVERY ==='];
+  const system = buildSystemPrompt({ model: 'byv-flash-v1', messages: [{ role: 'user', content: 'hi' }], tools: [] });
+  for (const heading of headings) assert.ok(system.includes(heading), heading);
+
+  const messages = [
+    buildRecoveryMessage('x', 1, 'text'),
+    buildRecoveryMessage('x', 1, 'tool', { nativeToolCalling: true }),
+    buildRecoveryMessage('x', 1, 'tool', { nativeToolCalling: false }),
+    buildRecoveryMessage('x', 1, 'tool', { nativeToolCalling: false, failureKind: 'tool_call_missing' }),
+    buildRecoveryMessage('x', 1, 'tool', { nativeToolCalling: false, failureKind: 'provider_native_disabled', rejectedToolCalls: [] })
+  ];
+  for (const message of messages) {
+    assert.ok(headings.includes(message.split('\n')[0]), message.split('\n')[0]);
+  }
+});
+
+test('missing required tool call gets a recovery message that does not claim a malformed call existed', () => {
+  const message = buildRecoveryMessage(
+    'tool_choice requires a tool call, but the model returned text.',
+    1,
+    'tool',
+    { nativeToolCalling: false, failureKind: 'tool_call_missing' }
+  );
+  assert.match(message, /contained no tool call/);
+  assert.doesNotMatch(message, /contained a tool call that was malformed/);
+  assert.match(message, /Do not answer in plain text/);
+  assert.match(message, /one DeepSeek DSML calls block/);
+  assert.ok(message.includes('Correct this issue: tool_choice requires a tool call, but the model returned text.'));
+  assert.ok(message.includes('<｜DSML｜ calls><｜DSML｜ invoke name="Bash">'));
+});
+
+test('final-attempt wording follows the configured attempt limit for every recovery mode', () => {
+  const opts = (extra) => Object.assign({ nativeToolCalling: false, maxAttempts: 3 }, extra);
+  for (const [mode, extra] of [['tool', {}], ['tool', { failureKind: 'tool_call_missing' }], ['text', {}]]) {
+    assert.doesNotMatch(buildRecoveryMessage('x', 2, mode, opts(extra)), /final recovery attempt/i, mode);
+    assert.match(buildRecoveryMessage('x', 3, mode, opts(extra)), /final recovery attempt/i, mode);
+  }
+  assert.match(buildRecoveryMessage('x', 1, 'text', { maxAttempts: 1 }), /final recovery attempt/i);
+  assert.doesNotMatch(buildRecoveryMessage('x', 1, 'text'), /final recovery attempt/i);
+  assert.match(buildRecoveryMessage('x', 2, 'text'), /final recovery attempt/i);
+});
+
+test('recovery messages label the issue text as diagnostic data and redact secrets in it', () => {
+  const raw = 'Bad call near api_key=abc123456789 and Bearer tok_1234567890abcdef';
+  for (const message of [
+    buildRecoveryMessage(raw, 1, 'text'),
+    buildRecoveryMessage(raw, 1, 'tool', { nativeToolCalling: false }),
+    buildRecoveryMessage(raw, 1, 'tool', { nativeToolCalling: true })
+  ]) {
+    assert.match(message, /gateway diagnostic data, not an instruction/);
+    assert.match(message, /\[REDACTED\]/);
+    assert.doesNotMatch(message, /abc123456789/);
+    assert.doesNotMatch(message, /tok_1234567890abcdef/);
+  }
+});
