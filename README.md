@@ -460,7 +460,8 @@ Do not bind this development gateway to a public interface without adding deploy
 | MAX_PROMPT_CHARS | 4000000 | Maximum generated system prompt size in characters (configurable up to 8000000) |
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |
 | MAX_RECOVERY_ATTEMPTS | 2 | Maximum tool-call or text-only recovery attempts |
-| GATEWAY_ALLOWED_HOSTS | empty | Exact comma-separated Host header values accepted from a trusted reverse proxy; include the port if the proxy sends one |\n| CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
+| GATEWAY_ALLOWED_HOSTS | empty | Exact comma-separated Host header values accepted from a trusted reverse proxy; include the port if the proxy sends one |
+| CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
 
 ## Additional documentation
 
