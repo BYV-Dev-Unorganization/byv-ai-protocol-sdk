@@ -107,7 +107,7 @@ test('forces a text response after three identical tool calls', async () => {
     }
   });
   assert.match(providerMessages[0][0].content, /STOP: DO NOT CALL TOOLS/);
-  assert.match(providerMessages[1].at(-1).content, /RECOVERY REQUIRED/);
+  assert.match(providerMessages[1].at(-1).content, /=== TEXT-ONLY RECOVERY ===/);
   assert.equal(providerOptions.length, 2);
   assert.ok(providerOptions.every((options) => options.tool_choice === 'none'));
   assert.equal(result.stop_reason, 'end_turn');
