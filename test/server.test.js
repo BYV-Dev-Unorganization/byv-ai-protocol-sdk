@@ -73,6 +73,57 @@ test('requires gateway authentication and exposes BYV Flash V1 in model discover
   assert.equal(body.data[0].display_name, 'BYV Flash V1');
 });
 
+test('adapts Claude Desktop one-token connection probes without changing normal requests', async (t) => {
+  const received = [];
+  const base = await withServer(t, {
+    handleMessages: async (body, options) => {
+      received.push({
+        max_tokens: body.max_tokens,
+        requestIntent: options.requestIntent
+      });
+      return {
+        id: 'msg_connection_probe',
+        content: [{ type: 'text', text: 'OK' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+        usage_estimated: false
+      };
+    }
+  });
+
+  const probe = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'claude-haiku-5-5',
+      max_tokens: 1,
+      messages: [{ role: 'user', content: '.' }]
+    })
+  });
+  assert.equal(probe.status, 200);
+  assert.deepEqual(received[0], {
+    max_tokens: 512,
+    requestIntent: 'claude_desktop_connection_probe'
+  });
+
+  const normal = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'byv-flash-v1',
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'Reply with one character.' }]
+    })
+  });
+  assert.equal(normal.status, 200);
+  assert.deepEqual(received[1], {
+    max_tokens: 1,
+    requestIntent: 'normal'
+  });
+});
+
+
 test('rejects unsupported model profile IDs before invoking the handler', async (t) => {
   let called = false;
   const base = await withServer(t, {
@@ -303,6 +354,8 @@ test('starts Anthropic SSE with message_start and keeps it alive with ping befor
   assert.ok(startIndex >= 0);
   assert.ok(pingIndex > startIndex);
   assert.ok(deltaIndex > pingIndex);
+  assert.ok((stream.match(/event: ping/g) || []).length >= 2,
+    'the gateway should keep sending periodic pings during slow inference');
   assert.match(stream, /event: message_stop/);
   assert.equal(response.headers.get('x-token-usage-estimated'), 'true');
 });
