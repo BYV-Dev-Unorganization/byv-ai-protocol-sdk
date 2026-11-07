@@ -19,7 +19,6 @@ test('builds a safe Office tunnel environment with the public host and Office CO
   assert.equal(config.childEnv.HOST, '127.0.0.1');
   assert.equal(config.childEnv.GATEWAY_ALLOWED_HOSTS, 'other.example.com,claude-office.example.com');
   assert.equal(config.childEnv.CORS_ALLOWED_ORIGINS, 'https://trusted.example,https://pivot.claude.ai');
-  assert.equal(config.childEnv.CLOUDFLARE_TUNNEL_TOKEN, 'test-token');
   assert.equal(Object.prototype.hasOwnProperty.call(config.childEnv, 'CLOUDFLARE_TUNNEL_TOKEN'), false);
 });
 
