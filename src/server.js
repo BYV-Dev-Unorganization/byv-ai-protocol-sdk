@@ -20,6 +20,26 @@ const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rat
 const { uuid } = require('./config');
 const { createDiagnostics } = require('./diagnostics');
 
+const CLAUDE_DESKTOP_PROBE_MAX_TOKENS = 512;
+
+function isClaudeDesktopConnectionProbe(body) {
+  if (!body || body.max_tokens !== 1 || body.stream === true) return false;
+  if (!Array.isArray(body.messages) || body.messages.length !== 1) return false;
+  if (body.system !== undefined && body.system !== null && body.system !== '') return false;
+  if (Array.isArray(body.tools) && body.tools.length > 0) return false;
+  if (body.tool_choice !== undefined && body.tool_choice !== null) return false;
+
+  const message = body.messages[0];
+  if (!message || message.role !== 'user') return false;
+
+  let content = message.content;
+  if (Array.isArray(content)) {
+    if (content.length !== 1 || !content[0] || content[0].type !== 'text') return false;
+    content = content[0].text;
+  }
+  return typeof content === 'string' && content.trim() === '.';
+}
+
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
@@ -195,10 +215,26 @@ function createServer(options = {}) {
     }
 
     const compactionRequest = isClaudeCodeCompactionRequest(body);
+    const desktopConnectionProbe = route === '/v1/messages' && isClaudeDesktopConnectionProbe(body);
+    const requestIntent = compactionRequest
+      ? 'claude_code_compaction'
+      : desktopConnectionProbe ? 'claude_desktop_connection_probe' : 'normal';
+    // Claude Desktop's gateway connection check is a non-streaming one-token
+    // request containing a single "." user message. Some reasoning providers
+    // spend that entire budget internally and return no visible text, so give
+    // this exact health probe a small provider-side output floor. Normal user
+    // requests retain their requested max_tokens unchanged.
+    const inferenceBody = compactionRequest
+      ? { ...body, tool_choice: 'none' }
+      : desktopConnectionProbe
+        ? { ...body, max_tokens: Math.max(body.max_tokens, CLAUDE_DESKTOP_PROBE_MAX_TOKENS) }
+        : body;
     const requestContent = {
       request_id: requestId,
-      request_intent: compactionRequest ? 'claude_code_compaction' : 'normal',
+      request_intent: requestIntent,
       is_compaction_request: compactionRequest,
+      is_claude_desktop_connection_probe: desktopConnectionProbe,
+      effective_provider_max_tokens: inferenceBody.max_tokens,
       method: req.method,
       route,
       model_profile: body.model,
@@ -225,8 +261,6 @@ function createServer(options = {}) {
     });
 
     // Compaction summary turns are explicitly text-only; normal tool_choice remains intact.
-    const inferenceBody = compactionRequest ? { ...body, tool_choice: 'none' } : body;
-
     if (countTokens) {
       let estimated;
       try {
@@ -322,6 +356,7 @@ function createServer(options = {}) {
         diagnostics: recordDiagnostic,
         noToolExperiment,
         experimentVariant,
+        requestIntent,
         anthropicVersion: req.headers['anthropic-version']
       });
       if (res.destroyed || res.writableEnded) return;
