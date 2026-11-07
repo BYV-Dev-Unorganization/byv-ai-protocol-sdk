@@ -640,7 +640,7 @@ async function handleMessages(body, options = {}) {
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'text')
+        content: buildRecoveryMessage(lastError, attempt, 'text', { maxAttempts: MAX_RECOVERY_ATTEMPTS })
       }]);
       completion = await complete(retryMessages, 'text_recovery', attempt);
       const textRecovery = validateTextOnlyCompletion(completion);
@@ -686,6 +686,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool', {
           nativeToolCalling,
+          maxAttempts: MAX_RECOVERY_ATTEMPTS,
           failureKind: recoveryFailureKind,
           rejectionReason,
           rejectedToolCalls
@@ -747,6 +748,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool', {
             nativeToolCalling,
+            maxAttempts: MAX_RECOVERY_ATTEMPTS,
             failureKind: recoveryFailureKind,
             rejectionReason,
             rejectedToolCalls
