@@ -56,6 +56,8 @@ function resolveOfficeTunnelConfig(env = process.env) {
     GATEWAY_ALLOWED_HOSTS: appendCsvValue(env.GATEWAY_ALLOWED_HOSTS, hostname),
     CORS_ALLOWED_ORIGINS: appendCsvValue(env.CORS_ALLOWED_ORIGINS, 'https://pivot.claude.ai')
   };
+  // Only cloudflared needs the tunnel token; do not pass it to the BYV server process.
+  delete childEnv.CLOUDFLARE_TUNNEL_TOKEN;
 
   return {
     token,
