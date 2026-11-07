@@ -220,7 +220,8 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     reasoning_effort: body.output_config && body.output_config.effort,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
-    tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none'
+    tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none',
+    anthropicVersion: diagnostic.anthropicVersion
   };
 
   try {
@@ -561,7 +562,8 @@ async function handleMessages(body, options = {}) {
           nativeToolCalling,
           requestIntent: compactionRequest ? 'claude_code_compaction' : 'normal',
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
-          compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null
+          compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
+          anthropicVersion: options.anthropicVersion
         });
       } catch (error) {
         const code = String(error && error.code || '');
@@ -801,7 +803,7 @@ async function handleMessages(body, options = {}) {
   }
 
   const result = {
-    id: uuid('msg'),
+    id: completion.id || uuid('msg'),
     type: 'message',
     role: 'assistant',
     model,
