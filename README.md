@@ -137,6 +137,23 @@ All application API routes require the gateway key using either Authorization: B
 
 Authenticated API requests are limited to **30 requests per rolling 60 seconds per client IP**. The limit applies across authenticated endpoints and returns HTTP 429 with a `Retry-After` header when exceeded. The unauthenticated `HEAD /api/hello` probe and CORS `OPTIONS` preflight requests are excluded.
 
+## Claude for Microsoft 365 / Claude for Office
+
+The gateway exposes the Anthropic Messages API format required by Claude for Office (`gateway_api_format: anthropic`): `POST /v1/messages` (including SSE streaming) and authenticated `GET /v1/models`. The add-in calls the gateway directly from its browser task pane, so it needs a publicly reachable **HTTPS** gateway URL. Do not enter `http://127.0.0.1:8787` or `localhost` in the Office connection screen; that URL is intended for local clients such as Claude Code, not the hosted Office task pane.
+
+For a gateway such as `https://office-gateway.example.com`, configure these exact allowlists in `.env`:
+
+```env
+GATEWAY_ALLOWED_HOSTS=office-gateway.example.com
+CORS_ALLOWED_ORIGINS=https://pivot.claude.ai
+```
+
+Keep the Node gateway bound to loopback (`HOST=127.0.0.1`, `PORT=8787`) and terminate TLS at a trusted reverse proxy that forwards requests to `http://127.0.0.1:8787`. The proxy should preserve the public `Host` header listed in `GATEWAY_ALLOWED_HOSTS`; alternatively, rewrite it to a loopback Host value accepted by the local server. Do not expose the Node listener directly to the public internet.
+
+The CORS preflight supports `GET`, `POST`, `HEAD`, and `OPTIONS`, including `x-api-key`, `authorization`, `content-type`, `anthropic-version`, and `anthropic-beta`. The add-in uses `x-api-key` by default. Enter the gateway-issued BYV token, select the Anthropic API format, and set the gateway URL to the HTTPS base URL only (for example, `https://office-gateway.example.com`, without `/v1/messages`).
+
+A bootstrap endpoint is not required when users enter a static gateway URL and token in the add-in. Configure `bootstrap_url` only when you need to deliver per-user settings or rotate gateway tokens automatically.
+
 ## Local diagnostics logs
 
 The gateway writes structured JSON Lines files to the local `logs/` directory. Each event includes an ISO timestamp and, when associated with a message request, the same `request_id` returned in the `X-Gateway-Request-ID` response header.
@@ -398,7 +415,7 @@ When the provider reports cache usage, BYV maps prompt_tokens_details.cached_tok
 - Provider credentials and gateway credentials are separate.
 - The gateway token is generated locally if GATEWAY_API_KEY is not set.
 - Token comparison uses a constant-time byte comparison.
-- Host headers are restricted to local loopback hosts.
+- Host headers are restricted to local loopback hosts unless an exact reverse-proxy hostname is added to GATEWAY_ALLOWED_HOSTS.
 - CORS is denied by default for browser origins. Exact trusted origins can be listed in CORS_ALLOWED_ORIGINS.
 - Request bodies and provider output have configurable size limits.
 - Active request concurrency is bounded by MAX_PENDING_REQUESTS.
@@ -443,7 +460,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | MAX_PROMPT_CHARS | 4000000 | Maximum generated system prompt size in characters (configurable up to 8000000) |
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |
 | MAX_RECOVERY_ATTEMPTS | 2 | Maximum tool-call or text-only recovery attempts |
-| CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
+| GATEWAY_ALLOWED_HOSTS | empty | Exact comma-separated Host header values accepted from a trusted reverse proxy; include the port if the proxy sends one |\n| CORS_ALLOWED_ORIGINS | empty | Exact comma-separated browser origins to allow |
 
 ## Additional documentation
 
