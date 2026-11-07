@@ -80,3 +80,19 @@ test('rejects request bodies above MAX_BODY_BYTES with HTTP 413 metadata', async
   );
   assert.equal(request.destroyedByTest, true);
 });
+
+
+test('allows only exact reverse-proxy Host values configured by the operator', () => {
+  const previous = process.env.GATEWAY_ALLOWED_HOSTS;
+  process.env.GATEWAY_ALLOWED_HOSTS = 'office-gateway.example.com, internal.example.com:8443';
+  try {
+    assert.equal(isAllowedHost('office-gateway.example.com', 8787), true);
+    assert.equal(isAllowedHost('OFFICE-GATEWAY.EXAMPLE.COM', 8787), true);
+    assert.equal(isAllowedHost('internal.example.com:8443', 8787), true);
+    assert.equal(isAllowedHost('attacker.example.com', 8787), false);
+    assert.equal(isAllowedHost('office-gateway.example.com:443', 8787), false);
+  } finally {
+    if (previous === undefined) delete process.env.GATEWAY_ALLOWED_HOSTS;
+    else process.env.GATEWAY_ALLOWED_HOSTS = previous;
+  }
+});
