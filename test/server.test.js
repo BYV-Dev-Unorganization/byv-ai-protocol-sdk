@@ -342,6 +342,10 @@ test('supports Claude for Office CORS preflight and forwards anthropic-version',
   assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
   assert.match(preflight.headers.get('access-control-allow-headers'), /x-api-key/i);
   assert.match(preflight.headers.get('access-control-allow-headers'), /anthropic-version/i);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /authorization/i);
+  const rejected = await fetch(base + '/v1/models', { headers: { Origin: origin } });
+  assert.equal(rejected.status, 401);
+  assert.equal(rejected.headers.get('access-control-allow-origin'), origin);
 
   const response = await fetch(base + '/v1/messages', {
     method: 'POST',
