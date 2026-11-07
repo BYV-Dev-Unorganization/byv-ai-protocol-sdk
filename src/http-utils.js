@@ -60,6 +60,10 @@ function checkAuth(req) {
 
 function isAllowedHost(hostHeader, localPort) {
   if (typeof hostHeader !== 'string') return false;
+  const normalizedHost = hostHeader.trim().toLowerCase();
+  const trustedHosts = (process.env.GATEWAY_ALLOWED_HOSTS || '')
+    .split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+  if (trustedHosts.includes(normalizedHost)) return true;
   const match = /^(localhost|127\.0\.0\.1|\[::1\])(?::(\d{1,5}))?$/i.exec(hostHeader.trim());
   if (!match) return false;
   if (!match[2]) return true;
