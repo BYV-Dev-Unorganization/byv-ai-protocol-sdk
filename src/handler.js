@@ -560,7 +560,7 @@ async function handleMessages(body, options = {}) {
           phase,
           recoveryAttempt,
           nativeToolCalling,
-          requestIntent: compactionRequest ? 'claude_code_compaction' : 'normal',
+          requestIntent: options.requestIntent || (compactionRequest ? 'claude_code_compaction' : 'normal'),
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
           compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
           anthropicVersion: options.anthropicVersion
