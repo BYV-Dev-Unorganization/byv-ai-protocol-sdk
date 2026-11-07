@@ -60,7 +60,7 @@ function createServer(options = {}) {
     res.setHeader('X-Gateway-Request-ID', requestId);
 
     if (!isAllowedHost(req.headers.host, port)) {
-      return jsonError(res, 421, 'invalid_request_error', 'Host header is not allowed. Use localhost or 127.0.0.1.');
+      return jsonError(res, 421, 'invalid_request_error', 'Host header is not allowed. Use localhost or configure its exact value in GATEWAY_ALLOWED_HOSTS.');
     }
     if (!isAllowedOrigin(origin, port)) {
       return jsonError(res, 403, 'authentication_error', 'Origin is not allowed.');
@@ -303,7 +303,8 @@ function createServer(options = {}) {
         logger: toolCallLogger,
         diagnostics: recordDiagnostic,
         noToolExperiment,
-        experimentVariant
+        experimentVariant,
+        anthropicVersion: req.headers['anthropic-version']
       });
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
