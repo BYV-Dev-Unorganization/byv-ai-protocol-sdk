@@ -184,6 +184,14 @@ The CORS preflight supports `GET`, `POST`, `HEAD`, and `OPTIONS`, including `x-a
 
 A bootstrap endpoint is not required when users enter a static gateway URL and token in the add-in. Configure `bootstrap_url` only when you need to deliver per-user settings or rotate gateway tokens automatically.
 
+## Claude Desktop (Third-Party Inference) gateway
+
+BYV supports Claude Desktop's Gateway provider through the Anthropic Messages contract: authenticated `GET /v1/models` and `POST /v1/messages`. The model catalog lists BYV response profiles locally; a successful model-list request does not by itself verify that the upstream provider can generate a completion.
+
+Claude Desktop's gateway connection check uses a small non-streaming inference probe (`max_tokens: 1` with one user message containing `.`). Some reasoning-oriented OpenAI-compatible providers consume that one-token budget internally and return an empty visible completion. BYV recognizes this exact probe shape and raises the provider-side output budget to 512 tokens for the probe only. The original client request and all ordinary user requests retain their requested `max_tokens`.
+
+For real streaming inference, BYV sends an Anthropic `message_start`, an immediate SSE `ping`, and periodic pings at `STREAM_PING_INTERVAL_MS` (15 seconds by default) while waiting for the provider. Claude Desktop's `inferenceStreamIdleTimeoutSec` setting controls additional waiting when a stream continues to send pings without model output; it does not affect the non-streaming connection probe. See the [Claude Desktop configuration reference](https://claude.com/docs/third-party/claude-desktop/configuration#inferencestreamidletimeoutsec) and the [observed one-token gateway probe](https://github.com/anthropics/claude-code/issues/103731).
+
 ## Local diagnostics logs
 
 The gateway writes structured JSON Lines files to the local `logs/` directory. Each event includes an ISO timestamp and, when associated with a message request, the same `request_id` returned in the `X-Gateway-Request-ID` response header.
