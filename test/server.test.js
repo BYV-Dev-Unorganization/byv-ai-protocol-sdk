@@ -306,3 +306,50 @@ test('starts Anthropic SSE with message_start and keeps it alive with ping befor
   assert.match(stream, /event: message_stop/);
   assert.equal(response.headers.get('x-token-usage-estimated'), 'true');
 });
+
+
+test('supports Claude for Office CORS preflight and forwards anthropic-version', async (t) => {
+  const previous = process.env.CORS_ALLOWED_ORIGINS;
+  process.env.CORS_ALLOWED_ORIGINS = 'https://pivot.claude.ai';
+  t.after(() => {
+    if (previous === undefined) delete process.env.CORS_ALLOWED_ORIGINS;
+    else process.env.CORS_ALLOWED_ORIGINS = previous;
+  });
+  let receivedAnthropicVersion;
+  const base = await withServer(t, {
+    handleMessages: async (_body, options) => {
+      receivedAnthropicVersion = options.anthropicVersion;
+      return {
+        id: 'chatcmpl-office-test',
+        content: [{ type: 'text', text: 'Office response.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+        usage_estimated: false
+      };
+    }
+  });
+  const origin = 'https://pivot.claude.ai';
+  const preflight = await fetch(base + '/v1/messages', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: origin,
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'x-api-key,content-type,anthropic-version'
+    }
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /x-api-key/i);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /anthropic-version/i);
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': GATEWAY_API_KEY, 'Content-Type': 'application/json', Origin: origin, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 64, messages: [{ role: 'user', content: 'Hello' }] })
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('access-control-allow-origin'), origin);
+  assert.equal(receivedAnthropicVersion, '2023-06-01');
+  assert.equal((await response.json()).id, 'chatcmpl-office-test');
+});
