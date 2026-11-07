@@ -70,9 +70,27 @@ function createServer(options = {}) {
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') {
+      // The Office task pane uses Anthropic's browser SDK, whose extra x-stainless
+      // and browser-safety headers can change between add-in releases. Reflect
+      // syntactically valid requested header names because the Origin was already
+      // checked against the explicit CORS allowlist above.
+      const allowedHeaders = new Set([
+        'authorization',
+        'content-type',
+        'x-api-key',
+        'anthropic-version',
+        'anthropic-beta'
+      ]);
+      const requestedHeaders = String(req.headers['access-control-request-headers'] || '');
+      for (const header of requestedHeaders.split(',')) {
+        const normalized = header.trim().toLowerCase();
+        if (/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(normalized)) {
+          allowedHeaders.add(normalized);
+        }
+      }
       res.writeHead(204, {
         'Access-Control-Allow-Methods': 'GET,POST,HEAD,OPTIONS',
-        'Access-Control-Allow-Headers': 'authorization,content-type,x-api-key,anthropic-version,anthropic-beta',
+        'Access-Control-Allow-Headers': Array.from(allowedHeaders).join(','),
         'Cache-Control': 'no-store'
       });
       return res.end();
