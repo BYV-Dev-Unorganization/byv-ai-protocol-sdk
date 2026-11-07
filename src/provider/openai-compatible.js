@@ -111,9 +111,12 @@ function buildPayload(messages, options = {}) {
   return { config, payload };
 }
 
-function requestHeaders(apiKey) {
+function requestHeaders(apiKey, anthropicVersion) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+  if (typeof anthropicVersion === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(anthropicVersion)) {
+    headers['anthropic-version'] = anthropicVersion;
+  }
   return headers;
 }
 
@@ -191,7 +194,7 @@ async function createChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: requestHeaders(config.apiKey),
+      headers: requestHeaders(config.apiKey, options.anthropicVersion),
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);
@@ -207,6 +210,7 @@ async function createChatCompletion(messages, options = {}, signal) {
       throw new ProviderError('Provider response did not contain choices[0].message.', 502, 'PROVIDER_INVALID_RESPONSE');
     }
     return {
+      id: typeof data.id === 'string' && data.id ? data.id : null,
       text: normalizeMessageContent(choice.message.content),
       tool_calls: Array.isArray(choice.message.tool_calls) ? choice.message.tool_calls : [],
       reasoning: typeof choice.message.reasoning_content === 'string' ? choice.message.reasoning_content : '',
@@ -225,7 +229,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: { ...requestHeaders(config.apiKey), Accept: 'text/event-stream' },
+      headers: { ...requestHeaders(config.apiKey, options.anthropicVersion), Accept: 'text/event-stream' },
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);
@@ -240,6 +244,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     let reasoning = '';
     let finishReason = 'stop';
     let usage = null;
+    let responseId = null;
     const toolCallDeltas = new Map();
     let done = false;
     let timedOut = false;
@@ -277,6 +282,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
         );
       }
       if (data.usage) usage = data.usage;
+      if (!responseId && typeof data.id === 'string' && data.id) responseId = data.id;
       const choice = data.choices && data.choices[0];
       if (!choice) return;
       const delta = choice.delta || {};
@@ -326,6 +332,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     }
 
     return {
+      id: responseId,
       text,
       tool_calls: finalizeProviderToolCallDeltas(toolCallDeltas),
       reasoning,
