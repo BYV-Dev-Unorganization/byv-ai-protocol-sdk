@@ -944,3 +944,20 @@ test('retries one transient transport failure and logs the retry without enterin
   assert.match(result.text, /Recovered after transport retry/);
   assert.equal(diagnostics.filter((item) => item.event === 'provider.request.retry_scheduled').length, 1);
 });
+
+
+test('uses the upstream provider response ID as the Anthropic message ID when available', async () => {
+  const result = await handleMessages(body(), {
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async () => ({
+        id: 'chatcmpl-office-provider-id',
+        text: 'Office-compatible response.',
+        finish_reason: 'stop',
+        usage: null
+      })
+    }
+  });
+  assert.equal(result.id, 'chatcmpl-office-provider-id');
+  assert.equal(result.stop_reason, 'end_turn');
+});
