@@ -150,7 +150,7 @@ CORS_ALLOWED_ORIGINS=https://pivot.claude.ai
 
 Keep the Node gateway bound to loopback (`HOST=127.0.0.1`, `PORT=8787`) and terminate TLS at a trusted reverse proxy that forwards requests to `http://127.0.0.1:8787`. The proxy should preserve the public `Host` header listed in `GATEWAY_ALLOWED_HOSTS`; alternatively, rewrite it to a loopback Host value accepted by the local server. Do not expose the Node listener directly to the public internet.
 
-The CORS preflight supports `GET`, `POST`, `HEAD`, and `OPTIONS`, including `x-api-key`, `authorization`, `content-type`, `anthropic-version`, and `anthropic-beta`. The add-in uses `x-api-key` by default. Enter the gateway-issued BYV token, select the Anthropic API format, and set the gateway URL to the HTTPS base URL only (for example, `https://office-gateway.example.com`, without `/v1/messages`).
+The CORS preflight supports `GET`, `POST`, `HEAD`, and `OPTIONS`, including `x-api-key`, `authorization`, `content-type`, `anthropic-version`, and `anthropic-beta`. The add-in uses `x-api-key` by default. Enter the gateway-issued BYV token, select the Anthropic API format, and set the gateway URL to the HTTPS base URL only (for example, `https://office-gateway.example.com`, without `/v1/messages`). Ensure the reverse proxy passes `text/event-stream` responses through without buffering or stripping SSE events.
 
 A bootstrap endpoint is not required when users enter a static gateway URL and token in the add-in. Configure `bootstrap_url` only when you need to deliver per-user settings or rotate gateway tokens automatically.
 
