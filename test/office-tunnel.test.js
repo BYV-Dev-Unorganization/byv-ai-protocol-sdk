@@ -60,6 +60,16 @@ test('requires a tunnel token, public hostname, and loopback gateway binding', (
   }), /PORT must be an integer/);
 });
 
+test('formats IPv6 loopback URLs for the readiness probe', () => {
+  const config = resolveOfficeTunnelConfig({
+    CLOUDFLARE_TUNNEL_TOKEN: 'test-token',
+    OFFICE_GATEWAY_HOSTNAME: 'claude-office.example.com',
+    HOST: '::1',
+    PORT: '8787'
+  });
+  assert.equal(config.localUrl, 'http://[::1]:8787');
+});
+
 test('appends a configured CSV value without duplicating it', () => {
   assert.equal(
     appendCsvValue('https://pivot.claude.ai, https://trusted.example', 'https://pivot.claude.ai'),
