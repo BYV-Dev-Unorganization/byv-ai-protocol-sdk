@@ -87,10 +87,8 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  // In text-protocol mode, the gateway describes tool schemas in its prompt
-  // and parses calls from assistant text. No provider-native tool fields are
-  // needed: omitting both fields is more portable than sending tool_choice=none
-  // to OpenAI-compatible implementations that reject it without a tools array.
+  // In DSML mode, tool schemas stay in the prompt and provider-native tool
+  // calling is explicitly disabled with tool_choice=none.
   const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
     ? options.nativeToolCalling
     : !DSML_TOOL_CALL;
