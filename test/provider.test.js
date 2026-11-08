@@ -80,6 +80,7 @@ test('preserves provider-default reasoning when native tool choice is auto', () 
   assert.equal(payload.tool_choice, 'auto');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
+  nativeToolCalling: true
 });
 
 test('disables reasoning for forced native tools only when the generic compatibility flag is enabled', () => {
@@ -109,6 +110,7 @@ test('disables reasoning for forced native tools only when the generic compatibi
   assert.equal(payload.tool_choice, 'required');
   assert.equal(payload.reasoning_effort, 'none');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
+  nativeToolCalling: true
 });
 
 test('omits native tool fields entirely when native calling is disabled', () => {
@@ -136,6 +138,7 @@ test('omits native tool fields entirely when native calling is disabled', () => 
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
+  nativeToolCalling: false
 });
 
 
@@ -156,7 +159,7 @@ test('omits provider tool_choice when the gateway has disabled tools for the tur
       PROVIDER_BASE_URL: 'https://provider.example/v1',
       PROVIDER_MODEL: 'test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
-      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+      DSML_TOOL_CALL: 'true'
     },
     encoding: 'utf8'
   });
@@ -165,6 +168,7 @@ test('omits provider tool_choice when the gateway has disabled tools for the tur
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
+  nativeToolCalling: true
 });
 
 
