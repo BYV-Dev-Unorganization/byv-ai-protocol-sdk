@@ -94,7 +94,7 @@ DSML_TOOL_CALL=true
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-With `DSML_TOOL_CALL=true`, the gateway disables provider-native tools, sets the upstream provider `tool_choice` to `none`, and uses DeepSeek DSML text instructions/parser/recovery. With `DSML_TOOL_CALL=false`, the gateway sends native OpenAI-compatible tool schemas and mapped `tool_choice`, normalizes provider `tool_calls`, and does not parse or recover DSML. Both modes use the same BYV tool allowlist and JSON Schema validation before returning Anthropic `tool_use`.
+With `DSML_TOOL_CALL=true`, the gateway disables provider-native tools, sets the upstream provider `tool_choice` to `none`, and uses DeepSeek DSML text instructions/parser/recovery. With `DSML_TOOL_CALL=false`, the gateway sends native OpenAI-compatible tool schemas and mapped `tool_choice`, normalizes provider `tool_calls`, and does not parse or recover DSML. Tool names that do not satisfy the provider's `[A-Za-z0-9_-]{1,64}` constraint are assigned unique provider-safe aliases; returned calls and named `tool_choice` are mapped back to the original Anthropic tool names inside the gateway. Both modes use the same BYV tool allowlist and JSON Schema validation before returning Anthropic `tool_use`.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 

@@ -46,6 +46,7 @@ Native mode:
 - maps Anthropic `tool_choice` to provider-native values;
 - accepts provider-native `tool_calls`;
 - normalizes provider function arguments into the internal call representation;
+- maps names that are not provider-safe to unique aliases on outbound schemas and named `tool_choice`, then restores original names on returned calls;
 - skips DSML instructions, DSML parsing, and DSML recovery.
 
 Both modes use the same gateway-side tool validation before returning Anthropic `tool_use`.

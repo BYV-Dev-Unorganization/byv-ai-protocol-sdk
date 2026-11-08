@@ -68,7 +68,7 @@ Only one actual upstream model is configured. The IDs exposed by `GET /v1/models
 
 When true, tools are represented in model-facing text using DeepSeek DSML. The gateway disables upstream native tool execution, requests `tool_choice: none`, converts DSML into the internal BYV calls representation, then uses the existing parser and JSON Schema validation.
 
-When false, the gateway sends provider-native function schemas and mapped `tool_choice` values. Returned provider `tool_calls` are normalized directly. DSML instructions, parsing, and DSML recovery are not used.
+When false, the gateway sends provider-native function schemas and mapped `tool_choice` values. Tool names are translated to unique provider-safe aliases when needed, and returned `tool_calls` are mapped back to the original client names before allowlist/schema validation. DSML instructions, parsing, and DSML recovery are not used.
 
 Both paths converge on the same gateway-side tool allowlist and schema validation before an Anthropic `tool_use` response is produced.
 

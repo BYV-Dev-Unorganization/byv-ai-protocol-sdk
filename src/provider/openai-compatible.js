@@ -14,6 +14,7 @@ const { createProviderRequestLimiter } = require('./request-limiter');
 const {
   providerToolChoice,
   providerFunctionTools,
+  createProviderToolNameMap,
   mergeProviderToolCallDelta,
   finalizeProviderToolCallDeltas
 } = require('./tool-calls');
@@ -93,8 +94,9 @@ function buildPayload(messages, options = {}) {
       options.tool_choice !== 'none' &&
       Array.isArray(options.tools) && options.tools.length) {
     try {
-      payload.tools = providerFunctionTools(options.tools);
-      payload.tool_choice = providerToolChoice(options.tool_choice);
+      const toolNameMap = options.providerToolNameMap || createProviderToolNameMap(options.tools);
+      payload.tools = providerFunctionTools(options.tools, toolNameMap);
+      payload.tool_choice = providerToolChoice(options.tool_choice, toolNameMap);
       // Some providers require reasoning to be disabled for forced or named
       // native tool choices. This is an explicit generic compatibility option,
       // never inferred from a provider or model name.

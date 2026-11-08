@@ -18,7 +18,7 @@ const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
-const { normalizeProviderToolCalls } = require('./provider/tool-calls');
+const { normalizeProviderToolCalls, createProviderToolNameMap, restoreProviderToolCallNames } = require('./provider/tool-calls');
 const { maskMarkdownCode } = require('./protocol/markdown-code');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
@@ -220,6 +220,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
     tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none',
+    providerToolNameMap: diagnostic.providerToolNameMap || null,
     anthropicVersion: diagnostic.anthropicVersion
   };
 
@@ -291,9 +292,10 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   }
 }
 
-function parseCompletionToolCalls(completion, nativeToolCalling = true) {
+function parseCompletionToolCalls(completion, nativeToolCalling = true, providerToolNameMap = null) {
   if (nativeToolCalling) {
     const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
+    native.calls = restoreProviderToolCallNames(native.calls, providerToolNameMap);
     const parsed = {
       text: typeof completion.text === 'string' ? completion.text : '',
       calls: native.calls,
@@ -350,10 +352,10 @@ function parseCompletionToolCalls(completion, nativeToolCalling = true) {
 }
 
 
-function validateTextOnlyCompletion(completion, nativeToolCalling = false) {
+function validateTextOnlyCompletion(completion, nativeToolCalling = false, providerToolNameMap = null) {
   // Native-mode validation inspects only structured provider calls; DSML parsing
   // is reserved for DSML text mode.
-  const result = parseCompletionToolCalls(completion, nativeToolCalling);
+  const result = parseCompletionToolCalls(completion, nativeToolCalling, providerToolNameMap);
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -520,6 +522,9 @@ async function handleMessages(body, options = {}) {
   const force = compactionRequest || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
+  const providerToolNameMap = nativeToolCalling && force.mode !== 'none'
+    ? createProviderToolNameMap(tools)
+    : null;
   const baseRequestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
   const provider = options.provider || {};
   const providerCapabilities = typeof provider.getModelCapabilities === 'function'
@@ -552,6 +557,7 @@ async function handleMessages(body, options = {}) {
           phase,
           recoveryAttempt,
           nativeToolCalling,
+          providerToolNameMap,
           requestIntent: options.requestIntent || (compactionRequest ? 'claude_code_compaction' : 'normal'),
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
           compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
@@ -593,7 +599,7 @@ async function handleMessages(body, options = {}) {
     });
   }
 
-  let parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
+  let parsedResult = parseCompletionToolCalls(completion, nativeToolCalling, providerToolNameMap);
   let parsed = parsedResult.parsed;
   let calls = parsedResult.calls;
   let parseError = parsedResult.error;
@@ -641,7 +647,7 @@ async function handleMessages(body, options = {}) {
         })
       }]);
       completion = await complete(retryMessages, 'text_recovery', attempt);
-      const textRecovery = validateTextOnlyCompletion(completion, nativeToolCalling);
+      const textRecovery = validateTextOnlyCompletion(completion, nativeToolCalling, providerToolNameMap);
       logToolCallValidation({
         logger: options.logger,
         requestId: options.requestId,
@@ -699,7 +705,7 @@ async function handleMessages(body, options = {}) {
         rejectionReason = null;
         continue;
       }
-      parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
+      parsedResult = parseCompletionToolCalls(completion, nativeToolCalling, providerToolNameMap);
       parsed = parsedResult.parsed;
       calls = parsedResult.calls;
       validation = validateToolCallRequest(calls, tools, force);
@@ -755,7 +761,7 @@ async function handleMessages(body, options = {}) {
           })
         }]);
         completion = await complete(retryMessages, 'required_tool_recovery', attempt);
-        parsedResult = parseCompletionToolCalls(completion, nativeToolCalling);
+        parsedResult = parseCompletionToolCalls(completion, nativeToolCalling, providerToolNameMap);
         parsed = parsedResult.parsed;
         calls = parsedResult.calls;
         validation = validateToolCallRequest(calls, tools, force);

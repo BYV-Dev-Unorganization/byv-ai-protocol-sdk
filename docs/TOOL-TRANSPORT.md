@@ -72,9 +72,7 @@ Anthropic tool-choice values are mapped as follows:
 | `required` | `required` |
 | specific tool | `{ type: "function", function: { name } }` |
 
-Provider-native function calls are normalized into the same internal call shape used by the gateway.
-
-Provider tool names must match `[A-Za-z0-9_-]{1,64}`.
+Provider-native function calls are normalized into the same internal call shape used by the gateway. Before sending schemas, the gateway keeps names that already match `[A-Za-z0-9_-]{1,64}` and assigns unique aliases to names that do not (for example, `mcp__github.search_repositories` becomes `mcp__github_search_repositories`). Name collisions are disambiguated, including collisions with already-valid names. A named Anthropic `tool_choice` is translated using the same per-request map. On the response path, provider function names are mapped back to their original Anthropic names before tool allowlist and JSON Schema validation. Thus the provider sees only compliant aliases while the client continues to see its original tool names.
 
 ## Validation
 

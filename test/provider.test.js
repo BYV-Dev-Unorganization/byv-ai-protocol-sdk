@@ -59,8 +59,8 @@ test('forwards handler-native schemas to the provider and maps returned calls to
     "global.fetch = async (_url, init) => {",
     "  const payload = JSON.parse(init.body);",
     "  if (!Array.isArray(payload.tools) || payload.tools.length !== 1) throw new Error('native tool schema was not forwarded');",
-    "  if (payload.tools[0].function.name !== 'Read') throw new Error('wrong native function schema');",
-    "  if (JSON.stringify(payload.tool_choice) !== JSON.stringify({ type: 'function', function: { name: 'Read' } })) throw new Error('native tool_choice was not mapped');",
+    "  if (payload.tools[0].function.name !== 'mcp__github_search_repositories') throw new Error('wrong native function schema name');",
+    "  if (JSON.stringify(payload.tool_choice) !== JSON.stringify({ type: 'function', function: { name: 'mcp__github_search_repositories' } })) throw new Error('native tool_choice was not mapped');",
     "  if (!payload.messages[0] || payload.messages[0].role !== 'system') throw new Error('system prompt was not forwarded');",
     "  if (!payload.messages[0].content.includes('Client system instruction must remain.')) throw new Error('client system instruction was lost');",
     "  if (!payload.messages[0].content.includes('MODEL RESPONSE PROFILE')) throw new Error('model profile was lost');",
@@ -68,7 +68,7 @@ test('forwards handler-native schemas to the provider and maps returned calls to
     "  return new Response(JSON.stringify({",
     "    id: 'chatcmpl-native-e2e',",
     "    model: 'native-test-model',",
-    "    choices: [{ message: { content: '', tool_calls: [{ id: 'call_native_e2e', type: 'function', function: { name: 'Read', arguments: '{\\\"file_path\\\":\\\"README.md\\\"}' } }] }, finish_reason: 'tool_calls' }],",
+    "    choices: [{ message: { content: '', tool_calls: [{ id: 'call_native_e2e', type: 'function', function: { name: 'mcp__github_search_repositories', arguments: '{\\\"query\\\":\\\"byv sdk\\\"}' } }] }, finish_reason: 'tool_calls' }],",
     "    usage: { prompt_tokens: 20, completion_tokens: 3 }",
     "  }), { status: 200, headers: { 'Content-Type': 'application/json' } });",
     "};",
@@ -77,15 +77,15 @@ test('forwards handler-native schemas to the provider and maps returned calls to
     "  model: 'claude-sonnet-5-5',",
     "  max_tokens: 256,",
     "  system: 'Client system instruction must remain.',",
-    "  tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } }],",
-    "  tool_choice: { type: 'tool', name: 'Read' },",
+    "  tools: [{ name: 'mcp__github.search_repositories', description: 'Search GitHub repositories', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } }],",
+    "  tool_choice: { type: 'tool', name: 'mcp__github.search_repositories' },",
     "  messages: [{ role: 'user', content: 'Read README.md.' }]",
     "};",
     "handleMessages(request, { noToolExperiment: false, provider: { getModelCapabilities: async () => null } })",
     "  .then((result) => {",
     "    if (result.stop_reason !== 'tool_use') throw new Error('Anthropic stop_reason was not tool_use');",
     "    const block = result.content.find((item) => item.type === 'tool_use');",
-    "    if (!block || block.id !== 'call_native_e2e' || block.name !== 'Read' || block.input.file_path !== 'README.md') throw new Error('native call was not mapped to Anthropic tool_use');",
+    "    if (!block || block.id !== 'call_native_e2e' || block.name !== 'mcp__github.search_repositories' || block.input.query !== 'byv sdk') throw new Error('native call was not mapped to Anthropic tool_use');",
     "    process.stdout.write(JSON.stringify({ stop_reason: result.stop_reason, content: result.content }));",
     "  })",
     "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
@@ -107,8 +107,8 @@ test('forwards handler-native schemas to the provider and maps returned calls to
   assert.deepEqual(output.content, [{
     type: 'tool_use',
     id: 'call_native_e2e',
-    name: 'Read',
-    input: { file_path: 'README.md' }
+    name: 'mcp__github.search_repositories',
+    input: { query: 'byv sdk' }
   }]);
 });
 
