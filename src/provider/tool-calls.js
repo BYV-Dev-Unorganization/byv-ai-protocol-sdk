@@ -25,7 +25,7 @@ function createProviderToolNameMap(tools) {
     let providerName = originalName;
 
     if (!PROVIDER_TOOL_NAME_PATTERN.test(originalName)) {
-      const base = originalName.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_') || 'tool';
+      const base = originalName.replace(/[^A-Za-z0-9_-]/g, '_') || 'tool';
       providerName = base.slice(0, 64);
       let suffixIndex = 2;
       while (reservedProviderNames.has(providerName) || providerToOriginal.has(providerName)) {
