@@ -282,7 +282,7 @@ test('recovery prompts include the validation issue, concrete DSML example, and 
   const finalRecovery = buildRecoveryMessage('Retry returned a malformed batch.', 2, 'tool');
   const textRecovery = buildRecoveryMessage('tool disabled', 1, 'text');
 
-  if (PROVIDER_NATIVE_TOOL_CALLING) {
+  if (!DSML_TOOL_CALL) {
     assert.match(firstRecovery, /native function-calling interface/);
     assert.ok(firstRecovery.includes('Correct this issue: BYV parameter command is not closed.'));
     assert.match(finalRecovery, /final recovery attempt/i);
