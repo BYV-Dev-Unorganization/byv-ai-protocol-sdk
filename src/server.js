@@ -3,8 +3,7 @@
 const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
-  NO_TOOL_EXPERIMENT_VARIANT,
+  DSML_TOOL_CALL,
   STREAM_PING_INTERVAL_MS
 } = require('./config');
 const { listModels, isSupportedModel } = require('./model-profiles');
@@ -43,12 +42,10 @@ function isClaudeDesktopConnectionProbe(body) {
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
-  // Provider inference is text-only: native tools stay disabled, while textual
-  // DeepSeek DSML remains available for the gateway's parser and validator.
-  const noToolExperiment = true;
-  const experimentVariant = options.experimentVariant === 'B' || options.experimentVariant === 'A'
-    ? options.experimentVariant
-    : NO_TOOL_EXPERIMENT_VARIANT;
+  const dsmlToolCall = typeof options.dsmlToolCall === 'boolean'
+    ? options.dsmlToolCall
+    : DSML_TOOL_CALL;
+  const nativeToolCalling = !dsmlToolCall;
   const diagnostics = options.diagnostics || createDiagnostics();
   const recordDiagnostic = typeof diagnostics === 'function'
     ? diagnostics
@@ -243,15 +240,22 @@ function createServer(options = {}) {
       message_count: body.messages.length,
       tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
       tool_names: Array.isArray(body.tools) ? body.tools.map((tool) => tool && tool.name).filter(Boolean) : [],
-      no_tool_experiment: noToolExperiment,
-      text_only_inference: noToolExperiment,
-      textual_dsml_tool_calling: !compactionRequest && noToolExperiment && body.tool_choice !== 'none' && Array.isArray(body.tools) && body.tools.length > 0,
-      no_tool_experiment_variant: noToolExperiment ? experimentVariant : null,
+      dsml_tool_call: dsmlToolCall,
+      provider_native_tool_calling: nativeToolCalling,
+      textual_dsml_tool_calling: dsmlToolCall && !compactionRequest &&
+        body.tool_choice !== 'none' && !(body.tool_choice && body.tool_choice.type === 'none') &&
+        Array.isArray(body.tools) && body.tools.length > 0,
       callable_tool_count: compactionRequest || body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
         ? 0
         : (Array.isArray(body.tools) ? body.tools.length : 0),
-      provider_native_tool_count: 0,
-      provider_tool_choice: 'none',
+      provider_native_tool_count: nativeToolCalling && !compactionRequest &&
+        body.tool_choice !== 'none' && !(body.tool_choice && body.tool_choice.type === 'none')
+        ? (Array.isArray(body.tools) ? body.tools.length : 0)
+        : 0,
+      provider_tool_choice: dsmlToolCall || compactionRequest ||
+        body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
+        ? 'none'
+        : (body.tool_choice || 'auto'),
       body_bytes: Number.isSafeInteger(Number(req.headers['content-length'])) ? Number(req.headers['content-length']) : null,
       normalized_instruction_messages: normalized.normalizedInstructionMessages
     };
@@ -272,10 +276,7 @@ function createServer(options = {}) {
             maxInputTokens: budgets.maxInputTokens
           }));
         } else {
-          estimated = estimateProviderInputTokens(buildProviderMessages(inferenceBody, {
-            noToolExperiment,
-            experimentVariant
-          }));
+          estimated = estimateProviderInputTokens(buildProviderMessages(inferenceBody, { dsmlToolCall, nativeToolCalling }));
         }
       } catch (error) {
         recordDiagnostic('request.token_estimation.failed', {
@@ -332,7 +333,7 @@ function createServer(options = {}) {
 
     try {
       if (isStream) {
-        const streamPrompt = buildProviderMessages(inferenceBody, { noToolExperiment, experimentVariant });
+        const streamPrompt = buildProviderMessages(inferenceBody, { dsmlToolCall, nativeToolCalling });
         const estimatedInputTokens = estimateProviderInputTokens(streamPrompt);
         res.setHeader('X-Token-Usage-Estimated', 'true');
         res.writeHead(200, {
@@ -354,8 +355,8 @@ function createServer(options = {}) {
         requestId,
         logger: toolCallLogger,
         diagnostics: recordDiagnostic,
-        noToolExperiment,
-        experimentVariant,
+        dsmlToolCall,
+        nativeToolCalling,
         requestIntent,
         anthropicVersion: req.headers['anthropic-version']
       });
@@ -455,9 +456,9 @@ function start() {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
-    console.log('Tool transport: ' + (PROVIDER_NATIVE_TOOL_CALLING
-      ? 'provider-native function calling (explicit opt-in)'
-      : 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'));
+    console.log('Tool transport: ' + (DSML_TOOL_CALL
+      ? 'DeepSeek DSML text calls (provider tool_choice=none; gateway parser enabled)'
+      : 'provider-native function calling'));
     console.log('Gateway auth source: ' + GATEWAY_API_KEY_SOURCE);
     console.log('Gateway API key: ' + (GATEWAY_API_KEY_SOURCE === 'environment'
       ? 'provided through GATEWAY_API_KEY'
