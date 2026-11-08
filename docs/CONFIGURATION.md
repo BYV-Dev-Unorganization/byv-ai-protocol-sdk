@@ -35,8 +35,8 @@ DSML mode:
 - expects DeepSeek DSML calls in assistant text;
 - disables upstream native tool execution;
 - sends upstream `tool_choice: none`;
-- converts DSML to the internal BYV calls representation;
-- validates the normalized calls against the declared tool schema.
+- converts DSML text into BYV markup, then parses it into canonical in-memory tool-call objects;
+- validates those objects against the declared tool schema.
 
 ### Native mode
 
@@ -45,10 +45,11 @@ Native mode:
 - sends Anthropic tool schemas as OpenAI-compatible function tools;
 - maps Anthropic `tool_choice` to provider-native values;
 - accepts provider-native `tool_calls`;
-- normalizes provider function arguments into the internal call representation;
-- skips DSML instructions, DSML parsing, and DSML recovery.
+- parses the provider's `function.arguments` JSON string directly into a JavaScript object;
+- creates the canonical in-memory tool-call object without converting it to BYV markup;
+- skips the DSML adapter, BYV text parser, DSML instructions, and DSML recovery.
 
-Both modes use the same gateway-side tool validation before returning Anthropic `tool_use`.
+Both modes use the same canonical in-memory call-object shape and gateway-side JSON Schema validation before returning Anthropic `tool_use`. This object is an internal JavaScript structure, not an additional wire protocol. Only DSML mode uses BYV text markup and the BYV parser.
 
 ## Prompt experiment
 
