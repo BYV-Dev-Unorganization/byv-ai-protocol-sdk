@@ -360,7 +360,7 @@ DSML_TOOL_CALL=true
 DSML_TOOL_CALL=false
 ```
 
-Both modes must pass. The verified baseline is **210/210 tests in each mode (420 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
+Both modes must pass. The verified baseline is **211/211 tests in each mode (422 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
 
 For architecture and transport details, see [Tool Transport](docs/TOOL-TRANSPORT.md) and [Architecture](docs/ARCHITECTURE.md).
 
