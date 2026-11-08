@@ -185,7 +185,7 @@ function toolsToPrompt(tools, options = {}) {
 function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+        : DSML_TOOL_CALL;
     const parts = [];
     if (system) parts.push('### SYSTEM\n' + flattenContent(system));
     parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
@@ -298,7 +298,7 @@ function parseToolChoice(toolChoice) {
 function applyForcedTool(prompt, force, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+        : DSML_TOOL_CALL;
     if (force.mode === 'none') {
         return [
             '=== STOP: DO NOT CALL TOOLS ===',
@@ -723,7 +723,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     }
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+        : DSML_TOOL_CALL;
     if (nativeToolCalling) {
         return [
             '=== TOOL CALL RECOVERY ===',
