@@ -361,6 +361,7 @@ function createServer(options = {}) {
         logger: toolCallLogger,
         diagnostics: recordDiagnostic,
         noToolExperiment,
+        nativeToolCalling: !noToolExperiment,
         experimentVariant,
         requestIntent,
         anthropicVersion: req.headers['anthropic-version']

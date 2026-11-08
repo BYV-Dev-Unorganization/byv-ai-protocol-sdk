@@ -106,7 +106,9 @@ function buildPayload(messages, options = {}) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
     }
   }
-  if (options.nativeToolCalling !== true && options.tool_choice === 'none') {
+  if (options.nativeToolCalling !== true) {
+    // DSML is a text-only transport. Never leave an upstream provider free
+    // to choose or execute native tools, even when the client requested auto.
     payload.tool_choice = 'none';
   }
   return { config, payload };
