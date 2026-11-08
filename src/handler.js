@@ -218,6 +218,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
+    nativeToolCalling,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
     tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none',
