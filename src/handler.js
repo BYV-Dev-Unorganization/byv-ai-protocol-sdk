@@ -636,7 +636,8 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'text', {
           maxAttempts: MAX_RECOVERY_ATTEMPTS,
-          nativeToolCalling
+          nativeToolCalling,
+          noToolExperiment: !nativeToolCalling
         })
       }]);
       completion = await complete(retryMessages, 'text_recovery', attempt);
@@ -683,6 +684,7 @@ async function handleMessages(body, options = {}) {
         role: 'user',
         content: buildRecoveryMessage(lastError, attempt, 'tool', {
           nativeToolCalling,
+          noToolExperiment: !nativeToolCalling,
           maxAttempts: MAX_RECOVERY_ATTEMPTS,
           failureKind: recoveryFailureKind,
           rejectionReason,
@@ -745,6 +747,7 @@ async function handleMessages(body, options = {}) {
           role: 'user',
           content: buildRecoveryMessage(lastError, attempt, 'tool', {
             nativeToolCalling,
+            noToolExperiment: !nativeToolCalling,
             maxAttempts: MAX_RECOVERY_ATTEMPTS,
             failureKind: recoveryFailureKind,
             rejectionReason,

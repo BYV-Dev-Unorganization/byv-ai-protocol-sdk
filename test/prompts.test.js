@@ -66,7 +66,7 @@ test('base prompt and documentation artifact describe DSML model output and the 
 });
 
 test('tool prompt follows the reference catalog style and describes exact DSML syntax', () => {
-  const prompt = toolsToPrompt([bashTool, readTool]);
+  const prompt = toolsToPrompt([bashTool, readTool], { noToolExperiment: true, nativeToolCalling: false });
   assert.match(prompt, /Bash\(command\*: string/);
   assert.match(prompt, /Read\(file_path\*: string/);
   assert.match(prompt, /DeepSeek DSML markup format/);
@@ -86,7 +86,7 @@ test('buildSystemPrompt combines client system context, project policy, tools, p
     system: 'Keep the answer concise.',
     tools: [readTool],
     tool_choice: { type: 'tool', name: 'Read' }
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   assert.ok(prompt.indexOf('### SYSTEM') >= 0);
   assert.ok(prompt.indexOf('Keep the answer concise.') >= 0);
   assert.ok(prompt.indexOf('ASSISTANT IDENTITY') >= 0);
@@ -139,7 +139,7 @@ test('native mode forwards only client system context and model profile, not DSM
   assert.match(systemPrompt, /MODEL RESPONSE PROFILE/);
   assert.doesNotMatch(systemPrompt, /DSML/i);
   assert.doesNotMatch(systemPrompt, /NATIVE TOOL CALL PROTOCOL|### TOOLS|TOOL RULES/i);
-  assert.equal(toolsToPrompt([readTool], { nativeToolCalling: true }), '');
+  assert.equal(toolsToPrompt([readTool], { noToolExperiment: false, nativeToolCalling: true }), '');
 
   const providerMessages = buildProviderMessages(request, { noToolExperiment: false });
   assert.equal(providerMessages[0].role, 'system');
@@ -150,8 +150,8 @@ test('native mode forwards only client system context and model profile, not DSM
 });
 
 test('native recovery messages never include DSML protocol instructions', () => {
-  const textRecovery = buildRecoveryMessage('empty response', 1, 'text', { nativeToolCalling: true });
-  const toolRecovery = buildRecoveryMessage('invalid native call', 1, 'tool', { nativeToolCalling: true });
+  const textRecovery = buildRecoveryMessage('empty response', 1, 'text', { noToolExperiment: false, nativeToolCalling: true });
+  const toolRecovery = buildRecoveryMessage('invalid native call', 1, 'tool', { noToolExperiment: false, nativeToolCalling: true });
 
   assert.match(textRecovery, /plain-text response contract/i);
   assert.match(toolRecovery, /provider native function-calling interface/i);
@@ -160,7 +160,7 @@ test('native recovery messages never include DSML protocol instructions', () => 
 });
 
 test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
-  const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] });
+  const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] }, { noToolExperiment: true, nativeToolCalling: false });
   assert.match(prompt, /NO TOOLS AVAILABLE/);
   assert.match(prompt, /Do not emit DSML calls, invoke, or parameter tags/);
   assert.match(prompt, /Do not invent tools/);
@@ -175,7 +175,7 @@ test('buildSystemPrompt gives the latest tool result continuation the original t
       { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'README contents' }] }
     ]
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   assert.match(prompt, /ORIGINAL USER REQUEST/);
   assert.match(prompt, /Read README\.md and summarize it\./);
   assert.match(prompt, /INSTRUCTIONS AFTER TOOL RESULTS/);
@@ -188,8 +188,8 @@ test('buildFullPrompt and buildResumePrompt retain DSML protocol across new requ
     { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'README contents' }] }
   ];
-  const full = buildFullPrompt('Client instructions', messages, [readTool]);
-  const resume = buildResumePrompt('Client instructions', messages, [readTool], true);
+  const full = buildFullPrompt('Client instructions', messages, [readTool], undefined, { noToolExperiment: true, nativeToolCalling: false });
+  const resume = buildResumePrompt('Client instructions', messages, [readTool], true, undefined, { noToolExperiment: true, nativeToolCalling: false });
   assert.match(full, /DSML calls\/invoke\/parameter format/);
   assert.match(full, /=== TOOL RESULTS ===/);
   assert.match(resume, /LATEST TOOL RESULTS/);
@@ -207,7 +207,7 @@ test('buildProviderMessages preserves provider chat roles while applying the new
       { role: 'assistant', content: [{ type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: 'README.md' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'file content' }] }
     ]
-  }, { nativeToolCalling: false });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   assert.equal(messages[0].role, 'system');
   assert.match(messages[0].content, /DSML TOOL CALL PROTOCOL/);
   assert.equal(messages[1].role, 'user');
@@ -264,18 +264,18 @@ test('parseToolChoice and applyForcedTool preserve none, any, and named-tool con
   assert.deepEqual(parseToolChoice('none'), { mode: 'none' });
   assert.deepEqual(parseToolChoice('any'), { mode: 'any' });
   assert.deepEqual(parseToolChoice({ type: 'tool', name: 'Read' }), { mode: 'tool', name: 'Read' });
-  const none = applyForcedTool('base prompt', { mode: 'none' });
-  const any = applyForcedTool('base prompt', { mode: 'any' });
-  const specific = applyForcedTool('base prompt', { mode: 'tool', name: 'Read' });
+  const none = applyForcedTool('base prompt', { mode: 'none' }, { noToolExperiment: true, nativeToolCalling: false });
+  const any = applyForcedTool('base prompt', { mode: 'any' }, { noToolExperiment: true, nativeToolCalling: false });
+  const specific = applyForcedTool('base prompt', { mode: 'tool', name: 'Read' }, { noToolExperiment: true, nativeToolCalling: false });
+  const nativeAny = applyForcedTool('base prompt', { mode: 'any' }, { noToolExperiment: false, nativeToolCalling: true });
+  const nativeSpecific = applyForcedTool('base prompt', { mode: 'tool', name: 'Read' }, { noToolExperiment: false, nativeToolCalling: true });
   assert.match(none, /STOP: DO NOT CALL TOOLS/);
   assert.match(none, /Do NOT call any tools/);
-  if (!DSML_TOOL_CALL) {
-    assert.match(any, /native function/);
-    assert.match(specific, /native function/);
-  } else {
-    assert.match(any, /one DSML calls block/);
-    assert.match(specific, /one DSML calls block containing an invoke named "Read"/);
-  }
+  assert.match(any, /one DSML calls block/);
+  assert.match(specific, /one DSML calls block containing an invoke named "Read"/);
+  assert.match(nativeAny, /native function/);
+  assert.match(nativeSpecific, /native function/);
+  assert.doesNotMatch(nativeAny + nativeSpecific, /DSML/i);
 });
 
 
@@ -312,15 +312,14 @@ test('native-disabled recovery identifies the protocol mismatch and safely inclu
 
 test('recovery prompts include the validation issue, concrete DSML example, and final-attempt guidance', () => {
   const validationIssue = 'BYV parameter command is not closed.';
-  const firstRecovery = buildRecoveryMessage(validationIssue, 1, 'tool');
-  const finalRecovery = buildRecoveryMessage('Retry returned a malformed batch.', 2, 'tool');
-  const textRecovery = buildRecoveryMessage('tool disabled', 1, 'text');
+  const firstRecovery = buildRecoveryMessage(validationIssue, 1, 'tool', { noToolExperiment: true, nativeToolCalling: false });
+  const finalRecovery = buildRecoveryMessage('Retry returned a malformed batch.', 2, 'tool', { noToolExperiment: true, nativeToolCalling: false });
+  const nativeRecovery = buildRecoveryMessage(validationIssue, 1, 'tool', { noToolExperiment: false, nativeToolCalling: true });
+  const textRecovery = buildRecoveryMessage('tool disabled', 1, 'text', { noToolExperiment: true, nativeToolCalling: false });
 
-  if (!DSML_TOOL_CALL) {
-    assert.match(firstRecovery, /native function-calling interface/);
-    assert.ok(firstRecovery.includes('Correct this issue: BYV parameter command is not closed.'));
-    assert.match(finalRecovery, /final recovery attempt/i);
-  } else {
+  assert.match(nativeRecovery, /provider native function-calling interface/);
+  assert.doesNotMatch(nativeRecovery, /DSML/i);
+  {
     assert.match(firstRecovery, /=== TOOL CALL RECOVERY ===/);
     assert.match(firstRecovery, /previous response contained a tool call/i);
     assert.ok(firstRecovery.includes('Correct this issue: BYV parameter command is not closed.'));
@@ -378,7 +377,7 @@ test('text-only inference uses the DeepSeek-style consolidated DSML prompt witho
 
 test('every recovery message starts with a recognizable gateway heading that the system prompt names', () => {
   const headings = ['=== TOOL CALL RECOVERY ===', '=== TEXT-ONLY RECOVERY ==='];
-  const system = buildSystemPrompt({ model: 'byv-flash-v1', messages: [{ role: 'user', content: 'hi' }], tools: [] });
+  const system = buildSystemPrompt({ model: 'byv-flash-v1', messages: [{ role: 'user', content: 'hi' }], tools: [] }, { noToolExperiment: true, nativeToolCalling: false });
   for (const heading of headings) assert.ok(system.includes(heading), heading);
 
   const messages = [

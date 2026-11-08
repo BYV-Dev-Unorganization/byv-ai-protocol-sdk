@@ -12,6 +12,14 @@ const { renderToolSchemaPrompt } = require('./protocol/schema-renderer');
 
 const MAX_REPLAY = MAX_PROMPT_CHARS;
 
+function resolveNativeToolCalling(options = {}) {
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
+    if (noToolExperiment) return false;
+    return typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true;
+}
+
 function flattenContent(content) {
     return flattenText(content);
 }
@@ -122,9 +130,7 @@ const TOOL_RESULT_INSTRUCTIONS = [
 ];
 
 function toolsToPrompt(tools, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : !DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     // Native schemas and tool choice are sent in the provider request body.
     // Do not duplicate native tool instructions or schema metadata in the prompt.
     if (nativeToolCalling || !tools || !tools.length) return '';
@@ -185,9 +191,7 @@ function toolsToPrompt(tools, options = {}) {
 }
 
 function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : !DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const parts = [];
     if (system) parts.push('### SYSTEM\n' + flattenContent(system));
     parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
@@ -255,9 +259,7 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, option
 }
 
 function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : !DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
 
     if (nativeToolCalling) {
@@ -351,9 +353,7 @@ function parseToolChoice(toolChoice) {
 }
 
 function applyForcedTool(prompt, force, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : !DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     if (force.mode === 'none') {
         return [
             '=== STOP: DO NOT CALL TOOLS ===',
@@ -404,9 +404,7 @@ function buildSystemPrompt(body = {}, options = {}) {
     const noToolExperiment = typeof options.noToolExperiment === 'boolean'
         ? options.noToolExperiment
         : DSML_TOOL_CALL;
-    const nativeToolCalling = noToolExperiment
-        ? false
-        : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
     const system = flattenContent(body.system);
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -518,9 +516,7 @@ function buildProviderMessages(body = {}, options = {}) {
     const noToolExperiment = typeof options.noToolExperiment === 'boolean'
         ? options.noToolExperiment
         : DSML_TOOL_CALL;
-    const nativeToolCalling = noToolExperiment
-        ? false
-        : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const force = parseToolChoice(body.tool_choice);
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
@@ -775,9 +771,7 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     const isFinal = Number(attempt) >= maxAttempts;
     const diagnostic = (fallback) => sanitizeRecoveryValue(String(error || fallback));
     const earlierResponseNote = 'The earlier response is not included in this conversation.';
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : !DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
 
     if (mode === 'text') {
         if (nativeToolCalling) {

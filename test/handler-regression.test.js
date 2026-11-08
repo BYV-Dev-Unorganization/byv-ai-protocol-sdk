@@ -74,7 +74,7 @@ test('recovers a specific tool-choice mismatch and returns only the selected too
   ]);
   const result = await handleMessages(body({
     tool_choice: { type: 'tool', name: 'Read' }
-  }), { provider });
+  }), { noToolExperiment: true, nativeToolCalling: false, provider });
 
   assert.equal(provider.calls, 2);
   assert.equal(result.stop_reason, 'tool_use');
@@ -88,7 +88,7 @@ test('recovers when tool_choice=any receives text instead of a tool invocation',
     'I will explain this without a tool.',
     calls(invocation('Read', 'required-read', { file_path: 'README.md' }))
   ]);
-  const result = await handleMessages(body({ tool_choice: 'any' }), { provider });
+  const result = await handleMessages(body({ tool_choice: 'any' }), { noToolExperiment: true, nativeToolCalling: false, provider });
 
   assert.equal(provider.calls, 2);
   assert.equal(result.stop_reason, 'tool_use');
@@ -106,7 +106,7 @@ test('does not return a partial streaming tool batch when one invocation is inva
       invocation('Bash', 'recovered-bash', { command: 'pwd' })
     )
   ], true);
-  const result = await handleMessages(body({ stream: true }), { provider });
+  const result = await handleMessages(body({ stream: true }), { noToolExperiment: true, nativeToolCalling: false, provider });
 
   assert.equal(provider.calls, 2);
   assert.equal(result.stop_reason, 'tool_use');
@@ -125,7 +125,7 @@ test('returns an explicit error when malformed protocol recovery is exhausted', 
   ]);
 
   await assert.rejects(
-    handleMessages(body(), { provider }),
+    handleMessages(body(), { noToolExperiment: true, nativeToolCalling: false, provider }),
     (error) => error.code === 'BYV_TOOL_CALL_RECOVERY_FAILED' && error.statusCode === 502
   );
   assert.equal(provider.calls, 3);

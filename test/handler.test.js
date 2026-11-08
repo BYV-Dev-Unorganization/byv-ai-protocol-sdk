@@ -86,6 +86,8 @@ test('forces a text response after three identical tool calls', async () => {
     messages,
     tool_choice: 'auto'
   }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (messages, options) => {
         providerMessages.push(messages);
@@ -118,6 +120,8 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
     '<|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter>' +
     '</|BYV| invoke></|BYV| calls>';
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => ({ text: output, reasoning: '', finish_reason: 'stop', usage: null })
     }
@@ -164,6 +168,8 @@ test('logs validated BYV tool-call metadata without recording arguments', async 
   const events = [];
   const privatePath = '/workspace/private-file-name.txt';
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     requestId: 'req_safe_tool_log',
     logger: (event) => events.push(event),
     provider: {
@@ -308,6 +314,7 @@ test('second recovery explains a repeated native-call rejection before accepting
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
     nativeToolCalling: true,
     provider: {
       createChatCompletion: async (_messages, options) => {
@@ -343,6 +350,7 @@ test('converts native provider function calls into Anthropic tool_use blocks', a
 test('converts streamed native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    noToolExperiment: false,
     nativeToolCalling: true,
     provider: {
       getModelCapabilities: async () => null,
@@ -379,6 +387,8 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
   let count = 0;
   const seenMessages = [];
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (messages, options) => {
         count++;
@@ -405,6 +415,8 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
 test('rejects mixed native function calls and BYV markup as an ambiguous response', async () => {
   await assert.rejects(
     handleMessages(body(), {
+      noToolExperiment: true,
+      nativeToolCalling: false,
       provider: {
         createChatCompletion: async () => ({
           text: '<|BYV| calls><|BYV| invoke name="Read" id="call_markup"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
@@ -425,6 +437,8 @@ test('performs bounded recovery for schema-invalid tool arguments', async () => 
   let count = 0;
   const events = [];
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     requestId: 'req_recovery_log',
     logger: (event) => events.push(event),
     provider: {
@@ -472,6 +486,8 @@ test('performs bounded recovery for schema-invalid tool arguments', async () => 
 test('recovers to plain text when tools are disabled but model emits BYV markup', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -490,6 +506,8 @@ test('recovers to plain text when tools are disabled but model emits BYV markup'
 test('recovers an initially empty response when tools are disabled', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -508,6 +526,8 @@ test('recovers an initially empty response when tools are disabled', async () =>
 test('text-only recovery rejects an empty response and retries with plain text', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (_messages, options) => {
         count++;
@@ -558,6 +578,8 @@ test('native text-only recovery contains no DSML protocol instruction', async ()
 test('text-only recovery rejects native tool calls instead of silently accepting them', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -598,6 +620,8 @@ test('text-only recovery rejects native tool calls instead of silently accepting
 test('fails explicitly when a required tool call cannot be recovered', async () => {
   await assert.rejects(
     handleMessages(body({ tool_choice: 'any' }), {
+      noToolExperiment: true,
+      nativeToolCalling: false,
       provider: {
         createChatCompletion: async () => ({ text: 'Here is a plain text answer.', finish_reason: 'stop' })
       }
@@ -703,6 +727,7 @@ test('native-disabled provider receives DSML history and structured tool results
   ];
   let sentMessages;
   const result = await handleMessages(body({ messages }), {
+    noToolExperiment: true,
     nativeToolCalling: false,
     provider: {
       getModelCapabilities: async () => null,
