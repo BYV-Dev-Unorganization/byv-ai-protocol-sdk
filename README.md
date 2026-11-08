@@ -139,48 +139,37 @@ Authenticated API requests are limited to **30 requests per rolling 60 seconds p
 
 ## Claude for Microsoft 365 / Claude for Office
 
-### One-command startup with Cloudflare Tunnel
+### Local Word Desktop connection
 
-BYV includes a cross-platform launcher for a **remotely-managed Cloudflare Named Tunnel**. It works on Windows (PowerShell or CMD), macOS, and Linux. Quick Tunnels (`trycloudflare.com`) are not used because Cloudflare documents that Quick Tunnels do not support Server-Sent Events (SSE), which is required for streaming Messages responses.
+For Claude for Office running inside the installed Word desktop app on the same computer as BYV, use the local gateway directly. No Cloudflare Tunnel, ngrok, public domain, or `npm run start:office` launcher is needed.
 
-Complete this one-time setup in Cloudflare:
-
-1. Add a domain to Cloudflare and make sure its DNS is managed there.
-2. In **Cloudflare Dashboard → Networking → Tunnels**, create a remotely-managed tunnel.
-3. Add a **Published application route / Public Hostname**, for example `claude-office.example.com`, and point its service to `http://127.0.0.1:8787`.
-4. Copy the tunnel token shown by Cloudflare. Install `cloudflared` on the Windows computer and make sure `cloudflared.exe` is available on `PATH` (the official Windows download can be renamed to `cloudflared.exe`).
-
-Set these values in the repository's ignored `.env` file:
+Keep the gateway bound to loopback in `.env`:
 
 ```env
-OFFICE_GATEWAY_HOSTNAME=claude-office.example.com
-CLOUDFLARE_TUNNEL_TOKEN=PASTE_TUNNEL_TOKEN_HERE
-```
-
-Then, from PowerShell or CMD in the repository directory, run:
-
-```powershell
-npm run start:office
-```
-
-The launcher reads `.env`, keeps the Node listener on loopback, adds the configured public hostname to `GATEWAY_ALLOWED_HOSTS`, adds `https://pivot.claude.ai` to `CORS_ALLOWED_ORIGINS`, waits for `HEAD /api/hello` to return HTTP 204, and starts `cloudflared tunnel run --token ...`. It prints the HTTPS gateway URL for Claude for Office. Press **Ctrl+C** to stop both local processes. The tunnel token is not printed by the launcher; keep it in `.env` and never commit it.
-
-The script starts an already-created tunnel; it does not create a Cloudflare account, domain, tunnel, DNS route, or token automatically. For Windows service / start-at-boot deployment, install the tunnel as a Cloudflare Windows service using Cloudflare's service instructions instead of relying on the interactive launcher.
-
-Official references: [Cloudflare Tunnel setup](https://developers.cloudflare.com/tunnel/get-started/), [Windows `cloudflared` guidance](https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/create-local-tunnel/), and [Quick Tunnel limitations](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
-
-The gateway exposes the Anthropic Messages API format required by Claude for Office (`gateway_api_format: anthropic`): `POST /v1/messages` (including SSE streaming) and authenticated `GET /v1/models`. The add-in calls the gateway directly from its browser task pane, so it needs a publicly reachable **HTTPS** gateway URL. Do not enter `http://127.0.0.1:8787` or `localhost` in the Office connection screen; that URL is intended for local clients such as Claude Code, not the hosted Office task pane.
-
-For a gateway such as `https://office-gateway.example.com`, configure these exact allowlists in `.env`:
-
-```env
-GATEWAY_ALLOWED_HOSTS=office-gateway.example.com
+HOST=127.0.0.1
+PORT=8787
+GATEWAY_ALLOWED_HOSTS=
 CORS_ALLOWED_ORIGINS=https://pivot.claude.ai
 ```
 
-Keep the Node gateway bound to loopback (`HOST=127.0.0.1`, `PORT=8787`) and terminate TLS at a trusted reverse proxy that forwards requests to `http://127.0.0.1:8787`. The proxy should preserve the public `Host` header listed in `GATEWAY_ALLOWED_HOSTS`; alternatively, rewrite it to a loopback Host value accepted by the local server. Do not expose the Node listener directly to the public internet.
+Loopback Host headers (`127.0.0.1`, `localhost`, and `::1` on the configured local port) are accepted automatically by BYV, so do not put a URL such as `http://127.0.0.1:8787` in `GATEWAY_ALLOWED_HOSTS`. That setting is only for additional exact Host header values from a trusted reverse proxy; values must be hostnames, not URLs.
 
-The CORS preflight supports `GET`, `POST`, `HEAD`, and `OPTIONS`, including `x-api-key`, `authorization`, `content-type`, `anthropic-version`, and `anthropic-beta`. The add-in uses `x-api-key` by default. Enter the gateway-issued BYV token, select the Anthropic API format, and set the gateway URL to the HTTPS base URL only (for example, `https://office-gateway.example.com`, without `/v1/messages`). Ensure the reverse proxy passes `text/event-stream` responses through without buffering or stripping SSE events.
+Start BYV from the repository directory:
+
+```powershell
+npm start
+```
+
+In Claude for Office, configure:
+
+| Setting | Value |
+| --- | --- |
+| Gateway URL | `http://127.0.0.1:8787` |
+| API format | `anthropic` |
+| Auth header | `x-api-key` or `Authorization: Bearer`, matching the selected authentication scheme |
+| API key | The gateway token from `.byv-gateway-token` |
+
+Use the URL as the base URL; do not append `/v1/messages`. Keep the BYV process running while using the add-in. This local URL is for the installed Office desktop app on the same computer; it is not a public endpoint for browser-only clients or other computers.
 
 A bootstrap endpoint is not required when users enter a static gateway URL and token in the add-in. Configure `bootstrap_url` only when you need to deliver per-user settings or rotate gateway tokens automatically.
 
