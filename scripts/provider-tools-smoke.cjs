@@ -5,7 +5,7 @@
 // This test asks the model to call a harmless synthetic tool. It never executes the tool.
 
 const assert = require('node:assert/strict');
-const { PROVIDER_MODEL } = require('../src/config');
+const { PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
 const { createChatCompletion } = require('../src/provider/openai-compatible');
 
 const tools = [{
@@ -27,6 +27,8 @@ const tools = [{
 async function main() {
   console.log('BYV native provider function-calling smoke test');
   console.log('Provider model:', PROVIDER_MODEL || '(configured model not found)');
+  console.log('Gateway DSML_TOOL_CALL setting:', DSML_TOOL_CALL);
+  console.log('Scope: direct provider-native function calling; this probe bypasses the gateway transport switch.');
 
   const result = await createChatCompletion([
     {
