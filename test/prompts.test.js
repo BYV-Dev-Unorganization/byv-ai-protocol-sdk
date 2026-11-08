@@ -16,7 +16,7 @@ const {
   applyForcedTool,
   buildRecoveryMessage
 } = require('../src/prompts');
-const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
+const { DSML_TOOL_CALL } = require('../src/config');
 const { estimateProviderInputTokens } = require('../src/content');
 
 const PROMPT_ARTIFACT_PATH = path.join(
@@ -235,7 +235,7 @@ test('parseToolChoice and applyForcedTool preserve none, any, and named-tool con
   const specific = applyForcedTool('base prompt', { mode: 'tool', name: 'Read' });
   assert.match(none, /STOP: DO NOT CALL TOOLS/);
   assert.match(none, /Do NOT call any tools/);
-  if (PROVIDER_NATIVE_TOOL_CALLING) {
+  if (!DSML_TOOL_CALL) {
     assert.match(any, /native function/);
     assert.match(specific, /native function/);
   } else {
