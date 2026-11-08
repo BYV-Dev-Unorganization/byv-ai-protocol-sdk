@@ -58,6 +58,26 @@ const client = new Anthropic({
   timeout
 });
 
+async function reportLocalGatewayTransport() {
+  if (!isLocalGateway(baseURL)) {
+    console.log('Gateway tool transport: not introspected (non-local gateway)');
+    return;
+  }
+
+  const response = await fetch(new URL('/health', baseURL), {
+    headers: { Authorization: 'Bearer ' + apiKey },
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!response.ok) {
+    throw new Error('Local gateway health preflight returned HTTP ' + response.status + '.');
+  }
+  const health = await response.json();
+  if (!['dsml', 'provider_native'].includes(health.tool_transport)) {
+    throw new Error('Gateway does not report a supported tool_transport. Restart npm start from the updated repository.');
+  }
+  console.log('Gateway tool transport:', health.tool_transport === 'dsml' ? 'DSML text' : 'provider-native');
+}
+
 function textFrom(message) {
   return message.content
     .filter((block) => block.type === 'text')
@@ -84,6 +104,8 @@ async function main() {
       ? 'Gateway token not found. Start npm start first so .byv-gateway-token is created, or set GATEWAY_API_KEY.'
       : 'Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY for the selected gateway.');
   }
+
+  await reportLocalGatewayTransport();
 
   console.log('\n[1/5] Non-streaming Messages request ...');
   const normal = await client.messages.create({
