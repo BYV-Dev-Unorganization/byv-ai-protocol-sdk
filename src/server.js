@@ -461,9 +461,9 @@ function start() {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
-    console.log('Tool transport: ' + (PROVIDER_NATIVE_TOOL_CALLING
-      ? 'provider-native function calling (explicit opt-in)'
-      : 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'));
+    console.log('Tool transport: ' + (DSML_TOOL_CALL
+      ? 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'
+      : 'provider-native function calling'));
     console.log('Gateway auth source: ' + GATEWAY_API_KEY_SOURCE);
     console.log('Gateway API key: ' + (GATEWAY_API_KEY_SOURCE === 'environment'
       ? 'provided through GATEWAY_API_KEY'
