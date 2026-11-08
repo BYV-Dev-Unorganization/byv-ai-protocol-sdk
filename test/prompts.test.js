@@ -125,6 +125,40 @@ test('DSML prompt includes the complete nested JSON Schema as the authoritative 
   assert.match(prompt, /"required": \[\s*"mode"/);
 });
 
+test('native mode forwards only client system context and model profile, not DSML/tool prompt instructions', () => {
+  const request = {
+    model: 'claude-sonnet-5-5',
+    system: 'Preserve this client system instruction.',
+    tools: [readTool],
+    tool_choice: 'auto',
+    messages: [{ role: 'user', content: 'Read README.md.' }]
+  };
+
+  const systemPrompt = buildSystemPrompt(request, { noToolExperiment: false });
+  assert.match(systemPrompt, /Preserve this client system instruction/);
+  assert.match(systemPrompt, /MODEL RESPONSE PROFILE/);
+  assert.doesNotMatch(systemPrompt, /DSML/i);
+  assert.doesNotMatch(systemPrompt, /NATIVE TOOL CALL PROTOCOL|### TOOLS|TOOL RULES/i);
+  assert.equal(toolsToPrompt([readTool], { nativeToolCalling: true }), '');
+
+  const providerMessages = buildProviderMessages(request, { noToolExperiment: false });
+  assert.equal(providerMessages[0].role, 'system');
+  assert.match(providerMessages[0].content, /Preserve this client system instruction/);
+  assert.match(providerMessages[0].content, /MODEL RESPONSE PROFILE/);
+  assert.doesNotMatch(providerMessages[0].content, /DSML/i);
+  assert.doesNotMatch(providerMessages[0].content, /NATIVE TOOL CALL PROTOCOL|### TOOLS|TOOL RULES/i);
+});
+
+test('native recovery messages never include DSML protocol instructions', () => {
+  const textRecovery = buildRecoveryMessage('empty response', 1, 'text', { nativeToolCalling: true });
+  const toolRecovery = buildRecoveryMessage('invalid native call', 1, 'tool', { nativeToolCalling: true });
+
+  assert.match(textRecovery, /plain-text response contract/i);
+  assert.match(toolRecovery, /provider native function-calling interface/i);
+  assert.doesNotMatch(textRecovery, /DSML/i);
+  assert.doesNotMatch(toolRecovery, /DSML/i);
+});
+
 test('buildSystemPrompt forbids invented tool calls when no tools are declared', () => {
   const prompt = buildSystemPrompt({ model: 'byv-flash-v1', tools: [], messages: [{ role: 'user', content: 'Run pwd.' }] });
   assert.match(prompt, /NO TOOLS AVAILABLE/);

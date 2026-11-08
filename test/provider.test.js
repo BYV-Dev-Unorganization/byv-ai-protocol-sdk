@@ -54,6 +54,64 @@ test('builds native function tools and maps tool_choice without assuming provide
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
 });
 
+test('forwards handler-native schemas to the provider and maps returned calls to the Anthropic contract', () => {
+  const script = [
+    "global.fetch = async (_url, init) => {",
+    "  const payload = JSON.parse(init.body);",
+    "  if (!Array.isArray(payload.tools) || payload.tools.length !== 1) throw new Error('native tool schema was not forwarded');",
+    "  if (payload.tools[0].function.name !== 'Read') throw new Error('wrong native function schema');",
+    "  if (JSON.stringify(payload.tool_choice) !== JSON.stringify({ type: 'function', function: { name: 'Read' } })) throw new Error('native tool_choice was not mapped');",
+    "  if (!payload.messages[0] || payload.messages[0].role !== 'system') throw new Error('system prompt was not forwarded');",
+    "  if (!payload.messages[0].content.includes('Client system instruction must remain.')) throw new Error('client system instruction was lost');",
+    "  if (!payload.messages[0].content.includes('MODEL RESPONSE PROFILE')) throw new Error('model profile was lost');",
+    "  if (/DSML|NATIVE TOOL CALL PROTOCOL|### TOOLS|TOOL RULES/i.test(payload.messages[0].content)) throw new Error('native prompt contains DSML/tool protocol instructions');",
+    "  return new Response(JSON.stringify({",
+    "    id: 'chatcmpl-native-e2e',",
+    "    model: 'native-test-model',",
+    "    choices: [{ message: { content: '', tool_calls: [{ id: 'call_native_e2e', type: 'function', function: { name: 'Read', arguments: '{\\\"file_path\\\":\\\"README.md\\\"}' } }] }, finish_reason: 'tool_calls' }],",
+    "    usage: { prompt_tokens: 20, completion_tokens: 3 }",
+    "  }), { status: 200, headers: { 'Content-Type': 'application/json' } });",
+    "};",
+    "const { handleMessages } = require('./src/handler');",
+    "const request = {",
+    "  model: 'claude-sonnet-5-5',",
+    "  max_tokens: 256,",
+    "  system: 'Client system instruction must remain.',",
+    "  tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } }],",
+    "  tool_choice: { type: 'tool', name: 'Read' },",
+    "  messages: [{ role: 'user', content: 'Read README.md.' }]",
+    "};",
+    "handleMessages(request, { noToolExperiment: false, provider: { getModelCapabilities: async () => null } })",
+    "  .then((result) => {",
+    "    if (result.stop_reason !== 'tool_use') throw new Error('Anthropic stop_reason was not tool_use');",
+    "    const block = result.content.find((item) => item.type === 'tool_use');",
+    "    if (!block || block.id !== 'call_native_e2e' || block.name !== 'Read' || block.input.file_path !== 'README.md') throw new Error('native call was not mapped to Anthropic tool_use');",
+    "    process.stdout.write(JSON.stringify({ stop_reason: result.stop_reason, content: result.content }));",
+    "  })",
+    "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://provider.example/v1',
+      PROVIDER_MODEL: 'native-test-model',
+      PROVIDER_API_KEY: 'unit-test-secret',
+      DSML_TOOL_CALL: 'false'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.stop_reason, 'tool_use');
+  assert.deepEqual(output.content, [{
+    type: 'tool_use',
+    id: 'call_native_e2e',
+    name: 'Read',
+    input: { file_path: 'README.md' }
+  }]);
+});
+
 test('preserves provider-default reasoning when native tool choice is auto', () => {
   const script = [
     "const { buildPayload } = require('./src/provider/openai-compatible');",

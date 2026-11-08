@@ -216,6 +216,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
+    nativeToolCalling,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
     tool_choice: nativeToolCalling && !gatewayToolChoiceNone ? body.tool_choice : 'none',
@@ -349,8 +350,10 @@ function parseCompletionToolCalls(completion, nativeToolCalling = true) {
 }
 
 
-function validateTextOnlyCompletion(completion) {
-  const result = parseCompletionToolCalls(completion, false);
+function validateTextOnlyCompletion(completion, nativeToolCalling = false) {
+  // Native-mode validation inspects only structured provider calls; DSML parsing
+  // is reserved for DSML text mode.
+  const result = parseCompletionToolCalls(completion, nativeToolCalling);
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -631,10 +634,13 @@ async function handleMessages(body, options = {}) {
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'text', { maxAttempts: MAX_RECOVERY_ATTEMPTS })
+        content: buildRecoveryMessage(lastError, attempt, 'text', {
+          maxAttempts: MAX_RECOVERY_ATTEMPTS,
+          nativeToolCalling
+        })
       }]);
       completion = await complete(retryMessages, 'text_recovery', attempt);
-      const textRecovery = validateTextOnlyCompletion(completion);
+      const textRecovery = validateTextOnlyCompletion(completion, nativeToolCalling);
       logToolCallValidation({
         logger: options.logger,
         requestId: options.requestId,

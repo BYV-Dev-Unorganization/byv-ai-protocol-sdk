@@ -533,6 +533,28 @@ test('text-only recovery rejects an empty response and retries with plain text',
   assert.match(result.text, /tools are disabled/);
 });
 
+test('native text-only recovery contains no DSML protocol instruction', async () => {
+  const seenMessages = [];
+  const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (messages) => {
+        seenMessages.push(messages);
+        return seenMessages.length === 1
+          ? { text: '', finish_reason: 'stop', usage: null }
+          : { text: 'Plain-text fallback response.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(seenMessages.length, 2);
+  assert.doesNotMatch(seenMessages[0][0].content, /DSML/i);
+  assert.doesNotMatch(seenMessages[1].at(-1).content, /DSML/i);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(result.text, 'Plain-text fallback response.');
+});
+
 test('text-only recovery rejects native tool calls instead of silently accepting them', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
@@ -775,6 +797,7 @@ test('native mode normalizes provider tool calls without parsing DSML text', asy
     }
   });
 
+  assert.equal(receivedOptions.nativeToolCalling, true);
   assert.equal(receivedOptions.tool_choice, 'auto');
   assert.equal(receivedOptions.tools.length, 1);
   assert.equal(result.stop_reason, 'tool_use');

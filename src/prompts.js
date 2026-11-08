@@ -124,8 +124,10 @@ const TOOL_RESULT_INSTRUCTIONS = [
 function toolsToPrompt(tools, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : DSML_TOOL_CALL;
-    if (!tools || !tools.length) return '';
+        : !DSML_TOOL_CALL;
+    // Native schemas and tool choice are sent in the provider request body.
+    // Do not duplicate native tool instructions or schema metadata in the prompt.
+    if (nativeToolCalling || !tools || !tools.length) return '';
 
     const lines = [];
     lines.push('You have access to the tools listed below. These are the only tools available to you for this request.');
@@ -185,13 +187,35 @@ function toolsToPrompt(tools, options = {}) {
 function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : DSML_TOOL_CALL;
+        : !DSML_TOOL_CALL;
     const parts = [];
     if (system) parts.push('### SYSTEM\n' + flattenContent(system));
     parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
 
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
     const lastHasToolResult = blocksOf(last.content).some((block) => block.type === 'tool_result');
+
+    if (nativeToolCalling) {
+        const nativeParts = [];
+        if (system) nativeParts.push('### SYSTEM\n' + flattenContent(system));
+        nativeParts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+        const history = messages.slice(0, -1);
+        if (history.length) {
+            nativeParts.push('### CONVERSATION HISTORY');
+            for (const message of history) {
+                nativeParts.push('[' + (message.role === 'assistant' ? 'ASSISTANT' : 'USER') + ']\n' + renderMessage(message));
+            }
+        }
+        if (lastHasToolResult) {
+            nativeParts.push('=== TOOL RESULTS ===\n' + renderMessage(last));
+            const originalRequest = originalUserRequestBlock(messages, maxReplay);
+            if (originalRequest) nativeParts.push(originalRequest);
+            nativeParts.push('=== INSTRUCTIONS AFTER TOOL RESULTS ===\n' + TOOL_RESULT_INSTRUCTIONS.join('\n'));
+        } else {
+            nativeParts.push('### LATEST USER MESSAGE\n' + renderMessage(last));
+        }
+        return nativeParts.join('\n\n');
+    }
 
     const history = messages.slice(0, -1);
     if (history.length) {
@@ -230,8 +254,39 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, option
     return prompt;
 }
 
-function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY) {
+function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY, options = {}) {
+    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+        ? options.nativeToolCalling
+        : !DSML_TOOL_CALL;
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
+
+    if (nativeToolCalling) {
+        const parts = [];
+        if (system) parts.push('### SYSTEM\n' + flattenContent(system));
+        parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+        if (isToolResultTurn) {
+            parts.push('=== SITUATION ===');
+            parts.push('The client has executed a tool and provided its result. Continue the original task using the conversation context.');
+            parts.push('=== LATEST TOOL RESULTS ===');
+            parts.push(truncateTextPreservingEnds(
+                renderMessage(last),
+                Math.max(1024, Math.floor(maxReplay * 0.6))
+            ));
+            const originalRequest = originalUserRequestBlock(messages, maxReplay);
+            if (originalRequest) parts.push(originalRequest);
+            parts.push('=== INSTRUCTIONS AFTER TOOL RESULTS ===');
+            parts.push(...TOOL_RESULT_INSTRUCTIONS);
+        } else {
+            parts.push('=== NEW USER REQUEST ===\n' + renderMessage(last));
+        }
+        const prompt = parts.join('\n');
+        if (prompt.length > MAX_PROMPT_CHARS) {
+            throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce client system instructions.'), {
+                statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+            });
+        }
+        return prompt;
+    }
 
     if (isToolResultTurn) {
         const toolPrompt = toolsToPrompt(tools);
@@ -298,7 +353,7 @@ function parseToolChoice(toolChoice) {
 function applyForcedTool(prompt, force, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : DSML_TOOL_CALL;
+        : !DSML_TOOL_CALL;
     if (force.mode === 'none') {
         return [
             '=== STOP: DO NOT CALL TOOLS ===',
@@ -306,7 +361,9 @@ function applyForcedTool(prompt, force, options = {}) {
             'Using ALL information already available in the context above, answer the user NOW in plain text.',
             '',
             'MANDATORY RULES:',
-            '1. Do not emit DSML calls, invoke, or parameter tags, or legacy <TOOL_CALL> tags.',
+            nativeToolCalling
+                ? '1. Do not invoke provider-native functions or emit structured tool-call wrappers.'
+                : '1. Do not emit DSML calls, invoke, or parameter tags, or legacy <TOOL_CALL> tags.',
             '2. Do NOT call any tools. All tools are disabled for this turn.',
             '3. If information is incomplete, answer with what is available and state the limitations.',
             '4. Respond in the language the user is currently using unless they explicitly request another language.',
@@ -360,6 +417,18 @@ function buildSystemPrompt(body = {}, options = {}) {
 
     if (system) sections.push('### SYSTEM\n' + system);
     sections.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+
+    if (nativeToolCalling) {
+        const profile = modelProfilePrompt(body.model);
+        if (profile) sections.push(profile);
+        const prompt = sections.join('\n\n');
+        if (prompt.length > MAX_PROMPT_CHARS) {
+            throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce client system instructions.'), {
+                statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+            });
+        }
+        return prompt;
+    }
 
     if (textOnly) {
         sections.push([
@@ -706,8 +775,25 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     const isFinal = Number(attempt) >= maxAttempts;
     const diagnostic = (fallback) => sanitizeRecoveryValue(String(error || fallback));
     const earlierResponseNote = 'The earlier response is not included in this conversation.';
+    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+        ? options.nativeToolCalling
+        : !DSML_TOOL_CALL;
 
     if (mode === 'text') {
+        if (nativeToolCalling) {
+            return [
+                '=== TEXT-ONLY RECOVERY ===',
+                'The previous response did not satisfy the required plain-text response contract. ' + earlierResponseNote,
+                'Correct this issue: ' + diagnostic('Return a non-empty plain-text answer.'),
+                RECOVERY_DIAGNOSTIC_NOTE,
+                'Do not invoke provider-native functions or return structured tool-call wrappers.',
+                'Do not request or claim tool execution.',
+                'Answer the original request in plain text using the conversation and available results.',
+                'Preserve any output structure the original request asked for.',
+                'Do not introduce a new task.',
+                ...(isFinal ? ['This is the final recovery attempt. Give the best plain-text answer from the information already present.'] : [])
+            ].join('\n');
+        }
         return [
             '=== TEXT-ONLY RECOVERY ===',
             'The previous response did not satisfy the required plain-text response contract. ' + earlierResponseNote,
@@ -721,14 +807,11 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
             ...(isFinal ? ['This is the final recovery attempt. Give the best plain-text answer from the information already present.'] : [])
         ].join('\n');
     }
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : DSML_TOOL_CALL;
     if (nativeToolCalling) {
         return [
             '=== TOOL CALL RECOVERY ===',
             'The previous response did not contain a valid native function call for the declared tools. ' + earlierResponseNote,
-            'Use the native function-calling interface supplied with this request. Do not write DSML markup, JSON wrappers, or narration instead of invoking the required function.',
+            'Use the provider native function-calling interface supplied with this request. Do not write textual or JSON tool-call wrappers, or narration instead of invoking the required function.',
             'Correct this issue: ' + diagnostic('Unknown provider tool-call validation error'),
             RECOVERY_DIAGNOSTIC_NOTE,
             'Rebuild the required call from the original user request and available tool schemas.',
