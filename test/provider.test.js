@@ -99,7 +99,6 @@ test('disables reasoning for forced native tools only when the generic compatibi
       PROVIDER_BASE_URL: 'https://provider.example/v1',
       PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
-      PROVIDER_NATIVE_TOOL_CALLING: 'true',
       PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true'
     },
     encoding: 'utf8'
