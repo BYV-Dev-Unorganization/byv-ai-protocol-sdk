@@ -751,6 +751,41 @@ test('text-only inference converts DSML text to tool_use while provider-native t
   assert.equal(result.content[0].type, 'tool_use');
 });
 
+test('native mode normalizes provider tool calls without parsing DSML text', async () => {
+  let receivedOptions;
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return {
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"></｜DSML｜ invoke></｜DSML｜ calls>',
+          tool_calls: [{
+            id: 'call_native',
+            type: 'function',
+            function: {
+              name: 'Read',
+              arguments: '{"file_path":"README.md"}'
+            }
+          }],
+          finish_reason: 'tool_calls',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.tool_choice, 'auto');
+  assert.equal(receivedOptions.tools.length, 1);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.text, '<｜DSML｜ calls><｜DSML｜ invoke name="Read"></｜DSML｜ invoke></｜DSML｜ calls>');
+});
+
+
 test('explicit tool_choice none keeps DSML unavailable in text-only inference', async () => {
   let count = 0;
   const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
