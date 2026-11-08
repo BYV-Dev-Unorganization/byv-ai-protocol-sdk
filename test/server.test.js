@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
-const { GATEWAY_API_KEY, PROVIDER_MODEL } = require('../src/config');
+const { GATEWAY_API_KEY, PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
 
 async function withServer(t, options) {
   const server = createServer(options);
@@ -58,6 +58,15 @@ test('limits authenticated API requests to 30 per rolling minute per IP', async 
   assert.equal(blocked.headers.get('x-ratelimit-remaining'), '0');
   const body = await blocked.json();
   assert.equal(body.error.code, 'RATE_LIMITED');
+});
+
+test('reports the active tool transport in gateway health', async (t) => {
+  const base = await withServer(t);
+  const response = await fetch(base + '/health', { headers: authHeaders() });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, 'ok');
+  assert.equal(body.tool_transport, DSML_TOOL_CALL ? 'dsml' : 'provider_native');
 });
 
 test('requires gateway authentication and exposes BYV Flash V1 in model discovery', async (t) => {
