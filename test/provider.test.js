@@ -17,7 +17,7 @@ test('builds native function tools and maps tool_choice without assuming provide
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
     "  max_tokens: 256,",
     "  tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } }],",
-    "  tool_choice: { type: 'tool', name: 'Read' }",
+    "  tool_choice: { type: 'tool', name: 'Read' },\n  nativeToolCalling: true",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
   ].join('\n');
