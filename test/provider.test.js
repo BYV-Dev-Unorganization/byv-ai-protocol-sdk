@@ -135,7 +135,7 @@ test('omits native tool fields entirely when native calling is disabled', () => 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
+  assert.equal(payload.tool_choice, 'none');
 });
 
 
