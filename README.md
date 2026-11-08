@@ -89,12 +89,12 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-# Optional only. DSML model output, normalized to BYV internally, is the default.
-PROVIDER_NATIVE_TOOL_CALLING=false
+# Tool transport: true = DSML text protocol, false = provider-native function calling.
+DSML_TOOL_CALL=true
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. The model is instructed to emit DeepSeek DSML in assistant text; the gateway converts that output to BYV internally before parsing and validation. Set it to `true` only when the configured provider supports native function calling.
+With `DSML_TOOL_CALL=true`, the gateway disables provider-native tools, sets the upstream provider `tool_choice` to `none`, and uses DeepSeek DSML text instructions/parser/recovery. With `DSML_TOOL_CALL=false`, the gateway sends native OpenAI-compatible tool schemas and mapped `tool_choice`, normalizes provider `tool_calls`, and does not parse or recover DSML. Both modes use the same BYV tool allowlist and JSON Schema validation before returning Anthropic `tool_use`.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
@@ -361,9 +361,14 @@ The Anthropic `tool_choice` setting is enforced through the gateway's runtime pr
 
 The provider adapter sends neither native OpenAI-compatible `tools` definitions nor `tool_choice` in default DSML mode. The gateway describes callable tools in the prompt, parses textual DSML, and enforces the client allowlist locally. This avoids requiring provider-native function-calling support or an unnecessary provider-specific tool-choice parameter.
 
-### Optional provider-native function calling
+### Tool transport modes
 
-Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
+`DSML_TOOL_CALL` is the single provider-facing tool transport switch:
+
+- `true` / `on`: DSML text mode. Native provider tools are off and upstream `tool_choice` is `none`. DSML instructions, parsing, and DSML recovery are enabled.
+- `false` / `off`: native mode. Provider-native schemas and mapped `tool_choice` are sent upstream. Provider-native `tool_calls` are normalized directly; DSML instructions, parser, and DSML recovery are skipped.
+
+The default is `true` to preserve the existing DSML behavior. `NO_TOOL_EXPERIMENT_VARIANT` remains a DSML-only prompt experiment: `A` hides tool metadata and `B` exposes tool names/descriptions as reference-only. It is ignored by native mode.
 
 Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
 
@@ -461,7 +466,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
+| DSML_TOOL_CALL | true | `true`/`on` = DSML text transport; `false`/`off` = provider-native function calling |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
 | PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
 | PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
