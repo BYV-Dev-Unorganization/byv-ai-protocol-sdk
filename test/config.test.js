@@ -48,7 +48,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
   const config = loadConfig({
     PORT: '8877',
     PROVIDER_MODEL: 'configured-model-from-env',
-    DSML_TOOL_CALL: 'off',
+    DSML_TOOL_CALL: false,
     PROVIDER_NATIVE_REASONING_EFFORT: 'true',
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true',
     PROVIDER_TIMEOUT_MS: '120000',
@@ -100,7 +100,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   const config = loadConfig({
     PORT: '0',
     PROVIDER_MODEL: 'another-configured-model-from-env',
-    DSML_TOOL_CALL: 'off',
+    DSML_TOOL_CALL: 'maybe'
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'maybe',
     PROVIDER_TIMEOUT_MS: '300000.5',
@@ -125,7 +125,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   assert.deepEqual(config, {
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
-    DSML_TOOL_CALL: 'off',
+    DSML_TOOL_CALL: true
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
     PROVIDER_TIMEOUT_MS: 300000,
