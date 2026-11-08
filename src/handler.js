@@ -208,9 +208,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     }
   };
 
-  const nativeToolCalling = typeof diagnostic.nativeToolCalling === 'boolean'
-    ? diagnostic.nativeToolCalling
-    : PROVIDER_NATIVE_TOOL_CALLING;
+  const nativeToolCalling = diagnostic.nativeToolCalling === true;
   const gatewayToolChoiceNone = body.tool_choice === 'none';
   const options = {
     max_tokens: body.max_tokens,
