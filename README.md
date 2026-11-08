@@ -319,7 +319,7 @@ npm run test:provider-tools
 
 This sends one live OpenAI-compatible Chat Completions request with a synthetic `Read` function and `tool_choice: auto`. It passes only when the configured provider returns one structured function call for `README.md`. The tool is never executed and no client files are read. This is the quickest way to isolate provider-native function calling from Claude Code's permissions and local tool runner.
 
-The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode.
+The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode. It explicitly enables `nativeToolCalling` because it calls the provider adapter directly. The Anthropic SDK smoke test uses `tool_choice: auto` for live compatibility; exact named-tool-choice mapping remains covered by offline unit tests.
 
 ### Claude Code CLI smoke test
 
