@@ -337,9 +337,20 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
+Choose the model-facing tool-call transport with `DSML_TOOL_CALL`:
 
-Example model output:
+- `true` or `on` (default): the upstream model returns DeepSeek DSML in assistant text. BYV converts DSML to its internal representation, parses it, then validates the tool name, `tool_choice`, and JSON Schema. Provider-native `tools` are not sent, and BYV explicitly sends upstream `tool_choice: "none"`.
+- `false` or `off`: BYV sends OpenAI-compatible function schemas and mapped `tool_choice` to the provider. Structured provider `tool_calls` are normalized directly; BYV does not add DSML instructions, run the DSML adapter/parser, or use DSML protocol recovery. The configured provider must support OpenAI-compatible native function calling.
+
+Both transports use the same BYV declared-tool allowlist, forced-tool-choice checks, and JSON Schema validation before BYV returns Anthropic Messages `tool_use` blocks. Invalid native calls use native-format tool recovery; invalid DSML calls use DSML-format recovery. Transient provider/network retries remain available in either mode. BYV never forwards a partial or invalid tool-call batch.
+
+The Anthropic `tool_choice` setting is enforced by the gateway:
+- `auto`: the model may call an available tool when needed;
+- `any`: the model must emit at least one valid tool call;
+- `none`: the model must return text and must not emit a tool invocation;
+- a specific tool: the model must emit an invocation for that exact tool.
+
+Example DSML model output:
 
 ~~~text
 <｜DSML｜ calls>
@@ -349,27 +360,9 @@ Example model output:
 </｜DSML｜ calls>
 ~~~
 
-The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
+The DSML adapter generates unique invocation IDs, maps string and non-string parameters to BYV's typed representation, and preserves string content through BYV escaping. The existing BYV parser remains the single parser for DSML-normalized calls.
 
-In the default text-protocol path, provider-native function calling is disabled while the gateway preserves Anthropic `tool_choice` semantics. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to the internal BYV representation, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is recognized as a special text-only summary turn when the latest instruction forbids tool use, requires plain text, and requests the `<analysis>`/`<summary>` structure. This behavior is part of the current SDK implementation, not a branch-specific feature.
-
-The Anthropic `tool_choice` setting is enforced through the gateway's runtime prompt overlay and post-generation validation:
-- `auto`: the model may call an available tool when needed;
-- `any`: the model must emit at least one valid DSML invocation;
-- `none`: the model must return text and must not emit a tool invocation;
-- a specific tool: the model must emit an invocation for that exact tool.
-
-The provider adapter sends neither native OpenAI-compatible `tools` definitions nor `tool_choice` in default DSML mode. The gateway describes callable tools in the prompt, parses textual DSML, and enforces the client allowlist locally. This avoids requiring provider-native function-calling support or an unnecessary provider-specific tool-choice parameter.
-
-### Optional provider-native function calling
-
-Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
-
-Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
-
-Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
-
-The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and normalized to BYV before parsing.
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format.
 
 ### Claude Code autocompaction over the stateless API
 
