@@ -147,7 +147,8 @@ function createServer(options = {}) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         status: 'ok',
-        provider_configured: Boolean(PROVIDER_BASE_URL && PROVIDER_MODEL)
+        provider_configured: Boolean(PROVIDER_BASE_URL && PROVIDER_MODEL),
+        tool_transport: DSML_TOOL_CALL ? 'dsml' : 'provider_native'
       }));
     }
 
