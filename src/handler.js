@@ -7,7 +7,7 @@ const {
   CONTEXT_WINDOW_SAFETY_TOKENS,
   COMPACTION_MAX_INPUT_TOKENS,
   COMPACTION_MAX_OUTPUT_TOKENS,
-  PROVIDER_NATIVE_TOOL_CALLING,
+  DSML_TOOL_CALL,
   PROVIDER_MODEL,
   uuid
 } = require('./config');
@@ -210,7 +210,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
 
   const nativeToolCalling = typeof diagnostic.nativeToolCalling === 'boolean'
     ? diagnostic.nativeToolCalling
-    : PROVIDER_NATIVE_TOOL_CALLING;
+    : !DSML_TOOL_CALL;
   const gatewayToolChoiceNone = body.tool_choice === 'none';
   const options = {
     max_tokens: body.max_tokens,
@@ -292,7 +292,27 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   }
 }
 
-function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIVE_TOOL_CALLING) {
+function parseCompletionToolCalls(completion, nativeToolCalling = !DSML_TOOL_CALL) {
+  // Native mode never runs the DSML adapter or BYV text parser. Provider
+  // function calls are normalized here, then pass through shared BYV
+  // allowlist, tool_choice, and JSON Schema validation.
+  if (nativeToolCalling) {
+    const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
+    const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
+    return {
+      parsed: {
+        text: typeof completion.text === 'string' ? completion.text : '',
+        calls: [],
+        errors: [],
+        hasProtocol: false,
+        protocolSource: hasNativeToolCalls ? 'provider_native' : 'plain_text'
+      },
+      calls: native.calls,
+      error: native.error,
+      native: hasNativeToolCalls || Boolean(native.error)
+    };
+  }
+
   const adapted = convertDsmlToBYV(completion.text);
   const parsed = parseBYVOutput(adapted.text);
   parsed.protocolSource = adapted.detected
@@ -300,9 +320,7 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     : parsed.hasProtocol ? 'byv_format_block' : 'unknown';
   const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
-  if (!nativeToolCalling && hasNativeToolCalls) {
-    // Normalize only for diagnostic context. These calls are never returned as
-    // executable calls while native provider calling is disabled.
+  if (hasNativeToolCalls) {
     const rejectedNative = normalizeProviderToolCalls(completion.tool_calls, () => uuid('rejected_native'));
     const rejectedToolCalls = rejectedNative.calls.length > 0
       ? rejectedNative.calls.map((call) => ({ name: call.name, input: call.input }))
@@ -310,19 +328,6 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
           name: item && item.function && typeof item.function.name === 'string' ? item.function.name : '[UNKNOWN]',
           input: null
         }));
-
-    if (parsed.hasProtocol) {
-      return {
-        parsed,
-        calls: [],
-        error: parsed.calls.length > 0
-          ? 'Provider returned both native function calls and textual tool-call markup while native function calling is disabled.'
-          : (parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.'),
-        native: true,
-        rejectedToolCalls,
-        rejectionReason: 'PROVIDER_NATIVE_DISABLED'
-      };
-    }
     return {
       parsed,
       calls: [],
@@ -334,35 +339,16 @@ function parseCompletionToolCalls(completion, nativeToolCalling = PROVIDER_NATIV
     };
   }
 
-  const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
-  if (native.error) return { parsed, calls: [], error: native.error, native: true };
-  if (native.calls.length > 0 && parsed.calls.length > 0) {
-    return {
-      parsed,
-      calls: [],
-      error: 'Provider returned both native function calls and textual tool-call markup in the same response.',
-      native: true
-    };
-  }
-  if (native.calls.length > 0 && parsed.hasProtocol) {
-    return {
-      parsed,
-      calls: [],
-      error: parsed.errors[0] || 'Provider returned native function calls together with textual tool-call markup.',
-      native: true
-    };
-  }
   return {
     parsed,
-    calls: native.calls.length > 0 ? native.calls : parsed.calls,
+    calls: parsed.calls,
     error: parsed.errors[0] || null,
-    native: native.calls.length > 0
+    native: false
   };
 }
 
-
-function validateTextOnlyCompletion(completion) {
-  const result = parseCompletionToolCalls(completion, false);
+function validateTextOnlyCompletion(completion, nativeToolCalling = false) {
+  const result = parseCompletionToolCalls(completion, nativeToolCalling);
   const base = {
     parsed: result.parsed,
     calls: result.calls,
@@ -380,7 +366,7 @@ function validateTextOnlyCompletion(completion) {
       error: 'The provider returned a tool-call finish reason while tool use was disabled.'
     };
   }
-  if (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(result.parsed.text))) {
+  if (!nativeToolCalling && TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(result.parsed.text))) {
     return {
       ...base,
       valid: false,
@@ -394,7 +380,8 @@ function validateTextOnlyCompletion(completion) {
       error: 'The model attempted a tool call while tool use was disabled.'
     };
   }
-  if (result.parsed.hasProtocol || result.parsed.errors.length > 0) {
+  if (!nativeToolCalling &&
+      (result.parsed.hasProtocol || result.parsed.errors.length > 0)) {
     return {
       ...base,
       valid: false,
@@ -511,16 +498,14 @@ function logToolCallValidation(options = {}) {
 
 async function handleMessages(body, options = {}) {
   const signal = options.signal;
-  const noToolExperiment = options.noToolExperiment === true;
-  const configuredNativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-    ? options.nativeToolCalling
-    : PROVIDER_NATIVE_TOOL_CALLING;
-  // The experiment disables only provider-native function calling. DSML text
-  // remains callable through the gateway adapter when the client's choice allows it.
-  const nativeToolCalling = noToolExperiment ? false : configuredNativeToolCalling;
+  const dsmlToolCall = typeof options.dsmlToolCall === 'boolean'
+    ? options.dsmlToolCall
+    : typeof options.nativeToolCalling === 'boolean'
+      ? !options.nativeToolCalling
+      : DSML_TOOL_CALL;
+  const nativeToolCalling = !dsmlToolCall;
   const model = body.model;
   const tools = Array.isArray(body.tools) ? body.tools : [];
-  const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
   const repeatedToolLoop = detectToolLoop(body.messages, 3);
   const compactionRequest = isClaudeCodeCompactionRequest(body);
   // Compaction is a text-only summary turn even when Claude Code repeats its
@@ -544,9 +529,8 @@ async function handleMessages(body, options = {}) {
         maxInputTokens: compactionBudgets.maxInputTokens
       })
     : buildProviderMessages(requestBody, {
-        nativeToolCalling,
-        noToolExperiment,
-        experimentVariant
+        dsmlToolCall,
+        nativeToolCalling
       });
   let providerAttempt = 0;
   const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
@@ -613,8 +597,12 @@ async function handleMessages(body, options = {}) {
   const toolsDisabled = force.mode === 'none' || tools.length === 0;
   const unexpectedCalls = calls.length > 0 && toolsDisabled;
   const malformedProtocol = Boolean(parseError) ||
-    (toolsDisabled && (TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(parsed.text)) || completion.finish_reason === 'tool_calls')) ||
-    (parsed.hasProtocol && (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
+    (toolsDisabled && (
+      completion.finish_reason === 'tool_calls' ||
+      (!nativeToolCalling && TEXT_ONLY_TOOL_CALL_MARKER.test(maskMarkdownCode(parsed.text)))
+    )) ||
+    (!nativeToolCalling && parsed.hasProtocol &&
+      (parsed.errors.length > 0 || (calls.length === 0 && parsed.text === '')));
   const emptyTextResponse = calls.length === 0 &&
     !parsed.hasProtocol &&
     !parsed.text.trim();
@@ -642,10 +630,10 @@ async function handleMessages(body, options = {}) {
     for (let attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++) {
       const retryMessages = providerMessages.concat([{
         role: 'user',
-        content: buildRecoveryMessage(lastError, attempt, 'text', { maxAttempts: MAX_RECOVERY_ATTEMPTS })
+        content: buildRecoveryMessage(lastError, attempt, 'text', { nativeToolCalling, maxAttempts: MAX_RECOVERY_ATTEMPTS })
       }]);
       completion = await complete(retryMessages, 'text_recovery', attempt);
-      const textRecovery = validateTextOnlyCompletion(completion);
+      const textRecovery = validateTextOnlyCompletion(completion, nativeToolCalling);
       logToolCallValidation({
         logger: options.logger,
         requestId: options.requestId,
