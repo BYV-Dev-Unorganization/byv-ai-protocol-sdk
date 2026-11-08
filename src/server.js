@@ -3,7 +3,7 @@
 const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
+  DSML_TOOL_CALL,
   NO_TOOL_EXPERIMENT_VARIANT,
   STREAM_PING_INTERVAL_MS
 } = require('./config');
@@ -43,9 +43,11 @@ function isClaudeDesktopConnectionProbe(body) {
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
-  // Provider inference is text-only: native tools stay disabled, while textual
-  // DeepSeek DSML remains available for the gateway's parser and validator.
-  const noToolExperiment = true;
+  // DSML_TOOL_CALL is the single transport switch: true keeps the textual
+  // DSML protocol, false enables provider-native function calling.
+  const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+    ? options.noToolExperiment
+    : DSML_TOOL_CALL;
   const experimentVariant = options.experimentVariant === 'B' || options.experimentVariant === 'A'
     ? options.experimentVariant
     : NO_TOOL_EXPERIMENT_VARIANT;
@@ -250,8 +252,12 @@ function createServer(options = {}) {
       callable_tool_count: compactionRequest || body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
         ? 0
         : (Array.isArray(body.tools) ? body.tools.length : 0),
-      provider_native_tool_count: 0,
-      provider_tool_choice: 'none',
+      provider_native_tool_count: noToolExperiment || body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
+        ? 0
+        : (Array.isArray(body.tools) ? body.tools.length : 0),
+      provider_tool_choice: noToolExperiment || body.tool_choice === 'none' || (body.tool_choice && body.tool_choice.type === 'none')
+        ? 'none'
+        : (body.tool_choice || 'auto'),
       body_bytes: Number.isSafeInteger(Number(req.headers['content-length'])) ? Number(req.headers['content-length']) : null,
       normalized_instruction_messages: normalized.normalizedInstructionMessages
     };
