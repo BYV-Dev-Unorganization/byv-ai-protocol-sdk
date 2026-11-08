@@ -31,7 +31,7 @@ function providerFunctionTools(tools) {
   });
 }
 
-function normalizeProviderToolCalls(toolCalls, makeId) {
+function decodeProviderToolCalls(toolCalls, makeId) {
   if (toolCalls === undefined || toolCalls === null) return { calls: [], error: null };
   if (!Array.isArray(toolCalls)) {
     return { calls: [], error: 'Provider tool_calls must be an array.' };
@@ -113,7 +113,7 @@ function finalizeProviderToolCallDeltas(target) {
 module.exports = {
   providerToolChoice,
   providerFunctionTools,
-  normalizeProviderToolCalls,
+  decodeProviderToolCalls,
   mergeProviderToolCallDelta,
   finalizeProviderToolCallDeltas
 };
