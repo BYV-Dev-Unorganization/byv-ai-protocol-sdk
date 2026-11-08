@@ -72,7 +72,7 @@ The model profile is selected from the request model field. The upstream request
 ## Requirements
 
 - Node.js 18 or later.
-- An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
+- An OpenAI-compatible provider that implements POST /v1/chat/completions. The provider must support native function calling when `DSML_TOOL_CALL=false`; DSML text mode is available when native function calling is not supported.
 - A provider API key, when required by that provider.
 
 ## Setup
@@ -89,12 +89,12 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-# Optional only. DSML model output, normalized to BYV internally, is the default.
-PROVIDER_NATIVE_TOOL_CALLING=false
+# DSML text transport by default; set false/off to use provider-native function calling.
+DSML_TOOL_CALL=true
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. The model is instructed to emit DeepSeek DSML in assistant text; the gateway converts that output to BYV internally before parsing and validation. Set it to `true` only when the configured provider supports native function calling.
+Set `DSML_TOOL_CALL=true` (or `on`) to use DSML text output and explicitly send upstream `tool_choice: "none"`. Set it to `false` (or `off`) to send native function schemas and the mapped Anthropic `tool_choice` to a provider that supports OpenAI-compatible function calling. The default is `true` to preserve the existing DSML transport.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
@@ -454,8 +454,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
-| NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
+| DSML_TOOL_CALL | true | `true`/`on` uses DSML text with upstream `tool_choice=none`; `false`/`off` uses provider-native function calling |
 | PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
 | PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
 | COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |
