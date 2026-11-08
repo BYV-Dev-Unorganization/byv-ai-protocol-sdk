@@ -50,7 +50,13 @@ async function main() {
 
   const calls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
   assert.equal(calls.length, 1,
-    'Expected exactly one native tool call. Provider text response: ' + (result.text || '(empty)'));
+    'Expected exactly one native tool call. Provider response metadata: ' +
+    JSON.stringify({
+      provider_model: result.provider_model,
+      finish_reason: result.finish_reason,
+      tool_call_count: calls.length,
+      text: result.text || '(empty)'
+    }));
   assert.equal(calls[0].type, 'function');
   assert.equal(calls[0].function && calls[0].function.name, 'Read');
   const input = JSON.parse(calls[0].function.arguments);
