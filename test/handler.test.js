@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets } = require('../src/handler');
-const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
 
 function body(options = {}) {
   return {
@@ -399,7 +398,7 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
 
   assert.equal(count, 2);
   assert.match(seenMessages[1].messages.at(-1).content, /Output only one DeepSeek DSML calls block/);
-  assert.equal(seenMessages[1].options.tool_choice, PROVIDER_NATIVE_TOOL_CALLING ? 'auto' : 'none');
+  assert.equal(seenMessages[1].options.tool_choice, 'none');
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
 });
