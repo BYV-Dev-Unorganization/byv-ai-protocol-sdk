@@ -42,7 +42,10 @@ async function main() {
   ], {
     max_tokens: 256,
     tools,
-    tool_choice: 'auto'
+    tool_choice: 'auto',
+    // This script calls the provider adapter directly rather than the gateway
+    // handler, so opt into the native transport explicitly.
+    nativeToolCalling: true
   });
 
   const calls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
