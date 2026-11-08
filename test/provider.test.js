@@ -60,7 +60,7 @@ test('preserves provider-default reasoning when native tool choice is auto', () 
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
     "  max_tokens: 256,",
     "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: {} } }],",
-    "  tool_choice: 'auto'",
+    "  tool_choice: 'auto',\n  nativeToolCalling: true",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
   ].join('\n');
@@ -80,7 +80,6 @@ test('preserves provider-default reasoning when native tool choice is auto', () 
   assert.equal(payload.tool_choice, 'auto');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning_effort'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
-  nativeToolCalling: true
 });
 
 test('disables reasoning for forced native tools only when the generic compatibility flag is enabled', () => {
@@ -89,7 +88,7 @@ test('disables reasoning for forced native tools only when the generic compatibi
     "const { payload } = buildPayload([{ role: 'user', content: 'Call an available tool' }], {",
     "  max_tokens: 256,",
     "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: {} } }],",
-    "  tool_choice: { type: 'any' }",
+    "  tool_choice: { type: 'any' },\n  nativeToolCalling: true",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
   ].join('\n');
@@ -110,7 +109,6 @@ test('disables reasoning for forced native tools only when the generic compatibi
   assert.equal(payload.tool_choice, 'required');
   assert.equal(payload.reasoning_effort, 'none');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'thinking'), false);
-  nativeToolCalling: true
 });
 
 test('omits native tool fields entirely when native calling is disabled', () => {
@@ -119,7 +117,7 @@ test('omits native tool fields entirely when native calling is disabled', () => 
     "const { payload } = buildPayload([{ role: 'user', content: 'Read README.md' }], {",
     "  max_tokens: 256,",
     "  tools: [{ name: 'Read', input_schema: { type: 'object' } }],",
-    "  tool_choice: 'auto'",
+    "  tool_choice: 'auto',\n  nativeToolCalling: false",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
   ].join('\n');
@@ -138,7 +136,6 @@ test('omits native tool fields entirely when native calling is disabled', () => 
   const payload = JSON.parse(result.stdout);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tools'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'tool_choice'), false);
-  nativeToolCalling: false
 });
 
 
@@ -148,7 +145,7 @@ test('omits provider tool_choice when the gateway has disabled tools for the tur
     "const { payload } = buildPayload([{ role: 'user', content: 'Answer without tools.' }], {",
     "  max_tokens: 256,",
     "  tools: [{ name: 'Read', input_schema: { type: 'object', properties: { file_path: { type: 'string' } } } }],",
-    "  tool_choice: 'none'",
+    "  tool_choice: 'none',\n  nativeToolCalling: true",
     "});",
     "process.stdout.write(JSON.stringify(payload));"
   ].join('\n');
