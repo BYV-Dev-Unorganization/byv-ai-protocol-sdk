@@ -125,7 +125,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   assert.deepEqual(config, {
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
-    DSML_TOOL_CALL: true
+    DSML_TOOL_CALL: true,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
     PROVIDER_TIMEOUT_MS: 300000,
