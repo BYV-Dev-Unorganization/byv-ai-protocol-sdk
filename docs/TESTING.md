@@ -23,8 +23,8 @@ Both runs must exit successfully for `npm test` to pass.
 
 Verified baseline for the current feature branch:
 
-- 208 tests passing in DSML mode;
-- 208 tests passing in native mode;
+- 210 tests passing in DSML mode;
+- 210 tests passing in native mode;
 - 0 failures in either mode.
 
 ## Syntax checks
@@ -47,7 +47,7 @@ These commands require a running gateway and/or a real configured upstream provi
 npm run test:sdk
 ```
 
-Checks the official Anthropic SDK against the local gateway, including Messages, token counting, streaming, and tool-use round trips.
+Checks the official Anthropic SDK against the running gateway, including Messages, token counting, streaming, and tool-use round trips. For a local gateway, it reports the active `tool_transport` from `/health`. It uses the gateway mode selected when `npm start` was launched and is expected to pass in both DSML and provider-native modes.
 
 ### Provider-native tools
 
@@ -55,7 +55,7 @@ Checks the official Anthropic SDK against the local gateway, including Messages,
 npm run test:provider-tools
 ```
 
-Checks whether the configured upstream provider can return a structured native function call.
+Checks whether the configured upstream provider can return a structured native function call. This is a direct provider-adapter probe that bypasses the gateway handler and its `DSML_TOOL_CALL` switch, so its result is independent of the active gateway mode. It specifically verifies provider-native function-calling capability; it does not verify DSML mode.
 
 The synthetic tool is not executed.
 
@@ -65,7 +65,9 @@ The synthetic tool is not executed.
 npm run test:claude-code
 ```
 
-Runs a restricted Claude Code CLI smoke test against the local gateway. The test uses an isolated workspace and a narrow six-tool allowlist.
+Runs a restricted Claude Code CLI smoke test against the running gateway. The local preflight reports the active `tool_transport`; the same six-tool flow is expected to work with either DSML or provider-native mode. The test uses an isolated workspace and a narrow six-tool allowlist.
+
+The SDK and Claude Code smoke tests exercise whichever mode the gateway loaded at startup; they do not switch the running gateway between modes automatically. To verify both modes, run the two gateway smoke tests once with `DSML_TOOL_CALL=true`, stop the gateway, change the setting to `false`, restart `npm start`, and run them again. The provider-native provider probe is independent of this switch and can be run in either environment.
 
 The smoke tests may consume provider quota and are not deterministic offline unit tests.
 
