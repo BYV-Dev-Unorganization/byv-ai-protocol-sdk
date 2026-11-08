@@ -255,6 +255,20 @@ main().catch(console.error);
 
 The SDK appends /v1/messages; do not include /v1 in the baseURL.
 
+## Project documentation
+
+The repository documentation is split by concern:
+
+| Document | Covers |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime flow, module boundaries, security boundary, streaming, recovery |
+| [Configuration](docs/CONFIGURATION.md) | Environment variables, provider limits, gateway settings, diagnostics |
+| [API reference](docs/API.md) | HTTP endpoints, authentication, Messages, streaming, errors |
+| [Tool transport](docs/TOOL-TRANSPORT.md) | DSML vs provider-native function calling and validation |
+| [Testing](docs/TESTING.md) | Local regression matrix, syntax checks, and live smoke tests |
+
+The most important implementation rule for tool transport is that `DSML_TOOL_CALL` is the single provider-facing switch. The same regression suite is executed with both values so changes cannot accidentally work only in the developer's current mode.
+
 ## Live client compatibility smoke tests
 
 The repository includes opt-in live smoke tests for provider and client compatibility. They call the configured upstream provider and/or the running BYV gateway, so they are not part of `npm test` or the GitHub Actions unit-test job. They may consume provider quota.
@@ -334,6 +348,20 @@ npm run check
 ~~~
 
 The regular suite remains deterministic and does not require a running provider, a gateway token, the Anthropic SDK runtime, or Claude Code CLI.
+
+### Regression matrix for DSML/native transport
+
+`npm test` intentionally runs the complete Node test suite twice:
+
+```text
+DSML_TOOL_CALL=true
+DSML_TOOL_CALL=false
+```
+
+Both modes must pass. The current verified baseline is **208/208 tests in each mode (416 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
+
+For architecture and transport details, see [Tool Transport](docs/TOOL-TRANSPORT.md) and [Architecture](docs/ARCHITECTURE.md).
+
 
 ## Tool calls
 
