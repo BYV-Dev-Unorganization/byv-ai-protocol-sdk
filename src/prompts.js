@@ -686,12 +686,15 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     const earlierResponseNote = 'The earlier response is not included in this conversation.';
 
     if (mode === 'text') {
+        const nativeToolCalling = options.nativeToolCalling === true;
         return [
             '=== TEXT-ONLY RECOVERY ===',
             'The previous response did not satisfy the required plain-text response contract. ' + earlierResponseNote,
             'Correct this issue: ' + diagnostic('Return a non-empty plain-text answer.'),
             RECOVERY_DIAGNOSTIC_NOTE,
-            'Do not emit DSML calls, invoke, or parameter tags, legacy tool wrappers, or JSON tool-call output.',
+            nativeToolCalling
+                ? 'Do not request or emit provider-native function calls, tool wrappers, or JSON tool-call output.'
+                : 'Do not emit DSML calls, invoke, or parameter tags, legacy tool wrappers, or JSON tool-call output.',
             'Do not request or claim tool execution.',
             'Answer the original request in plain text using the conversation and available results.',
             'Preserve any output structure the original request asked for.',
