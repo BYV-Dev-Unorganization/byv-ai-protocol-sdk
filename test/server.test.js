@@ -278,11 +278,11 @@ test('exposes provider context and token limits through an authenticated capabil
 });
 
 
-test('text-only inference preserves gateway tool_choice while selecting provider text transport', async (t) => {
+test('DSML mode preserves gateway tool_choice while selecting provider text transport', async (t) => {
   let receivedBody;
   let receivedOptions;
   const base = await withServer(t, {
-    noToolExperiment: false,
+    noToolExperiment: true,
     experimentVariant: 'B',
     handleMessages: async (body, options) => {
       receivedBody = body;
@@ -313,9 +313,47 @@ test('text-only inference preserves gateway tool_choice while selecting provider
   assert.equal(response.status, 200);
   assert.equal(receivedBody.tool_choice, 'auto');
   assert.equal(receivedOptions.noToolExperiment, true);
+  assert.equal(receivedOptions.nativeToolCalling, false);
   assert.equal(receivedOptions.experimentVariant, 'B');
   const result = await response.json();
   assert.deepEqual(result.content, [{ type: 'text', text: 'Text-only response.' }]);
+});
+
+
+test('native mode forwards provider-native tool transport selection', async (t) => {
+  let receivedOptions;
+  const base = await withServer(t, {
+    noToolExperiment: false,
+    handleMessages: async (_body, options) => {
+      receivedOptions = options;
+      return {
+        id: 'msg_native',
+        content: [{ type: 'text', text: 'Native response.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 2 },
+        usage_estimated: false
+      };
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'byv-flash-v1',
+      max_tokens: 64,
+      tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } }],
+      tool_choice: 'auto',
+      messages: [{ role: 'user', content: 'Read README.md and summarize it.' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(receivedOptions.noToolExperiment, false);
+  assert.equal(receivedOptions.nativeToolCalling, true);
+  const result = await response.json();
+  assert.deepEqual(result.content, [{ type: 'text', text: 'Native response.' }]);
 });
 
 
