@@ -208,15 +208,16 @@ test('buildProviderMessages preserves provider chat roles while applying the new
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_read', content: 'file content' }] }
     ]
   }, { noToolExperiment: true, nativeToolCalling: false });
-  assert.equal(messages[0].role, 'system');
-  assert.match(messages[0].content, /DSML TOOL CALL PROTOCOL/);
-  assert.equal(messages[1].role, 'user');
-  assert.equal(messages[2].role, 'assistant');
-  assert.match(messages[2].content, /HISTORICAL TOOL INVOCATIONS/);
-  assert.match(messages[2].content, /<｜DSML｜tool_calls>/);
-  assert.equal(messages[3].role, 'user');
-  assert.match(messages[3].content, /HISTORICAL TOOL RESULTS/);
-  assert.match(messages[3].content, /file content/);
+  // DSML mode consolidates the conversation and tool results into one
+  // text prompt; native role-based messages belong to provider-native mode.
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].role, 'user');
+  assert.match(messages[0].content, /### TOOLS/);
+  assert.match(messages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.match(messages[0].content, /Tool call Read with input/);
+  assert.match(messages[0].content, /TOOL RESULTS/);
+  assert.match(messages[0].content, /file content/);
+  assert.ok(messages[0].content.includes('DSML calls/invoke/parameter format'));
   assert.equal(messages.some((message) => message.role === 'tool'), false);
 });
 

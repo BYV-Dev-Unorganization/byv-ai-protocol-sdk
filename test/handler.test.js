@@ -739,21 +739,16 @@ test('native-disabled provider receives DSML history and structured tool results
   });
 
   assert.equal(result.stop_reason, 'end_turn');
-  assert.equal(sentMessages[0].role, 'system');
+  // DSML mode consolidates history, schemas, results, and the latest request
+  // into a single text prompt instead of sending native tool roles.
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].role, 'user');
   assert.match(sentMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.ok(sentMessages[0].content.includes('Read(file_path*'));
+  assert.match(sentMessages[0].content, /Tool call Read with input/);
+  assert.match(sentMessages[0].content, /Tool result for toolu_history: README body/);
+  assert.match(sentMessages[0].content, /Summarize the result/);
   assert.equal(sentMessages.some((message) => message.role === 'tool'), false);
-  const historicalAssistant = sentMessages.find((message) =>
-    message.role === 'assistant' && typeof message.content === 'string' &&
-    message.content.includes('HISTORICAL TOOL INVOCATIONS')
-  );
-  assert.ok(historicalAssistant);
-  assert.match(historicalAssistant.content, /<｜DSML｜tool_calls>/);
-  const historicalResult = sentMessages.find((message) =>
-    message.role === 'user' && typeof message.content === 'string' &&
-    message.content.includes('HISTORICAL TOOL RESULTS')
-  );
-  assert.ok(historicalResult);
-  assert.match(historicalResult.content, /README body/);
   assert.equal(sentMessages.some((message) => Array.isArray(message.tool_calls)), false);
 });
 
