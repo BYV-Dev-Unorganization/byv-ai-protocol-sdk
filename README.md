@@ -141,7 +141,7 @@ Authenticated API requests are limited to **30 requests per rolling 60 seconds p
 
 ### Local Word Desktop connection
 
-For Claude for Office running inside the installed Word desktop app on the same computer as BYV, use the local gateway directly. No Cloudflare Tunnel, ngrok, public domain, or `npm run start:office` launcher is needed.
+Claude for Office running inside the installed Word desktop app on the same computer as BYV connects directly to the local gateway at `http://127.0.0.1:8787`.
 
 Keep the gateway bound to loopback in `.env`:
 
@@ -305,6 +305,8 @@ This uses the official `@anthropic-ai/sdk` and checks:
 
 The tool fixture requests a harmless echo command, but the smoke test **never executes it**. It sends a synthetic tool result back to verify the Anthropic conversation contract.
 
+For the local gateway, the script reads the authenticated `/health` status and prints the active tool transport (`DSML text` or `provider-native`). The same SDK assertions are intended to pass in either mode; this command tests whichever mode the running gateway loaded at startup. Restart `npm start` after changing `DSML_TOOL_CALL` in `.env`.
+
 Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
 
 ### Native provider function-calling smoke test
@@ -317,7 +319,7 @@ npm run test:provider-tools
 
 This sends one live OpenAI-compatible Chat Completions request with a synthetic `Read` function and `tool_choice: auto`. It passes only when the configured provider returns one structured function call for `README.md`. The tool is never executed and no client files are read. This is the quickest way to isolate provider-native function calling from Claude Code's permissions and local tool runner.
 
-The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key.
+The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode.
 
 ### Claude Code CLI smoke test
 
@@ -338,7 +340,7 @@ The script launches Claude Code in non-interactive `stream-json` mode against th
 
 The test creates an isolated temporary workspace, applies a narrow tool/permission allowlist, verifies tool results and the Edit/Write changes, and removes the workspace afterward. It does not grant arbitrary shell execution and does not modify the repository. It tests client-to-gateway tool orchestration; the gateway itself does not execute client tools.
 
-Optional environment variables: `BYV_BASE_URL`, `BYV_CLAUDE_CODE_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). The test model is intentionally independent from `ANTHROPIC_MODEL` so a value left over from the Anthropic SDK smoke test cannot change this test. For the local gateway, the script validates the gateway token and model profile before launching Claude Code, and runs the CLI in restricted mode with the six-tool allowlist.
+Optional environment variables: `BYV_BASE_URL`, `BYV_CLAUDE_CODE_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). The test model is intentionally independent from `ANTHROPIC_MODEL` so a value left over from the Anthropic SDK smoke test cannot change this test. For the local gateway, the script validates the gateway token and model profile before launching Claude Code, reports the active tool transport, and runs the CLI in restricted mode with the six-tool allowlist. Like the SDK smoke test, it is transport-neutral and should pass with either `DSML_TOOL_CALL` value.
 
 These live integration tests are intentionally separate from:
 
@@ -358,7 +360,7 @@ DSML_TOOL_CALL=true
 DSML_TOOL_CALL=false
 ```
 
-Both modes must pass. The current verified baseline is **208/208 tests in each mode (416 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
+Both modes must pass. The verified baseline is **210/210 tests in each mode (420 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
 
 For architecture and transport details, see [Tool Transport](docs/TOOL-TRANSPORT.md) and [Architecture](docs/ARCHITECTURE.md).
 
