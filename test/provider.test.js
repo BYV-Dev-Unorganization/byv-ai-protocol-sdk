@@ -28,7 +28,7 @@ test('builds native function tools and maps tool_choice without assuming provide
       PROVIDER_BASE_URL: 'https://provider.example/v1',
       PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
-      DSML_TOOL_CALL: 'false'
+      DSML_TOOL_CALL: 'true'
     },
     encoding: 'utf8'
   });
