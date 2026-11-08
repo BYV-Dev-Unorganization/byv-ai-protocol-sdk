@@ -71,7 +71,7 @@ test('preserves provider-default reasoning when native tool choice is auto', () 
       PROVIDER_BASE_URL: 'https://provider.example/v1',
       PROVIDER_MODEL: 'generic-test-model',
       PROVIDER_API_KEY: 'unit-test-secret',
-      PROVIDER_NATIVE_TOOL_CALLING: 'true'
+      DSML_TOOL_CALL: 'true'
     },
     encoding: 'utf8'
   });
