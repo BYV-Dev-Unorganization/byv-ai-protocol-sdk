@@ -23,8 +23,8 @@ Both runs must exit successfully for `npm test` to pass.
 
 Verified baseline for the current feature branch:
 
-- 210 tests passing in DSML mode;
-- 210 tests passing in native mode;
+- 211 tests passing in DSML mode;
+- 211 tests passing in native mode;
 - 0 failures in either mode.
 
 ## Syntax checks
