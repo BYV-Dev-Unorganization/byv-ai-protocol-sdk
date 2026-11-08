@@ -4,7 +4,6 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
@@ -91,7 +90,7 @@ function buildPayload(messages, options = {}) {
   // and parses calls from assistant text. No provider-native tool fields are
   // needed: omitting both fields is more portable than sending tool_choice=none
   // to OpenAI-compatible implementations that reject it without a tools array.
-  if (PROVIDER_NATIVE_TOOL_CALLING &&
+  if (options.nativeToolCalling === true &&
       options.tool_choice !== 'none' &&
       Array.isArray(options.tools) && options.tools.length) {
     try {
