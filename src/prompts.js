@@ -3,7 +3,7 @@
 const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
-    PROVIDER_NATIVE_TOOL_CALLING,
+    DSML_TOOL_CALL,
     COMPACTION_MAX_INPUT_TOKENS,
     COMPACTION_MAX_SYSTEM_CHARS
 } = require('./config');
@@ -344,14 +344,12 @@ function toolsAsReference(tools) {
 }
 
 function buildSystemPrompt(body = {}, options = {}) {
-    const noToolExperiment = options.noToolExperiment === true;
-    // Text-only inference disables provider-native functions but still permits
-    // textual DSML calls for the gateway adapter.
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
     const nativeToolCalling = noToolExperiment
         ? false
-        : (typeof options.nativeToolCalling === 'boolean'
-            ? options.nativeToolCalling
-            : PROVIDER_NATIVE_TOOL_CALLING);
+        : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
     const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
     const system = flattenContent(body.system);
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -448,12 +446,12 @@ function buildSystemPrompt(body = {}, options = {}) {
     return prompt;
 }
 function buildProviderMessages(body = {}, options = {}) {
-    const noToolExperiment = options.noToolExperiment === true;
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
     const nativeToolCalling = noToolExperiment
         ? false
-        : (typeof options.nativeToolCalling === 'boolean'
-            ? options.nativeToolCalling
-            : PROVIDER_NATIVE_TOOL_CALLING);
+        : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
     const force = parseToolChoice(body.tool_choice);
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
