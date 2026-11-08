@@ -31,7 +31,7 @@ A canonical call looks like:
 </｜DSML｜ calls>
 ```
 
-The DSML adapter converts this model output into BYV text markup. The existing BYV parser parses that markup and returns canonical in-memory tool-call objects. This BYV text conversion and parsing step exists only in DSML mode.
+The DSML adapter converts this into the internal BYV calls representation. The existing BYV parser remains responsible for parsing the normalized representation.
 
 The adapter also:
 
@@ -72,21 +72,7 @@ Anthropic tool-choice values are mapped as follows:
 | `required` | `required` |
 | specific tool | `{ type: "function", function: { name } }` |
 
-Provider-native function calls are handled directly as structured JSON. The OpenAI-compatible provider returns `function.arguments` as a JSON string; BYV decodes that string into a JavaScript object with `JSON.parse()` and constructs the canonical in-memory object:
-
-```js
-[
-  {
-    id: "call_provider_123",
-    name: "Read",
-    input: {
-      file_path: "README.md"
-    }
-  }
-]
-```
-
-This canonical tool-call object is an internal data structure, not BYV markup and not a separate protocol. Native mode does not call the DSML adapter or the BYV text parser. There is no JSON-to-BYV-markup-to-JSON round trip.
+Provider-native function calls are normalized into the same internal call shape used by the gateway.
 
 Provider tool names must match `[A-Za-z0-9_-]{1,64}`.
 
@@ -96,7 +82,7 @@ Regardless of transport, a tool call must:
 
 1. refer to a declared tool;
 2. contain an object-shaped argument payload;
-3. have valid arguments (DSML typed values in DSML mode, JSON-decoded arguments in native mode);
+3. use valid argument JSON;
 4. satisfy the declared JSON Schema;
 5. respect gateway tool-call limits and duplicate-ID checks.
 

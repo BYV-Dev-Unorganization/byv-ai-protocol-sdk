@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const {
   providerToolChoice,
   providerFunctionTools,
-  decodeProviderToolCalls,
+  normalizeProviderToolCalls,
   mergeProviderToolCallDelta,
   finalizeProviderToolCallDeltas
 } = require('../src/provider/tool-calls');
@@ -49,8 +49,8 @@ test('rejects function names that the OpenAI-compatible tool contract cannot rep
   );
 });
 
-test('decodes native provider function JSON into canonical in-memory call objects', () => {
-  const result = decodeProviderToolCalls([{
+test('normalizes provider function calls into validated Anthropic tool-call candidates', () => {
+  const result = normalizeProviderToolCalls([{
     id: 'call_provider_1',
     type: 'function',
     function: { name: 'Read', arguments: '{"file_path":"README.md"}' }
@@ -65,27 +65,27 @@ test('decodes native provider function JSON into canonical in-memory call object
   });
 });
 
-test('rejects malformed, non-object, and duplicate native provider function arguments', () => {
-  assert.match(decodeProviderToolCalls([{
+test('rejects malformed, non-object, and duplicate provider function arguments', () => {
+  assert.match(normalizeProviderToolCalls([{
     id: 'bad',
     type: 'function',
     function: { name: 'Read', arguments: '{bad json' }
   }]).error, /invalid JSON arguments/);
 
-  assert.match(decodeProviderToolCalls([{
+  assert.match(normalizeProviderToolCalls([{
     id: 'bad',
     type: 'function',
     function: { name: 'Read', arguments: '[]' }
   }]).error, /must be a JSON object/);
 
-  assert.match(decodeProviderToolCalls([
+  assert.match(normalizeProviderToolCalls([
     { id: 'duplicate', type: 'function', function: { name: 'Read', arguments: '{}' } },
     { id: 'duplicate', type: 'function', function: { name: 'Write', arguments: '{}' } }
   ]).error, /duplicate tool-call ID/);
 });
 
 test('generates an invocation ID if the provider omits one', () => {
-  const result = decodeProviderToolCalls([{
+  const result = normalizeProviderToolCalls([{
     type: 'function',
     function: { name: 'Read', arguments: '{}' }
   }], () => 'call_generated');

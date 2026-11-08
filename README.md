@@ -5,7 +5,7 @@ A BYV protocol runtime and Anthropic Messages-compatible gateway for any provide
 BYV sits between an Anthropic Messages client and one configured upstream model:
 
 - Client contract: Anthropic Messages API shape.
-- Model-facing tool transport: DeepSeek DSML in assistant text by default; a gateway adapter converts it to BYV markup for the BYV parser. Optional provider-native function calling bypasses that text protocol and turns provider JSON arguments directly into an in-memory canonical tool-call object.
+- Model-facing tool transport: DeepSeek DSML in assistant text by default; a gateway adapter converts it to the internal BYV representation before parsing and validation. Provider-native function calling is an explicit optional mode.
 - Upstream contract: OpenAI-compatible Chat Completions API. Native function tools are not required.
 - Model configuration: one provider endpoint, one API key, and one actual provider model.
 - Model catalog: several response profiles that all use that same configured upstream model.
@@ -377,7 +377,7 @@ Example model output:
 </｜DSML｜ calls>
 ~~~
 
-The DSML adapter converts this model output into BYV markup. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The converted text is then passed to the existing BYV parser, which produces in-memory call objects. The parser remains unchanged. Those objects pass the declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
+The DSML adapter converts this model output into the internal BYV representation. It generates unique invocation IDs, maps DSML `string="true"` and `string="false"` parameters to BYV's typed parameter values, and preserves string content through BYV escaping. The adapter then passes the converted text to the existing BYV parser. The parser itself is not changed and remains the single parser responsible for the normalized calls. All calls still pass the same declared-tool allowlist and JSON Schema validation before the gateway returns Anthropic Messages `tool_use` blocks.
 
 In the default text-protocol path, provider-native function calling is disabled while the gateway preserves Anthropic `tool_choice` semantics. For ordinary requests with declared schemas and `auto`/`any`/specific-tool choice, BYV accepts textual DSML output, converts it to the internal BYV representation, validates it, and returns Anthropic `tool_use`. An explicit `tool_choice: none`, a repeated tool loop, or a request without tool schemas disables gateway-level tool calls. Claude Code compaction is recognized as a special text-only summary turn when the latest instruction forbids tool use, requires plain text, and requests the `<analysis>`/`<summary>` structure. This behavior is part of the current SDK implementation, not a branch-specific feature.
 
@@ -394,15 +394,15 @@ The provider adapter sends neither native OpenAI-compatible `tools` definitions 
 `DSML_TOOL_CALL` is the single provider-facing tool transport switch:
 
 - `true` / `on`: DSML text mode. Native provider tools are off and upstream `tool_choice` is `none`. DSML instructions, parsing, and DSML recovery are enabled.
-- `false` / `off`: native mode. Provider-native schemas and mapped `tool_choice` are sent upstream. The provider's JSON arguments are decoded directly into an in-memory canonical tool-call object; no DSML adapter, BYV text markup, or BYV parser is involved.
+- `false` / `off`: native mode. Provider-native schemas and mapped `tool_choice` are sent upstream. Provider-native `tool_calls` are normalized directly; DSML instructions, parser, and DSML recovery are skipped.
 
 The default is `true` to preserve the existing DSML behavior. `NO_TOOL_EXPERIMENT_VARIANT` remains a DSML-only prompt experiment: `A` hides tool metadata and `B` exposes tool names/descriptions as reference-only. It is ignored by native mode.
 
 Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
 
-Both modes converge on the same in-memory call-object shape and JSON Schema validation before BYV returns Anthropic `tool_use`. The shared object is an internal JavaScript data structure, not another wire protocol. In native mode, provider JSON arguments are parsed directly into it. In DSML mode, the DSML adapter produces BYV markup and the BYV parser creates the same object shape. Malformed or schema-invalid batches go through bounded recovery. BYV never forwards a partial or invalid batch.
+Both modes converge on the same allowlist and JSON Schema validation before BYV returns Anthropic `tool_use`. Malformed or schema-invalid batches go through bounded protocol recovery. Malformed DSML is converted into malformed internal BYV so the unchanged parser can reject it and trigger recovery. BYV never forwards a partial or invalid batch.
 
-The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and adapted to BYV markup before parsing.
+The gateway does not execute tools. The client executes the requested tool, then sends the assistant `tool_use` block and a user `tool_result` block with the matching `tool_use_id` in the next Messages request. BYV serializes this prior tool history into the configured provider's chat conversation format. This history conversion does not change the current model-facing output protocol: DSML is requested by default and normalized to BYV before parsing.
 
 ### Claude Code autocompaction over the stateless API
 

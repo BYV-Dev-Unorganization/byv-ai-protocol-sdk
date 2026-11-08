@@ -22,13 +22,11 @@ Message handler
       +-- tool transport selection
       |      |
       |      +-- DSML text mode
-      |      |     provider text -> DSML adapter -> BYV text -> BYV parser --+
+      |      |     prompt -> provider text -> DSML adapter -> BYV parser
       |      |
       |      +-- native mode
-      |            provider tool_calls -> JSON.parse(arguments) -----------------+
-      |
-      +-- canonical in-memory tool-call objects
-      +-- JSON Schema validation
+      |            Anthropic tools -> provider function tools
+      |            provider tool_calls -> normalized BYV calls
       |
       +-- JSON Schema validation
       +-- bounded recovery / retry
@@ -68,11 +66,11 @@ Only one actual upstream model is configured. The IDs exposed by `GET /v1/models
 
 `DSML_TOOL_CALL` is the single provider-facing tool transport switch.
 
-When true, tools are represented in model-facing text using DeepSeek DSML. The gateway disables upstream native tool execution, requests `tool_choice: none`, converts DSML into BYV text markup, and runs the existing BYV parser. The parser returns canonical in-memory tool-call objects, which proceed to JSON Schema validation.
+When true, tools are represented in model-facing text using DeepSeek DSML. The gateway disables upstream native tool execution, requests `tool_choice: none`, converts DSML into the internal BYV calls representation, then uses the existing parser and JSON Schema validation.
 
-When false, the gateway sends provider-native function schemas and mapped `tool_choice` values. Provider `tool_calls` arrive as structured JSON. The provider adapter parses the `function.arguments` JSON string directly into a JavaScript object and creates the same canonical in-memory tool-call object shape. This native path does not generate BYV markup and does not call the DSML adapter or BYV text parser.
+When false, the gateway sends provider-native function schemas and mapped `tool_choice` values. Returned provider `tool_calls` are normalized directly. DSML instructions, parsing, and DSML recovery are not used.
 
-The canonical object is an internal data structure, not a third tool-call protocol. Both paths use the same gateway-side tool allowlist and JSON Schema validation before an Anthropic `tool_use` response is produced.
+Both paths converge on the same gateway-side tool allowlist and schema validation before an Anthropic `tool_use` response is produced.
 
 ### Tool execution boundary
 
@@ -90,7 +88,7 @@ Request intent is also detected for special flows such as Claude Code compaction
 
 For streaming requests, BYV converts the upstream provider SSE stream into the Anthropic SSE contract. It emits the Anthropic `message_start` event early and sends periodic `ping` events while waiting for provider output.
 
-Provider tool-call deltas are accumulated by tool-call index and finalized before the native arguments are decoded into canonical in-memory tool-call objects.
+Provider tool-call deltas are accumulated by tool-call index and finalized before normalization.
 
 ## Recovery
 
@@ -112,11 +110,11 @@ The canonical default is `byv-flash-v1`; compatibility aliases and additional pr
 | Module | Responsibility |
 | --- | --- |
 | `src/server.js` | HTTP routing, auth, CORS, rate limiting, request intent |
-| `src/handler.js` | Main inference flow, canonical tool-call objects, validation, recovery |
+| `src/handler.js` | Main inference flow, tool-call normalization, recovery |
 | `src/prompts.js` | System prompts, tool instructions, DSML/native prompt behavior |
 | `src/provider/openai-compatible.js` | Upstream request/response and SSE transport |
-| `src/provider/tool-calls.js` | Native function schema/tool-choice mapping and JSON-to-object decoding |
-| `src/protocol/dsml-adapter.js` | DSML text-to-BYV markup conversion (DSML mode only) |
+| `src/provider/tool-calls.js` | Native function schema/tool-choice mapping and normalization |
+| `src/protocol/dsml-adapter.js` | DSML-to-BYV normalization |
 | `src/protocol/parser.js` | Internal BYV calls parser |
 | `src/tools/validator.js` | Tool allowlist and JSON Schema validation |
 | `src/config.js` | Environment configuration and gateway token handling |

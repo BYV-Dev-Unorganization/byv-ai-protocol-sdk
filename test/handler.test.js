@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets, parseCompletionToolCalls } = require('../src/handler');
+const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets } = require('../src/handler');
 
 function body(options = {}) {
   return {
@@ -345,39 +345,6 @@ test('converts native provider function calls into Anthropic tool_use blocks', a
     name: 'Read',
     input: { file_path: 'README.md' }
   });
-});
-
-test('native mode decodes provider JSON directly and never parses BYV or DSML text', () => {
-  const providerCall = {
-    id: 'call_native_direct',
-    type: 'function',
-    function: {
-      name: 'Read',
-      arguments: '{"file_path":"README.md"}'
-    }
-  };
-  const protocolExamples = [
-    '<|BYV| calls><|BYV| invoke name="Write" id="byv_text"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
-    '<｜DSML｜ calls><｜DSML｜ invoke name="Write"><｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ calls>'
-  ];
-
-  for (const text of protocolExamples) {
-    const result = parseCompletionToolCalls({
-      text,
-      tool_calls: [providerCall],
-      finish_reason: 'tool_calls'
-    }, true);
-
-    assert.equal(result.error, null);
-    assert.equal(result.parsed.hasProtocol, false);
-    assert.equal(result.parsed.protocolSource, 'provider_native');
-    assert.equal(result.parsed.text, text);
-    assert.deepEqual(result.calls, [{
-      id: 'call_native_direct',
-      name: 'Read',
-      input: { file_path: 'README.md' }
-    }]);
-  }
 });
 
 test('converts streamed native provider function calls into Anthropic tool_use blocks', async () => {

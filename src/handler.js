@@ -18,7 +18,7 @@ const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
 const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require('./content');
 const { getModelCapabilities } = require('./provider/capabilities');
-const { decodeProviderToolCalls } = require('./provider/tool-calls');
+const { normalizeProviderToolCalls } = require('./provider/tool-calls');
 const { maskMarkdownCode } = require('./protocol/markdown-code');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
@@ -291,28 +291,25 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   }
 }
 
-function parseNativeProviderToolCalls(completion) {
-  // Native mode consumes structured provider JSON directly. This function
-  // deliberately does not inspect text with the DSML adapter or BYV parser.
-  const native = decodeProviderToolCalls(completion.tool_calls, () => uuid('call'));
-  const parsed = {
-    text: typeof completion.text === 'string' ? completion.text : '',
-    calls: native.calls,
-    errors: [],
-    hasProtocol: false,
-    protocolSource: native.calls.length > 0 ? 'provider_native' : 'unknown'
-  };
-  if (native.error) return { parsed, calls: [], error: native.error, native: true };
-  return {
-    parsed,
-    calls: native.calls,
-    error: null,
-    native: native.calls.length > 0
-  };
-}
+function parseCompletionToolCalls(completion, nativeToolCalling = true) {
+  if (nativeToolCalling) {
+    const native = normalizeProviderToolCalls(completion.tool_calls, () => uuid('call'));
+    const parsed = {
+      text: typeof completion.text === 'string' ? completion.text : '',
+      calls: native.calls,
+      errors: [],
+      hasProtocol: false,
+      protocolSource: native.calls.length > 0 ? 'provider_native' : 'unknown'
+    };
+    if (native.error) return { parsed, calls: [], error: native.error, native: true };
+    return {
+      parsed,
+      calls: native.calls,
+      error: null,
+      native: native.calls.length > 0
+    };
+  }
 
-function parseDsmlTextToolCalls(completion) {
-  // DSML mode alone adapts model text into BYV markup and invokes the BYV parser.
   const adapted = convertDsmlToBYV(completion.text);
   const parsed = parseBYVOutput(adapted.text);
   parsed.protocolSource = adapted.detected
@@ -321,7 +318,7 @@ function parseDsmlTextToolCalls(completion) {
   const hasNativeToolCalls = Array.isArray(completion.tool_calls) && completion.tool_calls.length > 0;
 
   if (hasNativeToolCalls) {
-    const rejectedNative = decodeProviderToolCalls(completion.tool_calls, () => uuid('rejected_native'));
+    const rejectedNative = normalizeProviderToolCalls(completion.tool_calls, () => uuid('rejected_native'));
     const rejectedToolCalls = rejectedNative.calls.length > 0
       ? rejectedNative.calls.map((call) => ({ name: call.name, input: call.input }))
       : completion.tool_calls.slice(0, 8).map((item) => ({
@@ -352,11 +349,6 @@ function parseDsmlTextToolCalls(completion) {
   };
 }
 
-function parseCompletionToolCalls(completion, nativeToolCalling = true) {
-  return nativeToolCalling
-    ? parseNativeProviderToolCalls(completion)
-    : parseDsmlTextToolCalls(completion);
-}
 
 function validateTextOnlyCompletion(completion, nativeToolCalling = false) {
   // Native-mode validation inspects only structured provider calls; DSML parsing
@@ -683,7 +675,7 @@ async function handleMessages(body, options = {}) {
     (calls.length > 0 && !validation.valid)
   )) {
     let recovered = false;
-    let lastError = validation.error || parseError || 'Malformed tool-call output.';
+    let lastError = validation.error || parseError || 'Malformed BYV output.';
     let recoveryFailureKind = parsedResult.native && !nativeToolCalling ? 'provider_native_disabled' : 'invalid_tool_call';
     let rejectedToolCalls = parsedResult.rejectedToolCalls || [];
     let rejectionReason = parsedResult.rejectionReason || null;

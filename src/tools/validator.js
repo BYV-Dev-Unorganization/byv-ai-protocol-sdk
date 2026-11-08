@@ -17,7 +17,7 @@ function validateToolCalls(toolCalls, tools, options = {}) {
   const ids = new Set();
   const maxCalls = Number.isInteger(options.maxCalls) ? options.maxCalls : 32;
   if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
-    return { valid: false, error: 'No tool call was produced.' };
+    return { valid: false, error: 'No BYV invocation was produced.' };
   }
   if (toolCalls.length > maxCalls) {
     return { valid: false, error: 'Tool-call batch exceeds the maximum of ' + maxCalls + ' invocations.' };
