@@ -166,7 +166,10 @@ async function main() {
     model,
     max_tokens: 256,
     tools,
-    tool_choice: { type: 'tool', name: 'Bash' },
+    // Exercise native tool selection without requiring the provider to support
+    // Anthropic's specific-tool choice extension. Exact tool name and input
+    // are still asserted below; named-choice mapping is covered by unit tests.
+    tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content: toolPrompt }]
   });
   assertMessageShape(toolMessage, 'tool-use');
@@ -211,7 +214,7 @@ async function main() {
     max_tokens: 256,
     stream: true,
     tools,
-    tool_choice: { type: 'tool', name: 'Bash' },
+    tool_choice: { type: 'auto' },
     messages: [{
       role: 'user',
       content: 'Call the Bash tool with command exactly "echo BYV_SDK_STREAM_TOOL_OK". Do not answer in plain text.'
