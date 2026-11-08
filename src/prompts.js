@@ -124,7 +124,7 @@ const TOOL_RESULT_INSTRUCTIONS = [
 function toolsToPrompt(tools, options = {}) {
     const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
         ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+        : DSML_TOOL_CALL;
     if (!tools || !tools.length) return '';
 
     const lines = [];
