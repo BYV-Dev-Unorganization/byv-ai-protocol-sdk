@@ -4,7 +4,7 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
+  DSML_TOOL_CALL,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
@@ -91,7 +91,10 @@ function buildPayload(messages, options = {}) {
   // and parses calls from assistant text. No provider-native tool fields are
   // needed: omitting both fields is more portable than sending tool_choice=none
   // to OpenAI-compatible implementations that reject it without a tools array.
-  if (PROVIDER_NATIVE_TOOL_CALLING &&
+  const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
+    ? options.nativeToolCalling
+    : !DSML_TOOL_CALL;
+  if (nativeToolCalling &&
       options.tool_choice !== 'none' &&
       Array.isArray(options.tools) && options.tools.length) {
     try {
@@ -107,6 +110,10 @@ function buildPayload(messages, options = {}) {
     } catch (error) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
     }
+  } else if (!nativeToolCalling) {
+    // DSML mode uses assistant text for tool calls. Explicitly disable the
+    // provider-native interface so upstream never tries a second tool transport.
+    payload.tool_choice = 'none';
   }
   return { config, payload };
 }
