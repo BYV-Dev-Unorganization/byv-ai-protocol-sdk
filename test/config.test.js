@@ -37,7 +37,7 @@ function loadConfig(env) {
   ].join('\n');
   const result = spawnSync(process.execPath, ['-e', source], {
     cwd: root,
-    env: { ...process.env, PROVIDER_NATIVE_TOOL_CALLING: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
+    env: { ...process.env, DSML_TOOL_CALL: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
