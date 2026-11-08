@@ -44,14 +44,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
-const PROVIDER_NATIVE_TOOL_CALLING = booleanFlag('PROVIDER_NATIVE_TOOL_CALLING', false);
-const rawNoToolExperimentVariant = String(process.env.NO_TOOL_EXPERIMENT_VARIANT || 'A').trim().toUpperCase();
-const NO_TOOL_EXPERIMENT_VARIANT = ['A', 'B'].includes(rawNoToolExperimentVariant)
-  ? rawNoToolExperimentVariant
-  : 'A';
-if (rawNoToolExperimentVariant !== NO_TOOL_EXPERIMENT_VARIANT) {
-  console.warn('[config] invalid NO_TOOL_EXPERIMENT_VARIANT; using default A');
-}
+const DSML_TOOL_CALL = booleanFlag('DSML_TOOL_CALL', true);
 const PROVIDER_NATIVE_REASONING_EFFORT = booleanFlag('PROVIDER_NATIVE_REASONING_EFFORT', false);
 const PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS = booleanFlag('PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS', false);
 const PROVIDER_TIMEOUT_MS = boundedInteger('PROVIDER_TIMEOUT_MS', 300000, 1000, 3600000);
@@ -110,8 +103,7 @@ module.exports = {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
-  NO_TOOL_EXPERIMENT_VARIANT,
+  DSML_TOOL_CALL,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
