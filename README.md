@@ -337,7 +337,7 @@ The regular suite remains deterministic and does not require a running provider,
 
 ## Tool calls
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
+When `DSML_TOOL_CALL=true` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
 
 Example model output:
 
