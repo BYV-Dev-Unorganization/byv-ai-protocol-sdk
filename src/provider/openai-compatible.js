@@ -86,10 +86,9 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  // In text-protocol mode, the gateway describes tool schemas in its prompt
-  // and parses calls from assistant text. No provider-native tool fields are
-  // needed: omitting both fields is more portable than sending tool_choice=none
-  // to OpenAI-compatible implementations that reject it without a tools array.
+  // DSML mode deliberately disables provider tool execution and sends
+  // tool_choice=none upstream. Native mode sends provider function schemas
+  // and the mapped tool_choice instead.
   if (options.nativeToolCalling === true &&
       options.tool_choice !== 'none' &&
       Array.isArray(options.tools) && options.tools.length) {
@@ -106,6 +105,9 @@ function buildPayload(messages, options = {}) {
     } catch (error) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
     }
+  }
+  if (options.nativeToolCalling !== true && options.tool_choice === 'none') {
+    payload.tool_choice = 'none';
   }
   return { config, payload };
 }
