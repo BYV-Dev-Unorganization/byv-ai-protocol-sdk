@@ -672,6 +672,22 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     const systemMessage = { role: 'system', content: systemPrompt };
     const systemOnlyMessages = [systemMessage, { role: 'user', content: '' }];
     const systemOnlyEstimate = estimateProviderInputTokens(systemOnlyMessages);
+    const imageAttachments = collectAnthropicImages(body.messages);
+    const buildTranscriptMessage = (transcript) => {
+        if (!imageAttachments.length) return { role: 'user', content: transcript };
+        const contentParts = [{ type: 'text', text: transcript }];
+        imageAttachments.forEach((attachment, index) => {
+            const origin = attachment.toolUseId
+                ? 'tool result ' + attachment.toolUseId
+                : attachment.role + ' message ' + (attachment.messageIndex + 1);
+            contentParts.push({
+                type: 'text',
+                text: '[Vision image attachment ' + (index + 1) + ' from ' + origin + ']'
+            });
+            contentParts.push(convertAnthropicImageBlock(attachment.block));
+        });
+        return { role: 'user', content: contentParts };
+    };
     if (systemOnlyEstimate > requestedInputTokens) {
         throw Object.assign(new Error(
             'The provider input budget is too small for the required system and project instructions in an autocompaction request.'
@@ -685,7 +701,7 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
     for (let attempt = 0; attempt < 12; attempt++) {
         const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
-        const providerMessages = [systemMessage, { role: 'user', content: transcript }];
+        const providerMessages = [systemMessage, buildTranscriptMessage(transcript)];
         const estimatedTokens = estimateProviderInputTokens(providerMessages);
         if (estimatedTokens <= requestedInputTokens) return providerMessages;
 
@@ -700,7 +716,7 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
 
     const finalMessages = [
         systemMessage,
-        { role: 'user', content: buildCompactionTranscript(body.messages, transcriptBudget) }
+        buildTranscriptMessage(buildCompactionTranscript(body.messages, transcriptBudget))
     ];
     if (estimateProviderInputTokens(finalMessages) > requestedInputTokens) {
         throw Object.assign(new Error(
