@@ -40,7 +40,7 @@ function redact(value, secrets, fieldName = '') {
   if (SECRET_FIELD.test(fieldName)) return '[REDACTED]';
   if (fieldName === 'source' && value && typeof value === 'object') {
     if (value.type === 'base64' && typeof value.data === 'string') {
-      const isImage = typeof value.media_type === 'string' && /^image\\//i.test(value.media_type);
+      const isImage = typeof value.media_type === 'string' && value.media_type.toLowerCase().startsWith('image/');
       return {
         type: 'base64',
         media_type: value.media_type || null,
