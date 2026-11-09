@@ -444,3 +444,26 @@ test('consolidated DSML prompt mode preserves direct and tool-result images as i
   ]);
   assert.equal(JSON.stringify(providerMessages).includes('"type":"file"'), false);
 });
+
+
+test('compaction provider prompt retains image input as image_url content', () => {
+  const providerMessages = buildCompactionProviderMessages({
+    model: 'byv-flash-v1',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Summarize what is shown.' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4A==' } }
+      ]
+    }]
+  }, { maxInputTokens: 12000 });
+
+  assert.equal(providerMessages.length, 2);
+  assert.equal(providerMessages[1].role, 'user');
+  assert.ok(Array.isArray(providerMessages[1].content));
+  assert.match(providerMessages[1].content[0].text, /Image content supplied/);
+  assert.deepEqual(providerMessages[1].content[1], {
+    type: 'image_url',
+    image_url: { url: 'data:image/jpeg;base64,/9j/4A==' }
+  });
+});
