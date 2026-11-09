@@ -30,6 +30,53 @@ test('converts Anthropic tool_use and tool_result blocks to OpenAI-compatible me
   ]);
 });
 
+test('forwards Anthropic base64 and URL images as OpenAI-compatible image_url content parts', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Describe these images.' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+        { type: 'image', source: { type: 'url', url: 'https://images.example.test/photo.jpg' } }
+      ]
+    }
+  ]);
+
+  assert.deepEqual(messages, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Describe these images.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      { type: 'image_url', image_url: { url: 'https://images.example.test/photo.jpg' } }
+    ]
+  }]);
+});
+
+test('preserves image content returned by tools in text-only DSML history', () => {
+  const messages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_screen', name: 'Screenshot', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_screen',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'aGVsbG8=' } }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].role, 'user');
+  assert.ok(Array.isArray(messages[1].content));
+  assert.ok(messages[1].content.some((part) =>
+    part.type === 'image_url' && part.image_url.url === 'data:image/jpeg;base64,aGVsbG8='
+  ));
+  assert.match(messages[1].content.find((part) => part.type === 'text').text, /Screenshot captured/);
+});
+
 test('rejects orphan tool results and duplicate tool-use IDs', () => {
   assert.throws(() => convertAnthropicMessages([
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'missing', content: 'x' }] }
