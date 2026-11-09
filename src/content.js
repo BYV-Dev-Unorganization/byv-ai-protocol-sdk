@@ -277,10 +277,40 @@ function estimateInputTokens(body) {
 // BYV system prompt, request-specific tools, converted history, and tool results.
 // This is intentionally conservative and remains an estimate, not a tokenizer.
 function estimateProviderInputTokens(messages) {
-  const source = JSON.stringify(Array.isArray(messages) ? messages : []);
+  const sourceMessages = Array.isArray(messages) ? messages : [];
+  let imageCount = 0;
+  const normalizedMessages = sourceMessages.map((message) => {
+    if (!message || !Array.isArray(message.content)) return message;
+    return {
+      ...message,
+      content: message.content.map((part) => {
+        if (part && part.type === 'image_url' && part.image_url && typeof part.image_url.url === 'string') {
+          imageCount++;
+          return {
+            type: 'image_url',
+            image_url: {
+              url: /^data:image\\//i.test(part.image_url.url)
+                ? '[embedded image omitted for token estimate]'
+                : part.image_url.url
+            }
+          };
+        }
+        if (part && part.type === 'image' && part.source) {
+          imageCount++;
+          return { type: 'image', source: { type: part.source.type, media_type: part.source.media_type || null } };
+        }
+        return part;
+      })
+    };
+  });
+  const source = JSON.stringify(normalizedMessages);
   const bytes = Buffer.byteLength(source, 'utf8');
-  const messageOverhead = Array.isArray(messages) ? messages.length * 4 : 0;
-  return Math.max(1, Math.ceil(bytes / 3.5) + messageOverhead);
+  const messageOverhead = sourceMessages.length * 4;
+  // Image token cost depends on dimensions and provider-specific patching,
+  // not the length of an embedded base64 string. Use a bounded per-image
+  // estimate instead of treating encoded bytes as ordinary text tokens.
+  const imageTokenEstimate = imageCount * 2048;
+  return Math.max(1, Math.ceil(bytes / 3.5) + messageOverhead + imageTokenEstimate);
 }
 
 function estimateOutputTokens(result) {
