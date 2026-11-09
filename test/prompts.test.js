@@ -266,6 +266,31 @@ test('forwards vision image attachments in native, DSML, and text-only provider 
   assert.ok(textOnlyContent.some((part) => part.type === 'image_url' && part.image_url.url === expectedUrl));
 });
 
+test('preserves vision images while building a bounded compaction transcript', () => {
+  const image = {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/jpeg', data: 'aGVsbG8=' }
+  };
+  const messages = buildCompactionProviderMessages({
+    model: 'claude-sonnet-5-5',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Remember what is in this picture.' }, image] },
+      { role: 'assistant', content: 'I will keep the image context.' },
+      { role: 'user', content: 'Summarize the conversation so far.' }
+    ]
+  }, { maxInputTokens: 12000 });
+
+  const transcriptContent = messages[1].content;
+  assert.ok(Array.isArray(transcriptContent));
+  assert.ok(transcriptContent.some((part) =>
+    part.type === 'image_url' && part.image_url.url === 'data:image/jpeg;base64,aGVsbG8='
+  ));
+  assert.ok(transcriptContent.some((part) =>
+    part.type === 'text' && part.text.includes('Image content supplied')
+  ));
+  assert.ok(estimateProviderInputTokens(messages) <= 12000);
+});
+
 test('buildCompactionProviderMessages creates a bounded provider-neutral transcript', () => {
   const messages = [
     { role: 'user', content: 'Original task: implement the feature and preserve its requirements.' },
