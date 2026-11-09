@@ -189,3 +189,28 @@ test('rejects image blocks in assistant messages', () => {
     }]
   }).message, /image blocks must appear in user messages/);
 });
+
+
+test('rejects file and document attachment shapes nested inside structured tool-result JSON', () => {
+  const error = validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_structured_file', name: 'Read', input: {} }] },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_structured_file',
+          content: {
+            result: {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+            }
+          }
+        }]
+      }
+    ]
+  });
+
+  assert.match(error.message, /client-side skill or tool/);
+});
