@@ -49,6 +49,40 @@ test('accepts supported base64 and URL image blocks and rejects malformed image 
   }).message, /image blocks must appear in user messages/);
 });
 
+test('accepts additional structured Anthropic and MCP tool-result content blocks', () => {
+  const request = {
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_lookup', name: 'Lookup', input: {} }] },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_lookup',
+          content: [
+            { type: 'text', text: 'Found one result.' },
+            { type: 'search_result', title: 'Example', url: 'https://example.test' },
+            { type: 'document', title: 'Report', source: { type: 'text', data: 'Report text' } }
+          ]
+        }]
+      }
+    ]
+  };
+
+  assert.equal(validateMessagesRequest(request), null);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_missing',
+        content: [{ type: 'image', source: { type: 'base64', media_type: 'text/plain', data: 'aGVsbG8=' } }]
+      }]
+    }]
+  }).message, /string or an array of content blocks/);
+});
+
 test('validates tool schemas and tool_choice references', () => {
   const tools = [{
     name: 'Read',
