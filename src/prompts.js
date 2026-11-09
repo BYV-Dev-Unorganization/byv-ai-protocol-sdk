@@ -632,10 +632,10 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
         });
     }
 
+    const imageParts = collectAnthropicImageParts(body.messages);
     let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
     for (let attempt = 0; attempt < 12; attempt++) {
         const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
-        const imageParts = collectAnthropicImageParts(body.messages);
         const transcriptContent = imageParts.length
             ? [{ type: 'text', text: transcript }, ...imageParts]
             : transcript;
@@ -652,9 +652,13 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
             : Math.max(0, transcriptBudget - 512);
     }
 
+    const finalTranscript = buildCompactionTranscript(body.messages, transcriptBudget);
+    const finalContent = imageParts.length
+        ? [{ type: 'text', text: finalTranscript }, ...imageParts]
+        : finalTranscript;
     const finalMessages = [
         systemMessage,
-        { role: 'user', content: buildCompactionTranscript(body.messages, transcriptBudget) }
+        { role: 'user', content: finalContent }
     ];
     if (estimateProviderInputTokens(finalMessages) > requestedInputTokens) {
         throw Object.assign(new Error(
