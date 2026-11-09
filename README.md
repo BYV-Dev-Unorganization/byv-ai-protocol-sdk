@@ -75,6 +75,51 @@ The model profile is selected from the request model field. The upstream request
 - An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
 - A provider API key, when required by that provider.
 
+## Vision / image input
+
+`POST /v1/messages` accepts Anthropic-style image content blocks. The gateway now forwards them to the configured OpenAI-compatible Chat Completions endpoint as `image_url` content parts, rather than dropping them during message conversion.
+
+Base64 image example:
+
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "What is in this picture?" },
+    {
+      "type": "image",
+      "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "BASE64_IMAGE_DATA"
+      }
+    }
+  ]
+}
+```
+
+URL image example:
+
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "text", "text": "Describe this image." },
+    {
+      "type": "image",
+      "source": {
+        "type": "url",
+        "url": "https://example.com/image.jpg"
+      }
+    }
+  ]
+}
+```
+
+Supported base64 media types are `image/jpeg`, `image/png`, `image/gif`, and `image/webp`. Base64 images become data URLs; HTTP(S) image sources are forwarded as URLs. Image forwarding works with either `DSML_TOOL_CALL=true` or `DSML_TOOL_CALL=false`; that setting controls tool-call transport, not vision. The configured upstream provider and selected model must independently support image inputs through OpenAI-compatible `image_url` parts. Anthropic Files API `file_id` image sources are not supported by this gateway yet.
+
+The gateway estimates image usage separately from the length of base64 data because visual-token cost depends on image dimensions and provider-specific processing. The default request body limit is 12 MiB to leave room for image data plus JSON metadata; adjust `MAX_BODY_BYTES` if your workflow needs larger payloads.
+
 ## Setup
 
 Install dependencies:
@@ -200,7 +245,7 @@ To explicitly capture request and response content for local debugging, set:
 LOG_CAPTURE_CONTENT=true
 ```
 
-When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
+When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Base64 image data and image URLs are also redacted from captured diagnostics. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
 
 Each JSONL file is limited to 10 MiB by default and keeps three rotated backups. Override with `LOG_MAX_FILE_BYTES` and `LOG_ROTATION_FILES`. The entire `logs/` directory is excluded from Git.
 
