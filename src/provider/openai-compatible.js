@@ -165,16 +165,64 @@ async function fetchWithTimeout(url, init, signal) {
   }
 }
 
+function sanitizeProviderErrorDetail(value, maxLength = 900) {
+  if (typeof value !== 'string') {
+    try { value = JSON.stringify(value); } catch { value = String(value); }
+  }
+  return String(value)
+    .replace(/data:image\\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, '[IMAGE DATA REDACTED]')
+    .replace(/\\bBearer\\s+[A-Za-z0-9._~+\\/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\\b(?:sk|rk|pk|sk-or-v1)-[A-Za-z0-9_-]{12,}\\b/g, '[REDACTED]')
+    .replace(/(api[_-]?key|access[_-]?token|secret|password)\\s*[:=]\\s*[^\\s,;]+/gi, '$1=[REDACTED]')
+    .replace(/\\b[A-Za-z0-9+/]{160,}={0,2}\\b/g, '[LONG DATA REDACTED]')
+    .slice(0, maxLength);
+}
+
 async function readProviderError(response) {
   const body = await response.text().catch(() => '');
-  let detail = body.slice(0, 1200);
+  let detail = sanitizeProviderErrorDetail(body, 1200);
+  let parsed = null;
   try {
-    const parsed = JSON.parse(body);
-    detail = parsed.error && (parsed.error.message || parsed.error.code)
-      ? String(parsed.error.message || parsed.error.code)
-      : detail;
+    parsed = JSON.parse(body);
   } catch {}
+
+  const upstreamError = parsed && parsed.error && typeof parsed.error === 'object'
+    ? parsed.error
+    : null;
+  if (upstreamError) {
+    const parts = [];
+    const message = upstreamError.message || upstreamError.code;
+    if (message) parts.push(sanitizeProviderErrorDetail(message, 500));
+
+    const metadata = upstreamError.metadata && typeof upstreamError.metadata === 'object'
+      ? upstreamError.metadata
+      : {};
+    if (metadata.provider_name) {
+      parts.push('provider=' + sanitizeProviderErrorDetail(metadata.provider_name, 100));
+    }
+    if (metadata.error_type) {
+      parts.push('error_type=' + sanitizeProviderErrorDetail(metadata.error_type, 100));
+    }
+    if (metadata.raw) {
+      let raw = metadata.raw;
+      try {
+        const rawJson = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const nestedMessage = rawJson && rawJson.error &&
+          (rawJson.error.message || rawJson.error.code);
+        if (nestedMessage) raw = nestedMessage;
+      } catch {}
+      parts.push('provider_raw=' + sanitizeProviderErrorDetail(raw, 900));
+    }
+    if (parts.length) detail = parts.join('; ');
+  }
+
   const contextOverflow = /context_length_exceeded|maximum context length|context window.{0,40}(?:exceed|limit|token)|(?:prompt|input).{0,40}(?:too long|too many tokens|exceed.{0,20}context)/i.test(detail);
+  const requestId = response.headers && (
+    response.headers.get('x-request-id') ||
+    response.headers.get('x-openrouter-request-id')
+  );
+  if (requestId) detail += '; upstream_request_id=' + sanitizeProviderErrorDetail(requestId, 120);
+
   return new ProviderError(
     'OpenAI-compatible provider returned HTTP ' + response.status + (detail ? ': ' + detail : ''),
     contextOverflow ? 400 : 502,
@@ -354,6 +402,7 @@ module.exports = {
   ProviderError,
   completionsUrl,
   buildPayload,
+  sanitizeProviderErrorDetail,
   createChatCompletion,
   createStreamingChatCompletion
 };
