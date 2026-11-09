@@ -116,12 +116,20 @@ function buildPayload(messages, options = {}) {
   return { config, payload };
 }
 
-function requestHeaders(apiKey, anthropicVersion) {
+function requestHeaders(apiKey, anthropicVersion, providerUrl) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-  if (typeof anthropicVersion === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(anthropicVersion)) {
+  if (typeof anthropicVersion === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(anthropicVersion)) {
     headers['anthropic-version'] = anthropicVersion;
   }
+  // Opt in to routing diagnostics only for OpenRouter endpoints. This header
+  // does not change the model payload or tool-calling behavior.
+  try {
+    const hostname = new URL(providerUrl).hostname.toLowerCase();
+    if (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')) {
+      headers['X-OpenRouter-Metadata'] = 'enabled';
+    }
+  } catch {}
   return headers;
 }
 
@@ -221,6 +229,19 @@ async function readProviderError(response) {
     if (parts.length) detail = parts.join('; ');
   }
 
+  const routingMetadata = parsed && parsed.openrouter_metadata &&
+    typeof parsed.openrouter_metadata === 'object'
+    ? parsed.openrouter_metadata
+    : (upstreamError && upstreamError.metadata &&
+       upstreamError.metadata.openrouter_metadata &&
+       typeof upstreamError.metadata.openrouter_metadata === 'object'
+      ? upstreamError.metadata.openrouter_metadata
+      : null);
+  if (routingMetadata) {
+    detail += (detail ? '; ' : '') +
+      'openrouter_metadata=' + sanitizeProviderErrorDetail(routingMetadata, 1200);
+  }
+
   const contextOverflow = /context_length_exceeded|maximum context length|context window.{0,40}(?:exceed|limit|token)|(?:prompt|input).{0,40}(?:too long|too many tokens|exceed.{0,20}context)/i.test(detail);
   const requestId = response.headers && (
     response.headers.get('x-request-id') ||
@@ -256,7 +277,7 @@ async function createChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: requestHeaders(config.apiKey, options.anthropicVersion),
+      headers: requestHeaders(config.apiKey, options.anthropicVersion, config.url),
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);
@@ -291,7 +312,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: { ...requestHeaders(config.apiKey, options.anthropicVersion), Accept: 'text/event-stream' },
+      headers: { ...requestHeaders(config.apiKey, options.anthropicVersion, config.url), Accept: 'text/event-stream' },
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);

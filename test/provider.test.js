@@ -323,3 +323,68 @@ test('preserves the upstream response ID from streaming provider responses', () 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stdout, 'chatcmpl-office-stream-123');
 });
+
+
+test('enables OpenRouter routing metadata only for OpenRouter endpoints', async (t) => {
+  const { provider } = loadProvider(t, {
+    PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1'
+  });
+  let capturedHeaders;
+  global.fetch = async (_url, init) => {
+    capturedHeaders = new Headers(init.headers);
+    return response({
+      payload: {
+        id: 'gen_openrouter_metadata_test',
+        model: 'stealth/crouton-alpha',
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 }
+      }
+    });
+  };
+
+  await provider.createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 });
+  assert.equal(capturedHeaders.get('x-openrouter-metadata'), 'enabled');
+  assert.equal(capturedHeaders.get('authorization'), 'Bearer provider-test-secret');
+});
+
+test('includes OpenRouter routing metadata and upstream request ID in provider errors', async (t) => {
+  const { provider } = loadProvider(t, {
+    PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1'
+  });
+  global.fetch = async () => new Response(JSON.stringify({
+    error: {
+      code: 400,
+      message: 'Provider returned error',
+      metadata: {
+        provider_name: 'Stealth',
+        is_byok: false,
+        raw: 'ERROR'
+      }
+    },
+    openrouter_metadata: {
+      requested: 'stealth/crouton-alpha',
+      strategy: 'fallback',
+      region: 'iad',
+      summary: 'available=1',
+      attempt: 1
+    }
+  }), {
+    status: 400,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-request-id': 'or-request-test-123'
+    }
+  });
+
+  await assert.rejects(
+    provider.createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 }),
+    (error) => {
+      assert.equal(error.code, 'UPSTREAM_HTTP_400');
+      assert.match(error.message, /provider=Stealth/);
+      assert.match(error.message, /openrouter_metadata=/);
+      assert.match(error.message, /strategy.*fallback/);
+      assert.match(error.message, /upstream_request_id=or-request-test-123/);
+      return true;
+    }
+  );
+});
