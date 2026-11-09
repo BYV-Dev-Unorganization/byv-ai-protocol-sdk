@@ -2,11 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const os = require('node:os');
-const path = require('node:path');
 const { createServer } = require('../src/server');
-const { createFileStore } = require('../src/file-store');
 const { GATEWAY_API_KEY, PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
 
 async function withServer(t, options) {
@@ -485,118 +481,43 @@ test('supports Claude for Office CORS preflight and forwards anthropic-version',
 });
 
 
-test('implements local Files API upload, metadata, deletion, and Messages file_id references', async (t) => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'byv-server-files-'));
-  t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  const fileStore = createFileStore({ directory });
-  const capturedBodies = [];
+test('keeps raw file handling on the Claude client and rejects gateway file attachments', async (t) => {
+  let handlerCalled = false;
   const base = await withServer(t, {
-    fileStore,
-    handleMessages: async (body) => {
-      capturedBodies.push(body);
-      return {
-        id: 'msg_file_reference_test',
-        content: [{ type: 'text', text: 'File processed.' }],
-        toolCalls: [],
-        stop_reason: 'end_turn',
-        usage: { input_tokens: 8, output_tokens: 4 },
-        usage_estimated: false
-      };
+    handleMessages: async () => {
+      handlerCalled = true;
+      throw new Error('unsupported file attachments must be rejected before inference');
     }
   });
 
-  async function uploadFile(filename, mimeType, data) {
-    const form = new FormData();
-    form.append('file', new Blob([data], { type: mimeType }), filename);
-    const response = await fetch(base + '/v1/files', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + GATEWAY_API_KEY },
-      body: form
-    });
-    assert.equal(response.status, 200);
-    return response.json();
-  }
-
-  const pdfBytes = Buffer.from('%PDF-1.7 test document');
-  const pdf = await uploadFile('report.pdf', 'application/pdf', pdfBytes);
-  assert.match(pdf.id, /^file_[a-f0-9]{24}$/);
-  assert.equal(pdf.filename, 'report.pdf');
-  assert.equal(pdf.mime_type, 'application/pdf');
-  assert.equal(pdf.size_bytes, pdfBytes.length);
-  assert.equal(pdf.downloadable, false);
-
-  const metadataResponse = await fetch(base + '/v1/files/' + pdf.id, {
-    headers: authHeaders()
+  const filesApi = await fetch(base + '/v1/files', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ filename: 'report.pdf' })
   });
-  assert.equal(metadataResponse.status, 200);
-  assert.equal((await metadataResponse.json()).id, pdf.id);
+  assert.equal(filesApi.status, 404);
 
-  const listResponse = await fetch(base + '/v1/files', { headers: authHeaders() });
-  assert.equal(listResponse.status, 200);
-  assert.deepEqual((await listResponse.json()).data.map((item) => item.id), [pdf.id]);
-
-  const downloadResponse = await fetch(base + '/v1/files/' + pdf.id + '/content', {
-    headers: authHeaders()
-  });
-  assert.equal(downloadResponse.status, 400);
-  assert.equal((await downloadResponse.json()).error.code, 'FILE_NOT_DOWNLOADABLE');
-
-  const pdfMessage = await fetch(base + '/v1/messages', {
+  const response = await fetch(base + '/v1/messages', {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
       model: 'byv-flash-v1',
       max_tokens: 64,
-      tool_choice: 'none',
       messages: [{
         role: 'user',
         content: [
-          { type: 'text', text: 'Summarize the attached file.' },
-          { type: 'document', source: { type: 'file', file_id: pdf.id } }
+          { type: 'text', text: 'Summarize this report.' },
+          {
+            type: 'document',
+            title: 'report.pdf',
+            source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+          }
         ]
       }]
     })
   });
-  assert.equal(pdfMessage.status, 200);
-  assert.equal(capturedBodies[0].messages[0].content[1].source.type, 'base64');
-  assert.equal(capturedBodies[0].messages[0].content[1].source.media_type, 'application/pdf');
-  assert.equal(
-    Buffer.from(capturedBodies[0].messages[0].content[1].source.data, 'base64').toString('utf8'),
-    pdfBytes.toString('utf8')
-  );
-
-  const text = await uploadFile('notes.txt', 'text/plain', Buffer.from('plain text attachment'));
-  const textMessage = await fetch(base + '/v1/messages', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: JSON.stringify({
-      model: 'byv-flash-v1',
-      max_tokens: 64,
-      tool_choice: 'none',
-      messages: [{
-        role: 'user',
-        content: [{
-          type: 'document',
-          context: 'Use the notes as reference.',
-          source: { type: 'file', file_id: text.id }
-        }]
-      }]
-    })
-  });
-  assert.equal(textMessage.status, 200);
-  assert.deepEqual(capturedBodies[1].messages[0].content, [{
-    type: 'text',
-    text: '[File: notes.txt]\nUse the notes as reference.\n\nplain text attachment'
-  }]);
-
-  const deleted = await fetch(base + '/v1/files/' + pdf.id, {
-    method: 'DELETE',
-    headers: authHeaders()
-  });
-  assert.equal(deleted.status, 200);
-  assert.equal((await deleted.json()).deleted, true);
-  const afterDelete = await fetch(base + '/v1/files/' + pdf.id, {
-    headers: authHeaders()
-  });
-  assert.equal(afterDelete.status, 404);
+  assert.equal(response.status, 400);
+  assert.equal(handlerCalled, false);
+  const result = await response.json();
+  assert.match(result.error.message, /Claude client-side skill or tool/);
 });
