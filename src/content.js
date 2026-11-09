@@ -241,7 +241,16 @@ function convertAnthropicMessages(messages, options = {}) {
           }
         }
       }
-      if (hasUserImages) {
+      const hasToolResultImages = toolResults.some((result) =>
+        Array.isArray(result.content) && result.content.some((block) => block && block.type === 'image')
+      );
+      if (hasUserImages || hasToolResultImages) {
+        if (!hasUserImages) {
+          const combinedText = [userContent, ...textParts]
+            .filter((part) => typeof part === 'string' && part)
+            .join('\n\n');
+          if (combinedText) providerParts.unshift({ type: 'text', text: combinedText });
+        }
         output.push({ role: 'user', content: providerParts });
       } else {
         const parts = textParts.slice();
