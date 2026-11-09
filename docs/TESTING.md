@@ -47,7 +47,7 @@ These commands require a running gateway and/or a real configured upstream provi
 npm run test:sdk
 ```
 
-Checks the official Anthropic SDK against the running gateway, including Messages, token counting, streaming, and tool-use round trips. For a local gateway, it reports the active `tool_transport` from `/health`. It uses the gateway mode selected when `npm start` was launched and is expected to pass in both DSML and provider-native modes. Its live tool-use checks use `tool_choice: auto` to remain compatible with providers that do not implement named-tool selection; exact named-tool choice mapping is covered by the deterministic regression suite. The default profile is `claude-sonnet-5-5`, matching the passing Claude Code CLI smoke profile, and native tool requests allow 1024 output tokens.
+Checks the official Anthropic SDK against the running gateway, including Messages, token counting, streaming, and tool-use round trips. For a local gateway, it reports the active `tool_transport` from `/health`. It uses the gateway mode selected when `npm start` was launched and is expected to pass in both DSML and provider-native modes. Its live tool-use checks use Anthropic `tool_choice: any`, which maps to provider `required`. This forces a tool call without relying on the model to choose one under `auto` or requiring support for named-tool selection. Exact named-tool choice mapping is covered by the deterministic regression suite. The default profile is `claude-sonnet-5-5`, matching the passing Claude Code CLI smoke profile, and native tool requests allow 1024 output tokens.
 
 ### Provider-native tools
 
@@ -55,7 +55,7 @@ Checks the official Anthropic SDK against the running gateway, including Message
 npm run test:provider-tools
 ```
 
-Checks whether the configured upstream provider can return a structured native function call. This is a direct provider-adapter probe that bypasses the gateway handler and its `DSML_TOOL_CALL` switch, so its result is independent of the active gateway mode. It specifically verifies provider-native function-calling capability; it does not verify DSML mode. Because it calls the provider adapter directly, the script explicitly enables native tool calling and builds the same native-mode system prompt/profile used by the gateway. Its output budget is 1024 tokens to reduce false failures from reasoning-heavy responses being cut off before the function call is complete.
+Checks whether the configured upstream provider can return a structured native function call. This is a direct provider-adapter probe that bypasses the gateway handler and its `DSML_TOOL_CALL` switch, so its result is independent of the active gateway mode. It specifically verifies provider-native function-calling capability; it does not verify DSML mode. Because it calls the provider adapter directly, the script explicitly enables native tool calling, sets provider `tool_choice: required`, and builds the same native-mode system prompt/profile used by the gateway. Its output budget is 1024 tokens to reduce false failures from reasoning-heavy responses being cut off before the function call is complete.
 
 The synthetic tool is not executed.
 
