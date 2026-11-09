@@ -1,6 +1,6 @@
 'use strict';
 
-const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, convertAnthropicImageBlock, collectAnthropicImages, estimateProviderInputTokens } = require('./content');
+const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, convertAnthropicImageBlock, convertAnthropicDocumentBlock, collectAnthropicAttachments, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
     DSML_TOOL_CALL,
@@ -38,6 +38,11 @@ function renderMessage(message) {
             rendered.push('[Tool result for ' + block.tool_use_id + ': ' + renderToolResultContent(block.content) + ']');
         } else if (block.type === 'image') {
             rendered.push('[Image content supplied]');
+        } else if (block.type === 'document') {
+            rendered.push('[Document attachment supplied' +
+                (typeof block.title === 'string' && block.title.trim() ? ': ' + block.title.trim() : '') + ']');
+        } else if (block.type === 'container_upload') {
+            rendered.push('[Container upload file reference supplied]');
         } else {
             rendered.push('[' + block.type + ' content]');
         }
@@ -537,18 +542,22 @@ function buildProviderMessages(body = {}, options = {}) {
                 statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
             });
         }
-        const imageAttachments = collectAnthropicImages(messages);
-        if (imageAttachments.length) {
+        const attachments = collectAnthropicAttachments(messages);
+        if (attachments.length) {
             const contentParts = [{ type: 'text', text: prompt }];
-            imageAttachments.forEach((attachment, index) => {
+            attachments.forEach((attachment, index) => {
                 const origin = attachment.toolUseId
                     ? 'tool result ' + attachment.toolUseId
                     : attachment.role + ' message ' + (attachment.messageIndex + 1);
+                const isDocument = attachment.block.type === 'document';
                 contentParts.push({
                     type: 'text',
-                    text: '[Vision image attachment ' + (index + 1) + ' from ' + origin + ']'
+                    text: '[' + (isDocument ? 'Document' : 'Vision image') +
+                        ' attachment ' + (index + 1) + ' from ' + origin + ']'
                 });
-                contentParts.push(convertAnthropicImageBlock(attachment.block));
+                contentParts.push(isDocument
+                    ? convertAnthropicDocumentBlock(attachment.block)
+                    : convertAnthropicImageBlock(attachment.block));
             });
             return [{ role: 'user', content: contentParts }];
         }
@@ -672,19 +681,23 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     const systemMessage = { role: 'system', content: systemPrompt };
     const systemOnlyMessages = [systemMessage, { role: 'user', content: '' }];
     const systemOnlyEstimate = estimateProviderInputTokens(systemOnlyMessages);
-    const imageAttachments = collectAnthropicImages(body.messages);
+    const attachments = collectAnthropicAttachments(body.messages);
     const buildTranscriptMessage = (transcript) => {
-        if (!imageAttachments.length) return { role: 'user', content: transcript };
+        if (!attachments.length) return { role: 'user', content: transcript };
         const contentParts = [{ type: 'text', text: transcript }];
-        imageAttachments.forEach((attachment, index) => {
+        attachments.forEach((attachment, index) => {
             const origin = attachment.toolUseId
                 ? 'tool result ' + attachment.toolUseId
                 : attachment.role + ' message ' + (attachment.messageIndex + 1);
+            const isDocument = attachment.block.type === 'document';
             contentParts.push({
                 type: 'text',
-                text: '[Vision image attachment ' + (index + 1) + ' from ' + origin + ']'
+                text: '[' + (isDocument ? 'Document' : 'Vision image') +
+                    ' attachment ' + (index + 1) + ' from ' + origin + ']'
             });
-            contentParts.push(convertAnthropicImageBlock(attachment.block));
+            contentParts.push(isDocument
+                ? convertAnthropicDocumentBlock(attachment.block)
+                : convertAnthropicImageBlock(attachment.block));
         });
         return { role: 'user', content: contentParts };
     };

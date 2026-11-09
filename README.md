@@ -77,7 +77,7 @@ The model profile is selected from the request model field. The upstream request
 
 ## Vision / image input
 
-`POST /v1/messages` accepts Anthropic-style image content blocks. The gateway now forwards them to the configured OpenAI-compatible Chat Completions endpoint as `image_url` content parts, rather than dropping them during message conversion.
+`POST /v1/messages` accepts Anthropic-style image and document content blocks. Images are forwarded as OpenAI-compatible `image_url` parts. Inline base64 documents are forwarded as OpenRouter Chat Completions `file` parts with their filename and MIME type. Provider and model support still determine which formats can actually be parsed.
 
 Base64 image example:
 
@@ -116,9 +116,11 @@ URL image example:
 }
 ```
 
-Supported base64 media types are `image/jpeg`, `image/png`, `image/gif`, and `image/webp`. Base64 images become data URLs; HTTP(S) image sources are forwarded as URLs. Image forwarding works with either `DSML_TOOL_CALL=true` or `DSML_TOOL_CALL=false`; that setting controls tool-call transport, not vision. The configured upstream provider and selected model must independently support image inputs through OpenAI-compatible `image_url` parts. Anthropic Files API `file_id` image sources are not supported by this gateway yet.
+Supported base64 image media types are `image/jpeg`, `image/png`, `image/gif`, and `image/webp`. Image and inline document attachments are retained in native, DSML, text-only, and compaction paths. Inline base64 document blocks map to OpenRouter `file` content parts. PDF processing is documented by OpenRouter; support for other MIME types depends on the selected provider and model. Anthropic URL-based document sources and `file_id` references cannot be mapped to OpenRouter Chat Completions in this adapter. `container_upload` requires Anthropic Code Execution and is rejected clearly because this gateway does not implement that server-side tool.
 
-The gateway estimates image usage separately from the length of base64 data because visual-token cost depends on image dimensions and provider-specific processing. The default request body limit is 12 MiB to leave room for image data plus JSON metadata; adjust `MAX_BODY_BYTES` if your workflow needs larger payloads.
+Anthropic's native document support covers PDF and plain text. Other formats such as DOCX and XLSX may require conversion to plain text or PDF for Claude-native document handling. Do not assume every provider supports every MIME type. File parsing and input-token costs depend on the format and provider.
+
+The default inbound request-body limit is **128 MiB**, matching the first-party Anthropic Messages API. Anthropic's separate Files API permits 500 MB per uploaded file, but this gateway does not expose Anthropic's `/v1/files` endpoint, so the 500 MB limit does not apply here. OpenRouter separately documents a 100 MB Files API upload limit. The current `/v1/messages` inline path uses the 128 MiB body ceiling. If your existing local `.env` contains `MAX_BODY_BYTES=12582912`, remove that line or change it to `134217728`; explicit local values override the code default.
 
 ## Setup
 
@@ -484,7 +486,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 
 - model
 - system
-- messages with text, tool_use, and tool_result blocks
+- messages with text, image, document, tool_use, and tool_result blocks
 - max_tokens
 - stream
 - tools and input_schema
@@ -494,7 +496,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 - stop_sequences
 - output_config.effort: low, medium, high, xhigh, max
 
-The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
+The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Anthropic Files API uploads/file_id references, URL-based document sources, container_upload/Code Execution, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
 
 ### Native reasoning effort
 
@@ -564,7 +566,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |
 | PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |
 | CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
-| MAX_BODY_BYTES | 10485760 | Maximum inbound JSON request body |
+| MAX_BODY_BYTES | 134217728 | Maximum inbound JSON request body (128 MiB, matching Anthropic Messages API) |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
 | MAX_PROMPT_CHARS | 4000000 | Maximum generated system prompt size in characters (configurable up to 8000000) |
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |

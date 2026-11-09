@@ -35,6 +35,29 @@ function validImageSource(source) {
   return false;
 }
 
+function validDocumentSource(source) {
+  if (!isPlainObject(source)) return false;
+  if (source.type === 'base64') {
+    return typeof source.media_type === 'string' &&
+      /^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$/i.test(source.media_type) &&
+      !/^(?:image|audio|video)\\//i.test(source.media_type) &&
+      typeof source.data === 'string' &&
+      source.data.length > 0 &&
+      source.data.length % 4 === 0 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(source.data);
+  }
+  if (source.type === 'url' && typeof source.url === 'string') {
+    try {
+      const url = new URL(source.url);
+      return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+    } catch { return false; }
+  }
+  if (source.type === 'file') {
+    return typeof source.file_id === 'string' && source.file_id.trim().length > 0;
+  }
+  return false;
+}
+
 function validContent(content, allowedTypes) {
   if (typeof content === 'string') return true;
   if (!Array.isArray(content)) return false;
@@ -43,6 +66,14 @@ function validContent(content, allowedTypes) {
         typeof block.type !== 'string' ||
         !allowedTypes.includes(block.type)) return false;
     if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'document') {
+      return validDocumentSource(block.source) &&
+        (block.title === undefined || typeof block.title === 'string') &&
+        (block.context === undefined || typeof block.context === 'string');
+    }
+    if (block.type === 'container_upload') {
+      return typeof block.file_id === 'string' && block.file_id.trim().length > 0;
+    }
     if (block.type === 'text') return typeof block.text === 'string';
     return true;
   });
@@ -57,6 +88,11 @@ function validToolResultContent(content) {
   return content.every((block) => {
     if (!isPlainObject(block) || typeof block.type !== 'string') return false;
     if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'document') {
+      if (block.source && block.source.type === 'text') return typeof block.source.data === 'string';
+      return validDocumentSource(block.source);
+    }
+    if (block.type === 'container_upload') return typeof block.file_id === 'string' && block.file_id.trim().length > 0;
     if (block.type === 'text') return typeof block.text === 'string';
     // Tool results may contain additional Anthropic/MCP content block types
     // (for example document, resource, or search-result blocks). Preserve
@@ -67,7 +103,7 @@ function validToolResultContent(content) {
 
 function validateMessagesRequest(body, options = {}) {
   const countTokens = options.countTokens === true;
-  const allowedBlocks = ['text', 'image', 'tool_use', 'tool_result'];
+  const allowedBlocks = ['text', 'image', 'document', 'container_upload', 'tool_use', 'tool_result'];
 
   if (!isPlainObject(body)) {
     return { type: 'invalid_request_error', message: 'Request body must be a JSON object.' };
@@ -100,14 +136,21 @@ function validateMessagesRequest(body, options = {}) {
       if (message.role === 'assistant' && block.type === 'tool_result') {
         return { type: 'invalid_request_error', message: 'tool_result blocks must appear in user messages.' };
       }
-      if (message.role === 'assistant' && block.type === 'image') {
-        return { type: 'invalid_request_error', message: 'image blocks must appear in user messages.' };
+      if (message.role === 'assistant' && ['image', 'document', 'container_upload'].includes(block.type)) {
+        return { type: 'invalid_request_error', message: block.type + ' blocks must appear in user messages.' };
       }
       if (message.role === 'user' && block.type === 'tool_use') {
         return { type: 'invalid_request_error', message: 'tool_use blocks must appear in assistant messages.' };
       }
       if (block.type === 'text' && typeof block.text !== 'string') {
         return { type: 'invalid_request_error', message: 'Text blocks require a string text field.' };
+      }
+      if (block.type === 'document' && !validDocumentSource(block.source)) {
+        return { type: 'invalid_request_error', message: 'Document blocks require a valid base64, URL, or file_id source.' };
+      }
+      if (block.type === 'container_upload' &&
+          (typeof block.file_id !== 'string' || !block.file_id.trim())) {
+        return { type: 'invalid_request_error', message: 'container_upload blocks require a non-empty file_id.' };
       }
       if (block.type === 'tool_use' &&
           (typeof block.id !== 'string' || !block.id || typeof block.name !== 'string' || !isPlainObject(block.input))) {
@@ -226,4 +269,4 @@ function normalizeAnthropicMessagesRequest(body) {
   return { body: { ...body, system: systemBlocks, messages }, normalizedInstructionMessages: count };
 }
 
-module.exports = { isPlainObject, validContent, validToolResultContent, validateMessagesRequest, normalizeAnthropicMessagesRequest };
+module.exports = { isPlainObject, validContent, validDocumentSource, validToolResultContent, validateMessagesRequest, normalizeAnthropicMessagesRequest };

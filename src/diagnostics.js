@@ -40,16 +40,23 @@ function redact(value, secrets, fieldName = '') {
   if (SECRET_FIELD.test(fieldName)) return '[REDACTED]';
   if (fieldName === 'source' && value && typeof value === 'object') {
     if (value.type === 'base64' && typeof value.data === 'string') {
+      const isImage = typeof value.media_type === 'string' && /^image\\//i.test(value.media_type);
       return {
         type: 'base64',
         media_type: value.media_type || null,
-        data: '[IMAGE DATA REDACTED]',
+        data: isImage ? '[IMAGE DATA REDACTED]' : '[FILE DATA REDACTED]',
         data_bytes: Buffer.byteLength(value.data, 'utf8')
       };
     }
     if (value.type === 'url' && typeof value.url === 'string') {
-      return { type: 'url', url: '[IMAGE URL REDACTED]' };
+      return { type: 'url', url: '[ATTACHMENT URL REDACTED]' };
     }
+  }
+  if (fieldName === 'file_data' && typeof value === 'string') {
+    return '[FILE DATA REDACTED] (' + Buffer.byteLength(value, 'utf8') + ' bytes)';
+  }
+  if (fieldName === 'file_url' && typeof value === 'string') {
+    return '[FILE URL REDACTED]';
   }
   if (fieldName === 'image_url' && value && typeof value === 'object' && typeof value.url === 'string') {
     const isDataUrl = /^data:image\//i.test(value.url);

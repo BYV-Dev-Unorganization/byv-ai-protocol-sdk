@@ -137,6 +137,43 @@ test('diagnostics write a correlated timeline and split event categories', (t) =
   assert.ok(timeline.every((entry) => typeof entry.timestamp === 'string'));
 });
 
+test('opt-in diagnostics redact inline document bytes and provider file content', (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const diagnostics = createDiagnostics({ directory, captureContent: true });
+  const data = 'private-document-base64-value';
+  const signedUrl = 'https://files.example.test/private.pdf?signature=private-signature';
+
+  diagnostics.record('request.received', {
+    request_id: 'req_file_capture',
+    content: { body: { messages: [{
+      role: 'user',
+      content: [{ type: 'document', title: 'private.pdf', source: {
+        type: 'base64', media_type: 'application/pdf', data
+      } }]
+    }] } }
+  });
+  diagnostics.record('provider.request.started', {
+    request_id: 'req_file_capture',
+    content: { messages: [{
+      role: 'user',
+      content: [{ type: 'file', file: {
+        filename: 'private.pdf', file_data: 'data:application/pdf;base64,' + data
+      } }]
+    }] }
+  });
+  diagnostics.record('provider.request.started', {
+    request_id: 'req_file_url_capture',
+    content: { file_url: signedUrl }
+  });
+
+  const serialized = JSON.stringify(readJsonl(path.join(directory, 'timeline.jsonl')));
+  assert.equal(serialized.includes(data), false);
+  assert.equal(serialized.includes(signedUrl), false);
+  assert.match(serialized, /FILE DATA REDACTED/);
+  assert.match(serialized, /FILE URL REDACTED/);
+});
+
 test('diagnostic files rotate when their configured size is reached', (t) => {
   const directory = temporaryDirectory();
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

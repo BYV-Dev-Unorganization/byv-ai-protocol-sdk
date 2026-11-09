@@ -266,6 +266,57 @@ test('forwards vision image attachments in native, DSML, and text-only provider 
   assert.ok(textOnlyContent.some((part) => part.type === 'image_url' && part.image_url.url === expectedUrl));
 });
 
+test('forwards document blocks through native, DSML, and text-only provider paths', () => {
+  const document = {
+    type: 'document',
+    title: 'research.pdf',
+    source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+  };
+  const request = {
+    model: 'byv-flash-v1',
+    tools: [readTool],
+    tool_choice: 'auto',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'Read the report.' }, document] }]
+  };
+
+  const native = buildProviderMessages(request, { noToolExperiment: false, nativeToolCalling: true });
+  assert.ok(native.find((message) => message.role === 'user').content.some((part) =>
+    part.type === 'file' && part.file.filename === 'research.pdf'
+  ));
+
+  const dsml = buildProviderMessages(request, { noToolExperiment: true, nativeToolCalling: false });
+  assert.ok(dsml[0].content.some((part) => part.type === 'file' && part.file.filename === 'research.pdf'));
+
+  const textOnly = buildProviderMessages({
+    ...request,
+    tools: [],
+    tool_choice: 'none'
+  }, { noToolExperiment: true, nativeToolCalling: false });
+  assert.ok(textOnly.find((message) => message.role === 'user').content.some((part) =>
+    part.type === 'file' && part.file.filename === 'research.pdf'
+  ));
+});
+
+test('preserves documents while creating a bounded compaction transcript', () => {
+  const document = {
+    type: 'document',
+    title: 'notes.txt',
+    source: { type: 'base64', media_type: 'text/plain', data: 'SGVsbG8gd29ybGQ=' }
+  };
+  const messages = buildCompactionProviderMessages({
+    model: 'claude-sonnet-5-5',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Remember this document.' }, document] },
+      { role: 'assistant', content: 'I will retain document context.' },
+      { role: 'user', content: 'Summarize the conversation so far.' }
+    ]
+  }, { maxInputTokens: 12000 });
+
+  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'notes.txt'));
+  assert.ok(messages[1].content.some((part) => part.type === 'text' && /Document attachment supplied/.test(part.text)));
+  assert.ok(estimateProviderInputTokens(messages) <= 12000);
+});
+
 test('preserves vision images while building a bounded compaction transcript', () => {
   const image = {
     type: 'image',

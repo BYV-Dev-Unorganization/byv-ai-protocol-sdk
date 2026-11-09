@@ -49,6 +49,44 @@ test('accepts supported base64 and URL image blocks and rejects malformed image 
   }).message, /image blocks must appear in user messages/);
 });
 
+test('accepts inline document blocks and validates file references', () => {
+  const pdf = {
+    type: 'document',
+    title: 'annual-report.pdf',
+    source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+  };
+  const textFile = {
+    type: 'document',
+    title: 'notes.txt',
+    source: { type: 'base64', media_type: 'text/plain', data: 'SGVsbG8=' }
+  };
+
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [
+      pdf,
+      textFile,
+      { type: 'document', source: { type: 'url', url: 'https://example.test/report.pdf' } },
+      { type: 'document', source: { type: 'file', file_id: 'file_123' } }
+    ] }]
+  }), null);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'assistant', content: [pdf] }]
+  }).message, /document blocks must appear in user messages/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [{
+      type: 'document',
+      source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' }
+    }] }]
+  }).message, /unsupported block type/);
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [{ type: 'container_upload', file_id: 'file_123' }] }]
+  }), null);
+});
+
 test('accepts additional structured Anthropic and MCP tool-result content blocks', () => {
   const request = {
     ...minimal,

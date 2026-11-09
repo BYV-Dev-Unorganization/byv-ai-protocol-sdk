@@ -77,6 +77,89 @@ test('preserves image content returned by tools in text-only DSML history', () =
   assert.match(messages[1].content.find((part) => part.type === 'text').text, /Screenshot captured/);
 });
 
+test('forwards inline documents as OpenRouter file parts', () => {
+  const pdf = {
+    type: 'document',
+    title: 'annual-report.pdf',
+    source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+  };
+  const csv = {
+    type: 'document',
+    title: 'metrics.csv',
+    source: { type: 'base64', media_type: 'text/csv', data: 'YSxiCjEsMg==' }
+  };
+  const native = convertAnthropicMessages([{
+    role: 'user',
+    content: [{ type: 'text', text: 'Summarize these files.' }, pdf, csv]
+  }]);
+  assert.deepEqual(native[0].content, [
+    { type: 'text', text: 'Summarize these files.' },
+    { type: 'file', file: { filename: 'annual-report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
+    { type: 'file', file: { filename: 'metrics.csv', file_data: 'data:text/csv;base64,YSxiCjEsMg==' } }
+  ]);
+
+  const dsml = convertAnthropicMessages([{
+    role: 'user',
+    content: [{ type: 'text', text: 'Summarize this report.' }, pdf]
+  }], { nativeToolCalling: false });
+  assert.ok(dsml[0].content.some((part) => part.type === 'file' && part.file.filename === 'annual-report.pdf'));
+});
+
+test('preserves document files returned by tools in DSML history without exposing base64 as text', () => {
+  const data = 'UEsDBA==';
+  const messages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_file', name: 'GetFile', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_file',
+        content: [
+          { type: 'text', text: 'File downloaded.' },
+          { type: 'document', title: 'export.xlsx', source: {
+            type: 'base64',
+            media_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            data
+          } }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.ok(Array.isArray(messages[1].content));
+  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'export.xlsx'));
+  const text = messages[1].content.filter((part) => part.type === 'text').map((part) => part.text).join('\\n');
+  assert.match(text, /File downloaded/);
+  assert.doesNotMatch(text, new RegExp(data));
+});
+
+test('rejects Anthropic file references that cannot be mapped to OpenRouter Chat Completions', () => {
+  assert.throws(() => convertAnthropicMessages([{
+    role: 'user',
+    content: [{ type: 'document', source: { type: 'file', file_id: 'file_123' } }]
+  }]), (error) => error.code === 'UNSUPPORTED_ANTHROPIC_FILE_ID');
+  assert.throws(() => convertAnthropicMessages([{
+    role: 'user',
+    content: [{ type: 'document', source: { type: 'url', url: 'https://example.test/report.pdf' } }]
+  }]), (error) => error.code === 'UNSUPPORTED_DOCUMENT_URL_SOURCE');
+  assert.throws(() => convertAnthropicMessages([{
+    role: 'user',
+    content: [{ type: 'container_upload', file_id: 'file_123' }]
+  }]), (error) => error.code === 'UNSUPPORTED_CONTAINER_UPLOAD');
+});
+
+test('estimates file inputs without counting raw base64 bytes as ordinary text tokens', () => {
+  const small = [{ role: 'user', content: [{
+    type: 'file',
+    file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,AAAA' }
+  }] }];
+  const large = [{ role: 'user', content: [{
+    type: 'file',
+    file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,' + 'A'.repeat(200000) }
+  }] }];
+  assert.equal(estimateProviderInputTokens(small), estimateProviderInputTokens(large));
+});
+
 test('preserves additional rich tool-result blocks as provider text parts', () => {
   const nativeMessages = convertAnthropicMessages([
     { role: 'assistant', content: [{ type: 'tool_use', id: 'call_rich', name: 'Lookup', input: {} }] },
