@@ -49,39 +49,23 @@ test('accepts supported base64 and URL image blocks and rejects malformed image 
   }).message, /image blocks must appear in user messages/);
 });
 
-test('accepts inline document blocks and validates file references', () => {
-  const pdf = {
-    type: 'document',
-    title: 'annual-report.pdf',
-    source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
-  };
-  const textFile = { type: 'text', text: 'Notes from notes.txt' };
+test('rejects PDF, document, generic file, file-ID, and container-upload attachments', () => {
+  const unsupported = [
+    { type: 'document', title: 'report.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'document', source: { type: 'text', data: 'document text' } },
+    { type: 'file', file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
+    { type: 'container_upload', file_id: 'file_123' },
+    { type: 'image', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } }
+  ];
 
-  assert.equal(validateMessagesRequest({
-    ...minimal,
-    messages: [{ role: 'user', content: [
-      pdf,
-      textFile,
-      { type: 'image', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } },
-      { type: 'document', source: { type: 'url', url: 'https://example.test/report.pdf' } },
-      { type: 'document', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } }
-    ] }]
-  }), null);
-  assert.match(validateMessagesRequest({
-    ...minimal,
-    messages: [{ role: 'assistant', content: [pdf] }]
-  }).message, /document blocks must appear in user messages/);
-  assert.match(validateMessagesRequest({
-    ...minimal,
-    messages: [{ role: 'user', content: [{
-      type: 'document',
-      source: { type: 'base64', media_type: 'text/csv', data: 'YSxiCjEsMg==' }
-    }] }]
-  }).message, /unsupported block type/);
-  assert.equal(validateMessagesRequest({
-    ...minimal,
-    messages: [{ role: 'user', content: [{ type: 'container_upload', file_id: 'file_123' }] }]
-  }), null);
+  for (const block of unsupported) {
+    const error = validateMessagesRequest({
+      ...minimal,
+      messages: [{ role: 'user', content: [block] }]
+    });
+    assert.ok(error);
+    assert.match(error.message, /Claude client-side skill or tool/);
+  }
 });
 
 test('accepts additional structured Anthropic and MCP tool-result content blocks', () => {
@@ -97,7 +81,7 @@ test('accepts additional structured Anthropic and MCP tool-result content blocks
           content: [
             { type: 'text', text: 'Found one result.' },
             { type: 'search_result', title: 'Example', url: 'https://example.test' },
-            { type: 'document', title: 'Report', source: { type: 'text', data: 'Report text' } }
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
           ]
         }]
       }
@@ -122,7 +106,31 @@ test('accepts additional structured Anthropic and MCP tool-result content blocks
         content: [{ type: 'image', source: { type: 'base64', media_type: 'text/plain', data: 'aGVsbG8=' } }]
       }]
     }]
-  }).message, /JSON value or an array of content blocks/);
+  }).message, /Tool results cannot contain raw files or documents/);
+});
+
+test('rejects file and document payloads nested inside structured tool results', () => {
+  const result = validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_file', name: 'Read', input: {} }] },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_file',
+          content: {
+            result: {
+              document: { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+              attachment: { type: 'file', file: { file_data: 'data:application/pdf;base64,JVBERiQ=' } }
+            }
+          }
+        }]
+      }
+    ]
+  });
+  assert.ok(result);
+  assert.match(result.message, /Tool results cannot contain raw files or documents/);
 });
 
 test('validates tool schemas and tool_choice references', () => {
