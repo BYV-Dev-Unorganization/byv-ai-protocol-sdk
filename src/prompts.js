@@ -1,6 +1,6 @@
 'use strict';
 
-const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
+const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, convertAnthropicImageBlock, collectAnthropicImages, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
     DSML_TOOL_CALL,
@@ -536,6 +536,21 @@ function buildProviderMessages(body = {}, options = {}) {
             throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schemas or client system instructions.'), {
                 statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
             });
+        }
+        const imageAttachments = collectAnthropicImages(messages);
+        if (imageAttachments.length) {
+            const contentParts = [{ type: 'text', text: prompt }];
+            imageAttachments.forEach((attachment, index) => {
+                const origin = attachment.toolUseId
+                    ? 'tool result ' + attachment.toolUseId
+                    : attachment.role + ' message ' + (attachment.messageIndex + 1);
+                contentParts.push({
+                    type: 'text',
+                    text: '[Vision image attachment ' + (index + 1) + ' from ' + origin + ']'
+                });
+                contentParts.push(convertAnthropicImageBlock(attachment.block));
+            });
+            return [{ role: 'user', content: contentParts }];
         }
         return [{ role: 'user', content: prompt }];
     }
