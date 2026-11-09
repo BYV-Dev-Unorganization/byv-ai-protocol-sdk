@@ -222,6 +222,50 @@ test('buildProviderMessages preserves provider chat roles while applying the new
 });
 
 
+test('forwards vision image attachments in native, DSML, and text-only provider message paths', () => {
+  const image = {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' }
+  };
+  const request = {
+    model: 'byv-flash-v1',
+    tools: [readTool],
+    tool_choice: 'auto',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'What is in this picture?' }, image] }]
+  };
+  const expectedUrl = 'data:image/png;base64,aGVsbG8=';
+
+  const nativeMessages = buildProviderMessages(request, {
+    noToolExperiment: false,
+    nativeToolCalling: true
+  });
+  const nativeContent = nativeMessages.find((message) => message.role === 'user').content;
+  assert.ok(Array.isArray(nativeContent));
+  assert.ok(nativeContent.some((part) => part.type === 'image_url' && part.image_url.url === expectedUrl));
+
+  const dsmlMessages = buildProviderMessages(request, {
+    noToolExperiment: true,
+    nativeToolCalling: false
+  });
+  assert.equal(dsmlMessages.length, 1);
+  assert.equal(dsmlMessages[0].role, 'user');
+  assert.ok(Array.isArray(dsmlMessages[0].content));
+  assert.ok(dsmlMessages[0].content.some((part) => part.type === 'image_url' && part.image_url.url === expectedUrl));
+  assert.match(dsmlMessages[0].content[0].text, /Image content supplied/);
+
+  const textOnlyMessages = buildProviderMessages({
+    ...request,
+    tools: [],
+    tool_choice: 'none'
+  }, {
+    noToolExperiment: true,
+    nativeToolCalling: false
+  });
+  const textOnlyContent = textOnlyMessages.find((message) => message.role === 'user').content;
+  assert.ok(Array.isArray(textOnlyContent));
+  assert.ok(textOnlyContent.some((part) => part.type === 'image_url' && part.image_url.url === expectedUrl));
+});
+
 test('buildCompactionProviderMessages creates a bounded provider-neutral transcript', () => {
   const messages = [
     { role: 'user', content: 'Original task: implement the feature and preserve its requirements.' },
