@@ -49,8 +49,11 @@ function validContent(content, allowedTypes) {
 }
 
 function validToolResultContent(content) {
+  if (content === undefined) return false;
   if (typeof content === 'string') return true;
-  if (!Array.isArray(content)) return false;
+  // Some tool integrations return structured JSON values rather than the
+  // Anthropic string/array form. The provider adapter serializes these as JSON.
+  if (!Array.isArray(content)) return true;
   return content.every((block) => {
     if (!isPlainObject(block) || typeof block.type !== 'string') return false;
     if (block.type === 'image') return validImageSource(block.source);
@@ -115,7 +118,7 @@ function validateMessagesRequest(body, options = {}) {
         return { type: 'invalid_request_error', message: 'tool_result blocks require tool_use_id and content.' };
       }
       if (block.type === 'tool_result' && !validToolResultContent(block.content)) {
-        return { type: 'invalid_request_error', message: 'tool_result content must be a string or an array of content blocks.' };
+        return { type: 'invalid_request_error', message: 'tool_result content must be a JSON value or an array of content blocks.' };
       }
     }
   }
