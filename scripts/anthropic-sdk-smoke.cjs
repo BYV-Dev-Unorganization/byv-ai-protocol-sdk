@@ -48,7 +48,7 @@ const apiKey = process.env.GATEWAY_API_KEY ||
   process.env.ANTHROPIC_AUTH_TOKEN ||
   process.env.ANTHROPIC_API_KEY ||
   '';
-const model = process.env.ANTHROPIC_MODEL || process.env.BYV_MODEL || 'byv-flash-v1';
+const model = process.env.ANTHROPIC_MODEL || process.env.BYV_MODEL || 'claude-sonnet-5-5';
 const timeout = Number.parseInt(process.env.ANTHROPIC_SDK_TEST_TIMEOUT_MS || '600000', 10);
 
 const client = new Anthropic({
@@ -164,7 +164,7 @@ async function main() {
   console.log('\n[4/5] Non-streaming tool_use and tool_result round trip ...');
   const toolMessage = await client.messages.create({
     model,
-    max_tokens: 256,
+    max_tokens: 1024,
     tools,
     // Exercise native tool selection without requiring the provider to support
     // Anthropic's specific-tool choice extension. Exact tool name and input
@@ -173,9 +173,13 @@ async function main() {
     messages: [{ role: 'user', content: toolPrompt }]
   });
   assertMessageShape(toolMessage, 'tool-use');
-  assert.equal(toolMessage.stop_reason, 'tool_use');
   const toolUse = toolMessage.content.find((block) => block.type === 'tool_use');
-  assert.ok(toolUse, 'tool-use: expected a tool_use block');
+  assert.ok(toolUse,
+    'tool-use: expected a structured tool_use block; stop_reason=' + toolMessage.stop_reason +
+    '; content=' + JSON.stringify(toolMessage.content).slice(0, 2000) +
+    '; usage=' + JSON.stringify(toolMessage.usage));
+  assert.equal(toolMessage.stop_reason, 'tool_use',
+    'tool-use: stop_reason must be tool_use when a structured tool call is returned');
   assert.equal(toolUse.name, 'Bash');
   assert.deepEqual(toolUse.input, { command: 'echo BYV_SDK_TOOL_CALL_OK' });
 
@@ -211,7 +215,7 @@ async function main() {
   console.log('\n[5/5] Streaming tool_use ...');
   const toolStream = await client.messages.create({
     model,
-    max_tokens: 256,
+    max_tokens: 1024,
     stream: true,
     tools,
     tool_choice: { type: 'auto' },
