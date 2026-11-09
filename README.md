@@ -307,7 +307,9 @@ The tool fixture requests a harmless echo command, but the smoke test **never ex
 
 For the local gateway, the script reads the authenticated `/health` status and prints the active tool transport (`DSML text` or `provider-native`). The same SDK assertions are intended to pass in either mode; this command tests whichever mode the running gateway loaded at startup. Restart `npm start` after changing `DSML_TOOL_CALL` in `.env`.
 
-Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
+The smoke test defaults to the `claude-sonnet-5-5` response profile because that profile is also used by the Claude Code CLI smoke test. Set `ANTHROPIC_MODEL` to test another profile. Tool-call requests allow up to 1024 output tokens so reasoning-oriented providers have room to finish a structured call.
+
+Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `claude-sonnet-5-5`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
 
 ### Native provider function-calling smoke test
 
@@ -319,7 +321,7 @@ npm run test:provider-tools
 
 This sends one live OpenAI-compatible Chat Completions request with a synthetic `Read` function and `tool_choice: auto`. It passes only when the configured provider returns one structured function call for `README.md`. The tool is never executed and no client files are read. This is the quickest way to isolate provider-native function calling from Claude Code's permissions and local tool runner.
 
-The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode. It explicitly enables `nativeToolCalling` because it calls the provider adapter directly. The Anthropic SDK smoke test uses `tool_choice: auto` for live compatibility; exact named-tool-choice mapping remains covered by offline unit tests.
+The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode. It explicitly enables `nativeToolCalling` and builds the same native-mode system prompt/profile as the gateway, because it calls the provider adapter directly. The probe allows up to 1024 output tokens. The Anthropic SDK smoke test also uses `tool_choice: auto` for live compatibility; exact named-tool-choice mapping remains covered by offline unit tests.
 
 ### Claude Code CLI smoke test
 
