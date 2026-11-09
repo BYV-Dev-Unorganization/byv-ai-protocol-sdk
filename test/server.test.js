@@ -586,7 +586,7 @@ test('implements local Files API upload, metadata, deletion, and Messages file_i
   assert.equal(textMessage.status, 200);
   assert.deepEqual(capturedBodies[1].messages[0].content, [{
     type: 'text',
-    text: '[File: notes.txt]\\nUse the notes as reference.\\n\\nplain text attachment'
+    text: '[File: notes.txt]\nUse the notes as reference.\n\nplain text attachment'
   }]);
 
   const deleted = await fetch(base + '/v1/files/' + pdf.id, {
