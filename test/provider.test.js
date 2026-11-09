@@ -325,66 +325,64 @@ test('preserves the upstream response ID from streaming provider responses', () 
 });
 
 
-test('enables OpenRouter routing metadata only for OpenRouter endpoints', async (t) => {
-  const { provider } = loadProvider(t, {
-    PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1'
-  });
-  let capturedHeaders;
-  global.fetch = async (_url, init) => {
-    capturedHeaders = new Headers(init.headers);
-    return response({
-      payload: {
-        id: 'gen_openrouter_metadata_test',
-        model: 'stealth/crouton-alpha',
-        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 1, completion_tokens: 1 }
-      }
-    });
-  };
 
-  await provider.createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 });
-  assert.equal(capturedHeaders.get('x-openrouter-metadata'), 'enabled');
-  assert.equal(capturedHeaders.get('authorization'), 'Bearer provider-test-secret');
+
+test('enables OpenRouter routing metadata only for OpenRouter endpoints', () => {
+  const script = [
+    "global.fetch = async (_url, init) => {",
+    "  const headers = new Headers(init.headers);",
+    "  if (headers.get('x-openrouter-metadata') !== 'enabled') throw new Error('OpenRouter metadata header is missing');",
+    "  if (headers.get('authorization') !== 'Bearer unit-test-secret') throw new Error('provider authorization is missing');",
+    "  return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });",
+    "};",
+    "const { createChatCompletion } = require('./src/provider/openai-compatible');",
+    "createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 })",
+    "  .then(() => process.stdout.write('ok'))",
+    "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1',
+      PROVIDER_MODEL: 'stealth/crouton-alpha',
+      PROVIDER_API_KEY: 'unit-test-secret'
+    },
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'ok');
 });
 
-test('includes OpenRouter routing metadata and upstream request ID in provider errors', async (t) => {
-  const { provider } = loadProvider(t, {
-    PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1'
-  });
-  global.fetch = async () => new Response(JSON.stringify({
-    error: {
-      code: 400,
-      message: 'Provider returned error',
-      metadata: {
-        provider_name: 'Stealth',
-        is_byok: false,
-        raw: 'ERROR'
-      }
+test('includes OpenRouter routing metadata and upstream request ID in provider errors', () => {
+  const script = [
+    "global.fetch = async () => new Response(JSON.stringify({",
+    "  error: { code: 400, message: 'Provider returned error', metadata: { provider_name: 'Stealth', is_byok: false, raw: 'ERROR' } },",
+    "  openrouter_metadata: { requested: 'stealth/crouton-alpha', strategy: 'fallback', region: 'iad', summary: 'available=1', attempt: 1 }",
+    "}), { status: 400, headers: { 'Content-Type': 'application/json', 'x-request-id': 'or-request-test-123' } });",
+    "const { createChatCompletion } = require('./src/provider/openai-compatible');",
+    "createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 })",
+    "  .then(() => { process.stderr.write('upstream error was accepted'); process.exitCode = 1; })",
+    "  .catch((error) => {",
+    "    if (error.code !== 'UPSTREAM_HTTP_400') throw error;",
+    "    if (!error.message.includes('provider=Stealth')) throw new Error('provider name missing');",
+    "    if (!error.message.includes('openrouter_metadata=')) throw new Error('routing metadata missing');",
+    "    if (!error.message.includes('strategy')) throw new Error('routing strategy missing');",
+    "    if (!error.message.includes('upstream_request_id=or-request-test-123')) throw new Error('upstream request ID missing');",
+    "    process.stdout.write('ok');",
+    "  })",
+    "  .catch((error) => { process.stderr.write(error.stack || error.message); process.exitCode = 1; });"
+  ].join(String.fromCharCode(10));
+  const result = spawnSync(process.execPath, ['-e', script], {
+    cwd: require('node:path').resolve(__dirname, '..'),
+    env: {
+      ...process.env,
+      PROVIDER_BASE_URL: 'https://openrouter.ai/api/v1',
+      PROVIDER_MODEL: 'stealth/crouton-alpha',
+      PROVIDER_API_KEY: 'unit-test-secret'
     },
-    openrouter_metadata: {
-      requested: 'stealth/crouton-alpha',
-      strategy: 'fallback',
-      region: 'iad',
-      summary: 'available=1',
-      attempt: 1
-    }
-  }), {
-    status: 400,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-request-id': 'or-request-test-123'
-    }
+    encoding: 'utf8'
   });
-
-  await assert.rejects(
-    provider.createChatCompletion([{ role: 'user', content: 'Hello' }], { max_tokens: 16 }),
-    (error) => {
-      assert.equal(error.code, 'UPSTREAM_HTTP_400');
-      assert.match(error.message, /provider=Stealth/);
-      assert.match(error.message, /openrouter_metadata=/);
-      assert.match(error.message, /strategy.*fallback/);
-      assert.match(error.message, /upstream_request_id=or-request-test-123/);
-      return true;
-    }
-  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, 'ok');
 });

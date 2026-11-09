@@ -119,7 +119,7 @@ function buildPayload(messages, options = {}) {
 function requestHeaders(apiKey, anthropicVersion, providerUrl) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
-  if (typeof anthropicVersion === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(anthropicVersion)) {
+  if (typeof anthropicVersion === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(anthropicVersion)) {
     headers['anthropic-version'] = anthropicVersion;
   }
   // Opt in to routing diagnostics only for OpenRouter endpoints. This header
