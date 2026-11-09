@@ -106,7 +106,7 @@ test('preserves additional rich tool-result blocks as provider text parts', () =
         content: [
           { type: 'text', text: 'Found one result.' },
           { type: 'search_result', title: 'Example', url: 'https://example.test' },
-          { type: 'resource', uri: 'file:///workspace/report.txt', text: 'Report text' }
+          { type: 'resource', uri: 'https://example.test/report.txt', text: 'Report text' }
         ]
       }]
     }
