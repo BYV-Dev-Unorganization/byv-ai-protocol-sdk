@@ -7,6 +7,7 @@
 const assert = require('node:assert/strict');
 const { PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
 const { createChatCompletion } = require('../src/provider/openai-compatible');
+const { buildProviderMessages } = require('../src/prompts');
 
 const tools = [{
   name: 'Read',
@@ -30,27 +31,33 @@ async function main() {
   console.log('Gateway DSML_TOOL_CALL setting:', DSML_TOOL_CALL);
   console.log('Scope: direct provider-native function calling; this probe bypasses the gateway transport switch.');
 
-  const result = await createChatCompletion([
-    {
-      role: 'system',
-      content: 'You are testing native function calling. The Read function is a synthetic fixture and will not be executed. When explicitly asked to use it, call it through the native function tool interface. Do not merely say that you will use it.'
-    },
-    {
-      role: 'user',
-      content: 'Use the Read function now with file_path exactly "README.md". Return the function call and do not answer in plain text.'
-    }
-  ], {
-    max_tokens: 256,
+  const request = {
+    model: 'claude-sonnet-5-5',
+    max_tokens: 1024,
     tools,
     tool_choice: 'auto',
-    // This script calls the provider adapter directly rather than the gateway
-    // handler, so opt into the native transport explicitly.
+    messages: [{
+      role: 'user',
+      content: 'Use the Read tool to inspect README.md. Call it now with file_path exactly "README.md". Do not describe or simulate a call in plain text.'
+    }]
+  };
+  // Reuse the same native-mode system prompt and model profile as the gateway.
+  // This keeps the direct provider probe representative of a real BYV request.
+  const providerMessages = buildProviderMessages(request, {
+    nativeToolCalling: true,
+    noToolExperiment: false,
+    experimentVariant: 'A'
+  });
+  const result = await createChatCompletion(providerMessages, {
+    max_tokens: 1024,
+    tools,
+    tool_choice: 'auto',
     nativeToolCalling: true
   });
 
   const calls = Array.isArray(result.tool_calls) ? result.tool_calls : [];
   assert.equal(calls.length, 1,
-    'Expected exactly one native tool call. Provider response metadata: ' +
+    'Expected one structured native tool call. Raw ATEM/text output is not a native tool_calls response. Provider response metadata: ' +
     JSON.stringify({
       provider_model: result.provider_model,
       finish_reason: result.finish_reason,
