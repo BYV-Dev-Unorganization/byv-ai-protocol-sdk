@@ -151,3 +151,102 @@ test('text-only history preserves prior results without serializing callable too
   assert.doesNotMatch(messages[1].content, /<｜DSML｜|<\|BYV\|/);
   assert.ok(messages[1].content.includes('\n'));
 });
+
+
+test('forwards base64 and HTTP(S) Anthropic images as OpenAI-compatible image_url parts', () => {
+  const messages = convertAnthropicMessages([{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Compare these images.' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+      { type: 'image', source: { type: 'url', url: 'https://images.example.test/photo.webp' } }
+    ]
+  }]);
+
+  assert.deepEqual(messages, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Compare these images.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      { type: 'image_url', image_url: { url: 'https://images.example.test/photo.webp' } }
+    ]
+  }]);
+  assert.equal(JSON.stringify(messages).includes('"type":"file"'), false);
+});
+
+test('preserves image content returned by tools as a separate provider user message', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_image', name: 'Screenshot', input: {} }]
+    },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_image',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4A==' } }
+        ]
+      }]
+    }
+  ]);
+
+  assert.equal(messages[1].role, 'tool');
+  assert.equal(messages[1].content, 'Screenshot captured.');
+  assert.deepEqual(messages[2], {
+    role: 'user',
+    content: [
+      { type: 'text', text: '[Image content returned by tool call_image]' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/4A==' } }
+    ]
+  });
+});
+
+test('preserves tool-result images in DSML history without turning them into file parts', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_image_dsml', name: 'Screenshot', input: {} }]
+    },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_image_dsml',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.equal(messages[1].role, 'user');
+  assert.ok(Array.isArray(messages[1].content));
+  assert.match(messages[1].content[0].text, /HISTORICAL TOOL RESULTS/);
+  assert.deepEqual(messages[1].content[1], {
+    type: 'image_url',
+    image_url: { url: 'data:image/png;base64,aGVsbG8=' }
+  });
+  assert.equal(JSON.stringify(messages).includes('"type":"file"'), false);
+});
+
+test('estimates embedded images independently of base64 payload length', () => {
+  const small = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,AAAA' }
+    }]
+  }];
+  const large = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,' + 'A'.repeat(200000) }
+    }]
+  }];
+  assert.equal(estimateProviderInputTokens(small), estimateProviderInputTokens(large));
+});

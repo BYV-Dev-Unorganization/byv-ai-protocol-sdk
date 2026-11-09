@@ -1,6 +1,6 @@
 'use strict';
 
-const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
+const { blocksOf, flattenText, renderToolResultContent, convertAnthropicImageBlock, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
     PROVIDER_NATIVE_TOOL_CALLING,
@@ -27,7 +27,10 @@ function renderMessage(message) {
         } else if (block.type === 'tool_use') {
             rendered.push('[Tool call ' + block.name + ' with input: ' + JSON.stringify(block.input || {}) + ']');
         } else if (block.type === 'tool_result') {
-            rendered.push('[Tool result for ' + block.tool_use_id + ': ' + renderToolResultContent(block.content) + ']');
+            const imageNote = blocksOf(block.content).some((nested) => nested && nested.type === 'image')
+                ? ' [image content returned]'
+                : '';
+            rendered.push('[Tool result for ' + block.tool_use_id + ': ' + renderToolResultContent(block.content) + imageNote + ']');
         } else if (block.type === 'image') {
             rendered.push('[Image content supplied]');
         } else {
@@ -35,6 +38,24 @@ function renderMessage(message) {
         }
     }
     return rendered.join('\n');
+}
+
+function collectAnthropicImageParts(messages) {
+    const parts = [];
+    for (const message of Array.isArray(messages) ? messages : []) {
+        for (const block of blocksOf(message && message.content)) {
+            if (block && block.type === 'image') {
+                parts.push(convertAnthropicImageBlock(block));
+            } else if (block && block.type === 'tool_result') {
+                for (const nested of blocksOf(block.content)) {
+                    if (nested && nested.type === 'image') {
+                        parts.push(convertAnthropicImageBlock(nested));
+                    }
+                }
+            }
+        }
+    }
+    return parts;
 }
 
 function truncateTextPreservingEnds(text, maxLength, marker = '\n[...middle omitted...]\n') {
@@ -474,6 +495,13 @@ function buildProviderMessages(body = {}, options = {}) {
                 statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
             });
         }
+        const imageParts = collectAnthropicImageParts(messages);
+        if (imageParts.length) {
+            return [{
+                role: 'user',
+                content: [{ type: 'text', text: prompt }, ...imageParts]
+            }];
+        }
         return [{ role: 'user', content: prompt }];
     }
 
@@ -604,10 +632,14 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
         });
     }
 
+    const imageParts = collectAnthropicImageParts(body.messages);
     let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
     for (let attempt = 0; attempt < 12; attempt++) {
         const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
-        const providerMessages = [systemMessage, { role: 'user', content: transcript }];
+        const transcriptContent = imageParts.length
+            ? [{ type: 'text', text: transcript }, ...imageParts]
+            : transcript;
+        const providerMessages = [systemMessage, { role: 'user', content: transcriptContent }];
         const estimatedTokens = estimateProviderInputTokens(providerMessages);
         if (estimatedTokens <= requestedInputTokens) return providerMessages;
 
@@ -620,9 +652,13 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
             : Math.max(0, transcriptBudget - 512);
     }
 
+    const finalTranscript = buildCompactionTranscript(body.messages, transcriptBudget);
+    const finalContent = imageParts.length
+        ? [{ type: 'text', text: finalTranscript }, ...imageParts]
+        : finalTranscript;
     const finalMessages = [
         systemMessage,
-        { role: 'user', content: buildCompactionTranscript(body.messages, transcriptBudget) }
+        { role: 'user', content: finalContent }
     ];
     if (estimateProviderInputTokens(finalMessages) > requestedInputTokens) {
         throw Object.assign(new Error(
