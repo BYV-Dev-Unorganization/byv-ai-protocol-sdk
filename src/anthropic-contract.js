@@ -48,6 +48,20 @@ function validContent(content, allowedTypes) {
   });
 }
 
+function validToolResultContent(content) {
+  if (typeof content === 'string') return true;
+  if (!Array.isArray(content)) return false;
+  return content.every((block) => {
+    if (!isPlainObject(block) || typeof block.type !== 'string') return false;
+    if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'text') return typeof block.text === 'string';
+    // Tool results may contain additional Anthropic/MCP content block types
+    // (for example document, resource, or search-result blocks). Preserve
+    // these as structured context instead of rejecting the whole request.
+    return true;
+  });
+}
+
 function validateMessagesRequest(body, options = {}) {
   const countTokens = options.countTokens === true;
   const allowedBlocks = ['text', 'image', 'tool_use', 'tool_result'];
@@ -100,9 +114,8 @@ function validateMessagesRequest(body, options = {}) {
           (typeof block.tool_use_id !== 'string' || !block.tool_use_id || block.content === undefined)) {
         return { type: 'invalid_request_error', message: 'tool_result blocks require tool_use_id and content.' };
       }
-      if (block.type === 'tool_result' && !validContent(block.content, ['text', 'image']) &&
-          typeof block.content !== 'string') {
-        return { type: 'invalid_request_error', message: 'tool_result content must be text or supported image blocks.' };
+      if (block.type === 'tool_result' && !validToolResultContent(block.content)) {
+        return { type: 'invalid_request_error', message: 'tool_result content must be a string or an array of content blocks.' };
       }
     }
   }
@@ -210,4 +223,4 @@ function normalizeAnthropicMessagesRequest(body) {
   return { body: { ...body, system: systemBlocks, messages }, normalizedInstructionMessages: count };
 }
 
-module.exports = { isPlainObject, validContent, validateMessagesRequest, normalizeAnthropicMessagesRequest };
+module.exports = { isPlainObject, validContent, validToolResultContent, validateMessagesRequest, normalizeAnthropicMessagesRequest };
