@@ -95,3 +95,97 @@ test('accepts JSON Schema Draft 2020-12 tool declarations', () => {
   }];
   assert.equal(validateMessagesRequest({ ...minimal, tools }), null);
 });
+
+
+test('accepts supported base64 and HTTP(S) image blocks', () => {
+  const imageBlocks = [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+    { type: 'image', source: { type: 'url', url: 'https://images.example.test/photo.webp' } }
+  ];
+
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: imageBlocks }]
+  }), null);
+});
+
+test('rejects unsupported image MIME types, malformed base64, unsafe URLs, and file references', () => {
+  const invalidImages = [
+    { type: 'image', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'not base64!' } },
+    { type: 'image', source: { type: 'url', url: 'file:///etc/passwd' } },
+    { type: 'image', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } }
+  ];
+
+  for (const image of invalidImages) {
+    assert.match(validateMessagesRequest({
+      ...minimal,
+      messages: [{ role: 'user', content: [image] }]
+    }).message, /unsupported block type or invalid image source/);
+  }
+});
+
+test('rejects document, file, and container-upload blocks before provider conversion', () => {
+  const unsupportedBlocks = [
+    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'file', file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
+    { type: 'container_upload', file_id: 'file_0123456789abcdef01234567' }
+  ];
+
+  for (const block of unsupportedBlocks) {
+    assert.match(validateMessagesRequest({
+      ...minimal,
+      messages: [{ role: 'user', content: [block] }]
+    }).message, /unsupported block type/);
+  }
+});
+
+test('accepts image blocks inside tool results but rejects nested file and document blocks', () => {
+  const toolUse = { type: 'tool_use', id: 'call_image', name: 'Screenshot', input: {} };
+  const imageResult = {
+    type: 'tool_result',
+    tool_use_id: 'call_image',
+    content: [
+      { type: 'text', text: 'Screenshot captured.' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+    ]
+  };
+
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [toolUse] },
+      { role: 'user', content: [imageResult] }
+    ]
+  }), null);
+
+  for (const attachment of [
+    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'file', file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } }
+  ]) {
+    assert.match(validateMessagesRequest({
+      ...minimal,
+      messages: [
+        { role: 'assistant', content: [toolUse] },
+        {
+          role: 'user',
+          content: [{
+            type: 'tool_result',
+            tool_use_id: 'call_image',
+            content: [attachment]
+          }]
+        }
+      ]
+    }).message, /file and document blocks are not supported/);
+  }
+});
+
+test('rejects image blocks in assistant messages', () => {
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{
+      role: 'assistant',
+      content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }]
+    }]
+  }).message, /image blocks must appear in user messages/);
+});
