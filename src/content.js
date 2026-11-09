@@ -68,6 +68,14 @@ function convertAnthropicImageBlock(block) {
 function convertAnthropicDocumentBlock(block) {
   const source = block && block.source;
   if (source && source.type === 'base64' &&
+      source.media_type === 'text/plain' &&
+      typeof source.data === 'string' && source.data) {
+    const text = Buffer.from(source.data, 'base64').toString('utf8');
+    const title = typeof block.title === 'string' && block.title.trim() ? block.title.trim() : 'document.txt';
+    const context = typeof block.context === 'string' && block.context.trim() ? block.context.trim() + '\\n\\n' : '';
+    return { type: 'text', text: '[File: ' + title + ']\\n' + context + text };
+  }
+  if (source && source.type === 'base64' &&
       source.media_type === 'application/pdf' &&
       typeof source.data === 'string' && source.data) {
     const rawTitle = typeof block.title === 'string' && block.title.trim() ? block.title.trim() : '';
@@ -102,7 +110,7 @@ function convertAnthropicDocumentBlock(block) {
       code: 'UNSUPPORTED_ANTHROPIC_FILE_ID'
     });
   }
-  throw Object.assign(new Error('Only inline application/pdf document blocks can be forwarded by this Chat Completions adapter. Send plain-text files as text and convert DOCX/XLSX to text or PDF.'), {
+  throw Object.assign(new Error('This document source cannot be forwarded by the Chat Completions adapter. Use PDF or text/plain document content; convert DOCX/XLSX to plain text or PDF.'), {
     statusCode: 400,
     type: 'invalid_request_error',
     code: source && source.type === 'base64' ? 'UNSUPPORTED_DOCUMENT_MEDIA_TYPE' : 'INVALID_DOCUMENT_SOURCE'
