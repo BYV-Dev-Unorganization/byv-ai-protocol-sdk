@@ -38,9 +38,10 @@ function validImageSource(source) {
 function validDocumentSource(source) {
   if (!isPlainObject(source)) return false;
   if (source.type === 'base64') {
-    return typeof source.media_type === 'string' &&
-      /^[a-z0-9!#$&^_.+-]+\\/[a-z0-9!#$&^_.+-]+$/i.test(source.media_type) &&
-      !/^(?:image|audio|video)\\//i.test(source.media_type) &&
+    const mediaParts = typeof source.media_type === 'string' ? source.media_type.split('/') : [];
+    return mediaParts.length === 2 &&
+      mediaParts.every((part) => /^[a-z0-9!#$&^_.+-]+$/i.test(part)) &&
+      !['image', 'audio', 'video'].includes(mediaParts[0].toLowerCase()) &&
       typeof source.data === 'string' &&
       source.data.length > 0 &&
       source.data.length % 4 === 0 &&
