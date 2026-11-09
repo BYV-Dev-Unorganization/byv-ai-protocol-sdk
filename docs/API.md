@@ -55,6 +55,12 @@ Important fields include:
 
 The configured upstream model remains `PROVIDER_MODEL` regardless of the requested BYV profile.
 
+### Image and file input
+
+User image blocks using supported base64 image data or HTTP(S) image URLs are converted to OpenAI-compatible `image_url` parts and forwarded to the configured Chat Completions provider. This behavior is provider-neutral and does not depend on a specific provider brand.
+
+PDF, document, generic file, file-ID, and `container_upload` attachments are rejected. The gateway does not expose a Files API or forward OpenAI-compatible `file`/`file_data` parts. Claude Code or the Claude client must process local files with a skill or tool and send the extracted text or processed result as ordinary message text.
+
 ## Model discovery
 
 `GET /v1/models` returns the local BYV profile catalog. The profile IDs are compatibility/style profiles over the one configured provider model.
