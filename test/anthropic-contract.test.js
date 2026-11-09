@@ -62,8 +62,9 @@ test('accepts inline document blocks and validates file references', () => {
     messages: [{ role: 'user', content: [
       pdf,
       textFile,
+      { type: 'image', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } },
       { type: 'document', source: { type: 'url', url: 'https://example.test/report.pdf' } },
-      { type: 'document', source: { type: 'file', file_id: 'file_123' } }
+      { type: 'document', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } }
     ] }]
   }), null);
   assert.match(validateMessagesRequest({

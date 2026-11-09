@@ -74,7 +74,9 @@ test('infers supported text file MIME types and rejects oversized uploads', asyn
 
 test('rejects multipart requests that omit the file field', async () => {
   const boundary = 'byv-no-file';
-  const body = Buffer.from('--' + boundary + '--\r\n');
+  const body = Buffer.from('--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="expires_in_seconds"\r\n\r\n3600\r\n' +
+    '--' + boundary + '--\r\n');
   await assert.rejects(
     readMultipartFile(requestFor(body, boundary), { tempDirectory: os.tmpdir() }),
     (error) => error.code === 'INCOMPLETE_FILE_UPLOAD' && error.statusCode === 400
