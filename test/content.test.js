@@ -77,6 +77,48 @@ test('preserves image content returned by tools in text-only DSML history', () =
   assert.match(messages[1].content.find((part) => part.type === 'text').text, /Screenshot captured/);
 });
 
+test('preserves additional rich tool-result blocks as provider text parts', () => {
+  const nativeMessages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_rich', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_rich',
+        content: [
+          { type: 'text', text: 'Found one result.' },
+          { type: 'search_result', title: 'Example', url: 'https://example.test' },
+          { type: 'document', title: 'Report', source: { type: 'text', data: 'Report text' } }
+        ]
+      }]
+    }
+  ]);
+
+  assert.equal(nativeMessages[1].role, 'tool');
+  assert.ok(Array.isArray(nativeMessages[1].content));
+  assert.equal(nativeMessages[1].content[0].text, 'Found one result.');
+  assert.match(nativeMessages[1].content[1].text, /search_result content/);
+  assert.match(nativeMessages[1].content[2].text, /document content/);
+
+  const dsmlMessages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_rich_dsml', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_rich_dsml',
+        content: [
+          { type: 'text', text: 'Found one result.' },
+          { type: 'search_result', title: 'Example', url: 'https://example.test' }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.match(dsmlMessages[1].content, /Found one result/);
+  assert.match(dsmlMessages[1].content, /search_result/);
+});
+
 test('rejects orphan tool results and duplicate tool-use IDs', () => {
   assert.throws(() => convertAnthropicMessages([
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'missing', content: 'x' }] }
