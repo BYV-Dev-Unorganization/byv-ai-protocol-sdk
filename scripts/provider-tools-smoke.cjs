@@ -35,7 +35,7 @@ async function main() {
     model: 'claude-sonnet-5-5',
     max_tokens: 1024,
     tools,
-    tool_choice: 'auto',
+    tool_choice: 'required',
     messages: [{
       role: 'user',
       content: 'Use the Read tool to inspect README.md. Call it now with file_path exactly "README.md". Do not describe or simulate a call in plain text.'
