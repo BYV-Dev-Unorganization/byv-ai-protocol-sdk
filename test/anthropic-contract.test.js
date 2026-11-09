@@ -70,6 +70,13 @@ test('accepts additional structured Anthropic and MCP tool-result content blocks
   };
 
   assert.equal(validateMessagesRequest(request), null);
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_json', name: 'Lookup', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_json', content: { matches: [{ id: 1, title: 'Example' }] } }] }
+    ]
+  }), null);
   assert.match(validateMessagesRequest({
     ...minimal,
     messages: [{
