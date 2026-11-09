@@ -87,7 +87,7 @@ test('accepts additional structured Anthropic and MCP tool-result content blocks
         content: [{ type: 'image', source: { type: 'base64', media_type: 'text/plain', data: 'aGVsbG8=' } }]
       }]
     }]
-  }).message, /string or an array of content blocks/);
+  }).message, /JSON value or an array of content blocks/);
 });
 
 test('validates tool schemas and tool_choice references', () => {
