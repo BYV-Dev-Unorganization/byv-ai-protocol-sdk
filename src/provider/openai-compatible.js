@@ -170,14 +170,13 @@ function sanitizeProviderErrorDetail(value, maxLength = 900) {
     try { value = JSON.stringify(value); } catch { value = String(value); }
   }
   return String(value)
-    .replace(/data:image\\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, '[IMAGE DATA REDACTED]')
-    .replace(/\\bBearer\\s+[A-Za-z0-9._~+\\/-]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/\\b(?:sk|rk|pk|sk-or-v1)-[A-Za-z0-9_-]{12,}\\b/g, '[REDACTED]')
-    .replace(/(api[_-]?key|access[_-]?token|secret|password)\\s*[:=]\\s*[^\\s,;]+/gi, '$1=[REDACTED]')
-    .replace(/\\b[A-Za-z0-9+/]{160,}={0,2}\\b/g, '[LONG DATA REDACTED]')
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, '[IMAGE DATA REDACTED]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sk|rk|pk|sk-or-v1)-[A-Za-z0-9_-]{12,}\b/g, '[REDACTED]')
+    .replace(/(api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+    .replace(/\b[A-Za-z0-9+/]{160,}={0,2}\b/g, '[LONG DATA REDACTED]')
     .slice(0, maxLength);
 }
-
 async function readProviderError(response) {
   const body = await response.text().catch(() => '');
   let detail = sanitizeProviderErrorDetail(body, 1200);
