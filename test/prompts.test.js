@@ -398,3 +398,49 @@ test('recovery messages label the issue text as diagnostic data and redact secre
     assert.doesNotMatch(message, /tok_1234567890abcdef/);
   }
 });
+
+
+test('consolidated DSML prompt mode preserves direct and tool-result images as image_url parts', () => {
+  const providerMessages = buildProviderMessages({
+    model: 'byv-flash-v1',
+    tools: [readTool],
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Inspect this screenshot.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+        ]
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_screenshot', name: 'Read', input: { file_path: 'screen.png' } }]
+      },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_screenshot',
+          content: [
+            { type: 'text', text: 'Tool returned a preview.' },
+            { type: 'image', source: { type: 'url', url: 'https://images.example.test/result.png' } }
+          ]
+        }]
+      }
+    ]
+  }, {
+    noToolExperiment: true,
+    nativeToolCalling: false
+  });
+
+  assert.equal(providerMessages.length, 1);
+  assert.equal(providerMessages[0].role, 'user');
+  assert.ok(Array.isArray(providerMessages[0].content));
+  assert.match(providerMessages[0].content[0].text, /Image content supplied/);
+  assert.match(providerMessages[0].content[0].text, /image content returned/);
+  assert.deepEqual(providerMessages[0].content.slice(1), [
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+    { type: 'image_url', image_url: { url: 'https://images.example.test/result.png' } }
+  ]);
+  assert.equal(JSON.stringify(providerMessages).includes('"type":"file"'), false);
+});
