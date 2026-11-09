@@ -307,7 +307,7 @@ The tool fixture requests a harmless echo command, but the smoke test **never ex
 
 For the local gateway, the script reads the authenticated `/health` status and prints the active tool transport (`DSML text` or `provider-native`). The same SDK assertions are intended to pass in either mode; this command tests whichever mode the running gateway loaded at startup. Restart `npm start` after changing `DSML_TOOL_CALL` in `.env`.
 
-The smoke test defaults to the `claude-sonnet-5-5` response profile because that profile is also used by the Claude Code CLI smoke test. Set `ANTHROPIC_MODEL` to test another profile. Tool-call requests allow up to 1024 output tokens so reasoning-oriented providers have room to finish a structured call.
+The smoke test defaults to the `claude-sonnet-5-5` response profile because that profile is also used by the Claude Code CLI smoke test. Set `ANTHROPIC_MODEL` to test another profile. Tool-call requests use Anthropic `tool_choice: any` (provider `required`) and allow up to 1024 output tokens, so the test requires a structured tool call instead of relying on the model to choose one under `auto`.
 
 Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `claude-sonnet-5-5`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
 
