@@ -6,19 +6,76 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const IMAGE_MEDIA_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp'
+]);
+
+function validImageSource(source) {
+  if (!isPlainObject(source)) return false;
+
+  if (source.type === 'base64') {
+    return IMAGE_MEDIA_TYPES.has(source.media_type) &&
+      typeof source.data === 'string' &&
+      source.data.length > 0 &&
+      source.data.length % 4 === 0 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(source.data);
+  }
+
+  if (source.type === 'url' && typeof source.url === 'string') {
+    try {
+      const url = new URL(source.url);
+      return ['http:', 'https:'].includes(url.protocol) &&
+        !url.username &&
+        !url.password;
+    } catch {
+      return false;
+    }
+  }
+
+  // File IDs are intentionally not resolved or forwarded by this gateway.
+  // Files must be handled by the client/agent tool runtime before inference.
+  return false;
+}
+
 function validContent(content, allowedTypes) {
   if (typeof content === 'string') return true;
   if (!Array.isArray(content)) return false;
-  return content.every((block) =>
-    isPlainObject(block) &&
-    typeof block.type === 'string' &&
-    allowedTypes.includes(block.type)
-  );
+
+  return content.every((block) => {
+    if (!isPlainObject(block) ||
+        typeof block.type !== 'string' ||
+        !allowedTypes.includes(block.type)) {
+      return false;
+    }
+    if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'text') return typeof block.text === 'string';
+    return true;
+  });
+}
+
+function validToolResultContent(content) {
+  if (content === undefined) return false;
+  if (typeof content === 'string') return true;
+
+  // Tool integrations may return structured JSON values as well as Anthropic
+  // content blocks. Binary file/document blocks are deliberately not accepted.
+  if (!Array.isArray(content)) return true;
+
+  return content.every((block) => {
+    if (!isPlainObject(block) || typeof block.type !== 'string') return false;
+    if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'text') return typeof block.text === 'string';
+    if (['document', 'container_upload', 'file'].includes(block.type)) return false;
+    return true;
+  });
 }
 
 function validateMessagesRequest(body, options = {}) {
   const countTokens = options.countTokens === true;
-  const allowedBlocks = ['text', 'tool_use', 'tool_result'];
+  const allowedBlocks = ['text', 'image', 'tool_use', 'tool_result'];
 
   if (!isPlainObject(body)) {
     return { type: 'invalid_request_error', message: 'Request body must be a JSON object.' };
@@ -45,17 +102,17 @@ function validateMessagesRequest(body, options = {}) {
       return { type: 'invalid_request_error', message: 'messages[' + i + '].role must be user or assistant.' };
     }
     if (!validContent(message.content, allowedBlocks)) {
-      return { type: 'invalid_request_error', message: 'messages[' + i + '].content contains an unsupported block type.' };
+      return { type: 'invalid_request_error', message: 'messages[' + i + '].content contains an unsupported block type or invalid image source.' };
     }
     for (const block of Array.isArray(message.content) ? message.content : []) {
       if (message.role === 'assistant' && block.type === 'tool_result') {
         return { type: 'invalid_request_error', message: 'tool_result blocks must appear in user messages.' };
       }
+      if (message.role === 'assistant' && block.type === 'image') {
+        return { type: 'invalid_request_error', message: 'image blocks must appear in user messages.' };
+      }
       if (message.role === 'user' && block.type === 'tool_use') {
         return { type: 'invalid_request_error', message: 'tool_use blocks must appear in assistant messages.' };
-      }
-      if (block.type === 'text' && typeof block.text !== 'string') {
-        return { type: 'invalid_request_error', message: 'Text blocks require a string text field.' };
       }
       if (block.type === 'tool_use' &&
           (typeof block.id !== 'string' || !block.id || typeof block.name !== 'string' || !isPlainObject(block.input))) {
@@ -64,6 +121,9 @@ function validateMessagesRequest(body, options = {}) {
       if (block.type === 'tool_result' &&
           (typeof block.tool_use_id !== 'string' || !block.tool_use_id || block.content === undefined)) {
         return { type: 'invalid_request_error', message: 'tool_result blocks require tool_use_id and content.' };
+      }
+      if (block.type === 'tool_result' && !validToolResultContent(block.content)) {
+        return { type: 'invalid_request_error', message: 'tool_result content must be JSON data or text/image content blocks; file and document blocks are not supported.' };
       }
     }
   }
@@ -171,4 +231,11 @@ function normalizeAnthropicMessagesRequest(body) {
   return { body: { ...body, system: systemBlocks, messages }, normalizedInstructionMessages: count };
 }
 
-module.exports = { isPlainObject, validContent, validateMessagesRequest, normalizeAnthropicMessagesRequest };
+module.exports = {
+  isPlainObject,
+  validContent,
+  validImageSource,
+  validToolResultContent,
+  validateMessagesRequest,
+  normalizeAnthropicMessagesRequest
+};
