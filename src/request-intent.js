@@ -22,4 +22,27 @@ function isClaudeCodeCompactionRequest(body) {
     /summar(?:y|ies|ize|ise|ization|isation)|conversation/i.test(text);
   return forbidsTools && requiresPlainText && requestsSummary;
 }
-module.exports = { latestMessageText, isClaudeCodeCompactionRequest };
+function metadataSessionId(body) {
+  const userId = body && body.metadata && body.metadata.user_id;
+  if (userId && typeof userId === 'object' && !Array.isArray(userId)) {
+    return typeof userId.session_id === 'string' ? userId.session_id : '';
+  }
+  if (typeof userId !== 'string') return '';
+  try {
+    const metadata = JSON.parse(userId);
+    return metadata && typeof metadata.session_id === 'string' ? metadata.session_id : '';
+  } catch {
+    return '';
+  }
+}
+
+function isWordAddinThinkingHighlightRequest(body) {
+  const sessionId = metadataSessionId(body);
+  return /^aux:thinking-highlight(?::|$)/.test(sessionId);
+}
+
+module.exports = {
+  latestMessageText,
+  isClaudeCodeCompactionRequest,
+  isWordAddinThinkingHighlightRequest
+};

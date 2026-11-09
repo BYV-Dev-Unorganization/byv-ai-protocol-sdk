@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isClaudeCodeCompactionRequest } = require('../src/request-intent');
+const { isClaudeCodeCompactionRequest, isWordAddinThinkingHighlightRequest } = require('../src/request-intent');
 
 test('recognizes Claude Code compaction output contract despite a declared tool catalog', () => {
   const body = {
@@ -26,5 +26,26 @@ test('does not classify a normal summary request or generic no-tool request as c
   }), false);
   assert.equal(isClaudeCodeCompactionRequest({
     messages: [{ role: 'user', content: 'Do not call any tools. Reply with a short status.' }]
+  }), false);
+});
+
+test('recognizes only the Word Add-in auxiliary thinking-highlight session', () => {
+  const body = {
+    metadata: {
+      user_id: JSON.stringify({
+        user: 'word-add-in/unknown',
+        session_id: 'aux:thinking-highlight:device-id:2026-11-09'
+      })
+    }
+  };
+  assert.equal(isWordAddinThinkingHighlightRequest(body), true);
+  assert.equal(isWordAddinThinkingHighlightRequest({
+    metadata: { user_id: { session_id: 'aux:thinking-highlight:device-id' } }
+  }), true);
+  assert.equal(isWordAddinThinkingHighlightRequest({
+    metadata: { user_id: JSON.stringify({ session_id: 'normal-session' }) }
+  }), false);
+  assert.equal(isWordAddinThinkingHighlightRequest({
+    metadata: { user_id: 'word-add-in/unknown' }
   }), false);
 });

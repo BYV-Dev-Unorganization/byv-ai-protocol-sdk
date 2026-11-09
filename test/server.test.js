@@ -133,6 +133,82 @@ test('adapts Claude Desktop one-token connection probes without changing normal 
 });
 
 
+test('isolates Word Add-in thinking-highlight empty-output failures from the main request path', async (t) => {
+  let receivedBody;
+  let receivedOptions;
+  const events = [];
+  const base = await withServer(t, {
+    noToolExperiment: false,
+    diagnostics: (event, fields) => events.push({ event, ...fields }),
+    handleMessages: async (body, options) => {
+      receivedBody = body;
+      receivedOptions = options;
+      throw Object.assign(new Error('Model could not produce a non-empty plain-text response.'), {
+        statusCode: 502,
+        type: 'api_error',
+        code: 'BYV_TEXT_RECOVERY_FAILED'
+      });
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'claude-haiku-5-5',
+      max_tokens: 64,
+      metadata: {
+        user_id: JSON.stringify({
+          user: 'word-add-in/unknown',
+          session_id: 'aux:thinking-highlight:device-id:2026-11-09'
+        })
+      },
+      messages: [{ role: 'user', content: 'Lanjutkan' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(receivedBody.max_tokens, 256);
+  assert.equal(receivedOptions.requestIntent, 'word_addin_thinking_highlight');
+  assert.equal(receivedOptions.noToolExperiment, false);
+  assert.equal(receivedOptions.nativeToolCalling, true);
+  const result = await response.json();
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.deepEqual(result.content, [{ type: 'text', text: 'Reviewing the next steps' }]);
+  assert.ok(events.some((entry) =>
+    entry.event === 'request.auxiliary_fallback' &&
+    entry.fallback_code === 'WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK'
+  ));
+  assert.ok(events.some((entry) =>
+    entry.event === 'request.completed' && entry.fallback_used === true
+  ));
+});
+
+test('does not hide empty-output recovery failures on normal native requests', async (t) => {
+  const base = await withServer(t, {
+    noToolExperiment: false,
+    handleMessages: async () => {
+      throw Object.assign(new Error('Model could not produce a non-empty plain-text response.'), {
+        statusCode: 502,
+        type: 'api_error',
+        code: 'BYV_TEXT_RECOVERY_FAILED'
+      });
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'claude-haiku-5-5',
+      max_tokens: 64,
+      messages: [{ role: 'user', content: 'Continue the document task.' }]
+    })
+  });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).error.code, 'BYV_TEXT_RECOVERY_FAILED');
+});
+
 test('rejects unsupported model profile IDs before invoking the handler', async (t) => {
   let called = false;
   const base = await withServer(t, {

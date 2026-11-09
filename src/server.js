@@ -14,13 +14,15 @@ const { getModelCapabilities } = require('./provider/capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
 const { sendAnthropicMessageStart, sendAnthropicStream, sendEvent } = require('./sse-sink');
-const { isClaudeCodeCompactionRequest } = require('./request-intent');
+const { isClaudeCodeCompactionRequest, isWordAddinThinkingHighlightRequest } = require('./request-intent');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
 const { createDiagnostics } = require('./diagnostics');
 
 const CLAUDE_DESKTOP_PROBE_MAX_TOKENS = 512;
+const WORD_ADDIN_THINKING_HIGHLIGHT_MAX_TOKENS = 256;
+const WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK = 'Reviewing the next steps';
 
 function isClaudeDesktopConnectionProbe(body) {
   if (!body || body.max_tokens !== 1 || body.stream === true) return false;
@@ -219,9 +221,12 @@ function createServer(options = {}) {
 
     const compactionRequest = isClaudeCodeCompactionRequest(body);
     const desktopConnectionProbe = route === '/v1/messages' && isClaudeDesktopConnectionProbe(body);
+    const thinkingHighlightAuxRequest = route === '/v1/messages' && isWordAddinThinkingHighlightRequest(body);
     const requestIntent = compactionRequest
       ? 'claude_code_compaction'
-      : desktopConnectionProbe ? 'claude_desktop_connection_probe' : 'normal';
+      : desktopConnectionProbe
+        ? 'claude_desktop_connection_probe'
+        : thinkingHighlightAuxRequest ? 'word_addin_thinking_highlight' : 'normal';
     // Claude Desktop's gateway connection check is a non-streaming one-token
     // request containing a single "." user message. Some reasoning providers
     // spend that entire budget internally and return no visible text, so give
@@ -231,12 +236,15 @@ function createServer(options = {}) {
       ? { ...body, tool_choice: 'none' }
       : desktopConnectionProbe
         ? { ...body, max_tokens: Math.max(body.max_tokens, CLAUDE_DESKTOP_PROBE_MAX_TOKENS) }
-        : body;
+        : thinkingHighlightAuxRequest
+          ? { ...body, max_tokens: Math.max(body.max_tokens, WORD_ADDIN_THINKING_HIGHLIGHT_MAX_TOKENS) }
+          : body;
     const requestContent = {
       request_id: requestId,
       request_intent: requestIntent,
       is_compaction_request: compactionRequest,
       is_claude_desktop_connection_probe: desktopConnectionProbe,
+      is_word_addin_thinking_highlight_request: thinkingHighlightAuxRequest,
       effective_provider_max_tokens: inferenceBody.max_tokens,
       method: req.method,
       route,
@@ -356,17 +364,57 @@ function createServer(options = {}) {
         }, streamPingIntervalMs);
         if (typeof pingTimer.unref === 'function') pingTimer.unref();
       }
-      const result = await runHandler(inferenceBody, {
-        signal: controller.signal,
-        requestId,
-        logger: toolCallLogger,
-        diagnostics: recordDiagnostic,
-        noToolExperiment,
-        nativeToolCalling: !noToolExperiment,
-        experimentVariant,
-        requestIntent,
-        anthropicVersion: req.headers['anthropic-version']
-      });
+      let result;
+      try {
+        result = await runHandler(inferenceBody, {
+          signal: controller.signal,
+          requestId,
+          logger: toolCallLogger,
+          diagnostics: recordDiagnostic,
+          noToolExperiment,
+          nativeToolCalling: !noToolExperiment,
+          experimentVariant,
+          requestIntent,
+          anthropicVersion: req.headers['anthropic-version']
+        });
+      } catch (error) {
+        if (!thinkingHighlightAuxRequest ||
+            error.code !== 'BYV_TEXT_RECOVERY_FAILED' ||
+            controller.signal.aborted) {
+          throw error;
+        }
+
+        let inputTokens = 0;
+        try {
+          inputTokens = estimateProviderInputTokens(buildProviderMessages(inferenceBody, {
+            noToolExperiment,
+            experimentVariant
+          }));
+        } catch {
+          // Auxiliary fallback must remain available even if local estimation fails.
+        }
+        result = {
+          id: uuid('msg'),
+          text: WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK,
+          content: [{ type: 'text', text: WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK }],
+          toolCalls: [],
+          stop_reason: 'end_turn',
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: Math.max(1, Math.ceil(WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK.length / 4))
+          },
+          usage_estimated: true,
+          fallback_used: true
+        };
+        recordDiagnostic('request.auxiliary_fallback', {
+          level: 'warn',
+          request_id: requestId,
+          request_intent: requestIntent,
+          model_profile: body.model,
+          error_code: error.code,
+          fallback_code: 'WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK'
+        });
+      }
       if (res.destroyed || res.writableEnded) return;
       if (result.usage_estimated) res.setHeader('X-Token-Usage-Estimated', 'true');
       if (isStream) {
@@ -399,6 +447,7 @@ function createServer(options = {}) {
         message_count: body.messages.length,
         tool_count: Array.isArray(body.tools) ? body.tools.length : 0,
         tool_calls: result.toolCalls.length,
+        ...(result.fallback_used ? { fallback_used: true } : {}),
         stop_reason: result.stop_reason,
         duration_ms: Date.now() - startedAt,
         usage_estimated: result.usage_estimated,
