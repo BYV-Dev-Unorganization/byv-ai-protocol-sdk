@@ -179,6 +179,9 @@ class LocalFileStore {
     const hasMore = start + data.length < all.length;
     return {
       data,
+      has_more: hasMore,
+      first_id: data.length ? data[0].id : null,
+      last_id: data.length ? data[data.length - 1].id : null,
       next_page: hasMore && data.length ? data[data.length - 1].id : null
     };
   }

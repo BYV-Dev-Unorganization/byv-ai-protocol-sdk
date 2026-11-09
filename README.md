@@ -77,33 +77,58 @@ The model profile is selected from the request model field. The upstream request
 
 ## File and image input
 
-`POST /v1/messages` accepts Anthropic image blocks, inline PDF `document` blocks, and ordinary text blocks. Images are forwarded as OpenAI-compatible `image_url` parts. PDF documents are forwarded as OpenRouter Chat Completions `file` parts with their filename and base64 data.
+BYV exposes a local Anthropic-compatible Files API as well as inline message attachments. Files uploaded through this gateway are stored on the machine running BYV under `.byv-files/`, not forwarded to Anthropic. Keep this directory private and include it in local backup/retention policy.
 
-Claude's native document handling supports PDF and plain text. Send TXT, CSV, Markdown, JSON, logs, and source-code contents as ordinary `text` blocks, preserving the filename in surrounding text when useful. DOCX, XLSX, and other formats that Claude does not accept as native document blocks should be converted to plain text or PDF first. This avoids pretending an arbitrary binary MIME type is a supported Claude document.
+### Upload and manage files
 
-PDF example:
+`POST /v1/files` accepts `multipart/form-data` with one `file` field. The gateway supports the Anthropic Files API upload limit of **500 MB per file**. The optional `expires_in_seconds` field accepts 3,600 through 7,776,000 seconds (one hour through 90 days); omitted files do not expire automatically and remain until deleted.
+
+```sh
+curl http://127.0.0.1:8787/v1/files \
+  -H "x-api-key: YOUR_BYV_GATEWAY_TOKEN" \
+  -F "file=@report.pdf"
+```
+
+The response includes an opaque `file_...` ID, filename, MIME type, size, creation time, and expiry metadata. Use the same gateway authentication for:
+
+- `GET /v1/files` — list uploaded files (`limit` and `page` are supported).
+- `GET /v1/files/{file_id}` — retrieve file metadata.
+- `DELETE /v1/files/{file_id}` — permanently remove the file.
+- `GET /v1/files/{file_id}/content` — returns the Anthropic-compatible not-downloadable error for files uploaded through this endpoint. These uploads are references for Messages, not downloadable file outputs.
+
+### Attach an uploaded file to a message
+
+Use the returned ID in an Anthropic `document` or `image` source:
 
 ```json
 {
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "Summarize this report." },
-    {
-      "type": "document",
-      "title": "report.pdf",
-      "source": {
-        "type": "base64",
-        "media_type": "application/pdf",
-        "data": "JVBERi0x..."
+  "model": "byv-flash-v1",
+  "max_tokens": 1024,
+  "messages": [{
+    "role": "user",
+    "content": [
+      { "type": "text", "text": "Summarize this report." },
+      {
+        "type": "document",
+        "title": "report.pdf",
+        "source": { "type": "file", "file_id": "file_0123456789abcdef01234567" }
       }
-    }
-  ]
+    ]
+  }]
 }
 ```
 
-The current OpenAI-compatible Chat Completions adapter does not resolve Anthropic Files API `file_id` references or URL-based document sources. It also does not implement Anthropic Code Execution's `container_upload` block. Use inline PDF data or include text file contents as normal message text; do not send an Anthropic Files API ID to this adapter and expect it to be fetched automatically.
+The gateway resolves the ID locally before converting the message for the configured OpenAI-compatible provider. PDF documents are passed as OpenRouter Chat Completions `file` parts. Images (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) are passed as `image_url` parts. Both work with `DSML_TOOL_CALL=true` and `DSML_TOOL_CALL=false`; the DSML switch controls tool-call transport, not file handling.
 
-The default inbound request-body limit is **128 MiB**, matching Anthropic's first-party Messages API limit. Anthropic's separate Files API allows up to 500 MB per uploaded file, but BYV does not implement that upload endpoint, so the 500 MB limit does not apply to `/v1/messages`. If your existing local `.env` explicitly contains `MAX_BODY_BYTES=12582912`, remove that override or change it to `134217728`; explicit local values take precedence over the code default.
+### Supported document formats
+
+Claude's native document handling supports PDF and plain text. BYV resolves uploaded `application/pdf` files as PDF attachments and `text/plain` files as ordinary text content. Upload TXT, CSV, TSV, Markdown, JSON, logs, and source code as text; supported text extensions are normalized to `text/plain` when their upload MIME is a text or generic type.
+
+DOCX, XLSX, and other formats that are not native Claude document formats must be converted to plain text or PDF before attaching them. Anthropic's `container_upload` block is intended for Code Execution datasets and other files, but this gateway does not implement Anthropic Code Execution or a container sandbox, so `container_upload` requests are rejected clearly. URL-based document sources are also not resolved by this Chat Completions adapter; upload the file to `/v1/files` and use its ID.
+
+**Important provider-adapter limit:** Files API storage accepts up to 500 MB per file, but the current OpenAI-compatible adapter inlines referenced file data into its provider request. To avoid creating an oversized base64 JSON payload, the adapter caps an individual file used in a Messages request at **90 MiB**. Larger files can be stored and managed through the Files API, but cannot currently be attached to model inference through this adapter. This 90 MiB bridge safeguard is separate from Anthropic's 500 MB upload limit.
+
+The default inbound JSON request-body limit for `/v1/messages` and `/v1/messages/count_tokens` is **128 MiB**, matching Anthropic's first-party Messages API limit. The separate Files API upload route streams files to disk and uses its 500 MB per-file limit instead. If your existing local `.env` explicitly contains `MAX_BODY_BYTES=12582912`, remove that override or change it to `134217728`; explicit local values take precedence over the code default.
 
 ## Setup
 

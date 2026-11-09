@@ -148,8 +148,10 @@ async function readMultipartFile(req, options = {}) {
           const extensionType = MIME_BY_EXTENSION[path.extname(currentPart.filename).toLowerCase()];
           const suppliedType = String(currentPart.mimeType || '').split(';', 1)[0].trim().toLowerCase();
           if (extensionType === 'text/plain' &&
-              (suppliedType.startsWith('text/') || suppliedType === 'application/json' ||
+              (!suppliedType || suppliedType === 'application/octet-stream' ||
+               suppliedType.startsWith('text/') || suppliedType === 'application/json' ||
                suppliedType === 'application/javascript')) return 'text/plain';
+          if (extensionType && (!suppliedType || suppliedType === 'application/octet-stream')) return extensionType;
           return suppliedType || extensionType || 'application/octet-stream';
         })(),
         sizeBytes: fileBytes
