@@ -68,7 +68,7 @@ function convertAnthropicImageBlock(block) {
 function convertAnthropicDocumentBlock(block) {
   const source = block && block.source;
   if (source && source.type === 'base64' &&
-      typeof source.media_type === 'string' &&
+      source.media_type === 'application/pdf' &&
       typeof source.data === 'string' && source.data) {
     const rawTitle = typeof block.title === 'string' && block.title.trim() ? block.title.trim() : '';
     const safeTitle = rawTitle && rawTitle.length <= 255 &&
@@ -102,10 +102,10 @@ function convertAnthropicDocumentBlock(block) {
       code: 'UNSUPPORTED_ANTHROPIC_FILE_ID'
     });
   }
-  throw Object.assign(new Error('Document blocks must use a supported inline base64 source.'), {
+  throw Object.assign(new Error('Only inline application/pdf document blocks can be forwarded by this Chat Completions adapter. Send plain-text files as text and convert DOCX/XLSX to text or PDF.'), {
     statusCode: 400,
     type: 'invalid_request_error',
-    code: 'INVALID_DOCUMENT_SOURCE'
+    code: source && source.type === 'base64' ? 'UNSUPPORTED_DOCUMENT_MEDIA_TYPE' : 'INVALID_DOCUMENT_SOURCE'
   });
 }
 

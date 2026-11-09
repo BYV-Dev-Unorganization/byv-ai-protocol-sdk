@@ -55,11 +55,7 @@ test('accepts inline document blocks and validates file references', () => {
     title: 'annual-report.pdf',
     source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
   };
-  const textFile = {
-    type: 'document',
-    title: 'notes.txt',
-    source: { type: 'base64', media_type: 'text/plain', data: 'SGVsbG8=' }
-  };
+  const textFile = { type: 'text', text: 'Notes from notes.txt' };
 
   assert.equal(validateMessagesRequest({
     ...minimal,
@@ -78,7 +74,7 @@ test('accepts inline document blocks and validates file references', () => {
     ...minimal,
     messages: [{ role: 'user', content: [{
       type: 'document',
-      source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' }
+      source: { type: 'base64', media_type: 'text/csv', data: 'YSxiCjEsMg==' }
     }] }]
   }).message, /unsupported block type/);
   assert.equal(validateMessagesRequest({

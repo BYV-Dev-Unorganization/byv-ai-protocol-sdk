@@ -38,10 +38,7 @@ function validImageSource(source) {
 function validDocumentSource(source) {
   if (!isPlainObject(source)) return false;
   if (source.type === 'base64') {
-    const mediaParts = typeof source.media_type === 'string' ? source.media_type.split('/') : [];
-    return mediaParts.length === 2 &&
-      mediaParts.every((part) => /^[a-z0-9!#$&^_.+-]+$/i.test(part)) &&
-      !['image', 'audio', 'video'].includes(mediaParts[0].toLowerCase()) &&
+    return source.media_type === 'application/pdf' &&
       typeof source.data === 'string' &&
       source.data.length > 0 &&
       source.data.length % 4 === 0 &&
@@ -147,7 +144,7 @@ function validateMessagesRequest(body, options = {}) {
         return { type: 'invalid_request_error', message: 'Text blocks require a string text field.' };
       }
       if (block.type === 'document' && !validDocumentSource(block.source)) {
-        return { type: 'invalid_request_error', message: 'Document blocks require a valid base64, URL, or file_id source.' };
+        return { type: 'invalid_request_error', message: 'Document blocks require an application/pdf base64 source, URL, or file_id reference.' };
       }
       if (block.type === 'container_upload' &&
           (typeof block.file_id !== 'string' || !block.file_id.trim())) {

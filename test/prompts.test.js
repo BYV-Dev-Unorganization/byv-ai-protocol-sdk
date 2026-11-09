@@ -300,8 +300,8 @@ test('forwards document blocks through native, DSML, and text-only provider path
 test('preserves documents while creating a bounded compaction transcript', () => {
   const document = {
     type: 'document',
-    title: 'notes.txt',
-    source: { type: 'base64', media_type: 'text/plain', data: 'SGVsbG8gd29ybGQ=' }
+    title: 'notes.pdf',
+    source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
   };
   const messages = buildCompactionProviderMessages({
     model: 'claude-sonnet-5-5',
@@ -312,7 +312,7 @@ test('preserves documents while creating a bounded compaction transcript', () =>
     ]
   }, { maxInputTokens: 12000 });
 
-  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'notes.txt'));
+  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'notes.pdf'));
   assert.ok(messages[1].content.some((part) => part.type === 'text' && /Document attachment supplied/.test(part.text)));
   assert.ok(estimateProviderInputTokens(messages) <= 12000);
 });

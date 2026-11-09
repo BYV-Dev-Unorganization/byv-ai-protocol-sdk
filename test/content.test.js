@@ -83,11 +83,7 @@ test('forwards inline documents as OpenRouter file parts', () => {
     title: 'annual-report.pdf',
     source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
   };
-  const csv = {
-    type: 'document',
-    title: 'metrics.csv',
-    source: { type: 'base64', media_type: 'text/csv', data: 'YSxiCjEsMg==' }
-  };
+  const csv = { type: 'text', text: 'a,b\\n1,2' };
   const native = convertAnthropicMessages([{
     role: 'user',
     content: [{ type: 'text', text: 'Summarize these files.' }, pdf, csv]
@@ -95,7 +91,7 @@ test('forwards inline documents as OpenRouter file parts', () => {
   assert.deepEqual(native[0].content, [
     { type: 'text', text: 'Summarize these files.' },
     { type: 'file', file: { filename: 'annual-report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
-    { type: 'file', file: { filename: 'metrics.csv', file_data: 'data:text/csv;base64,YSxiCjEsMg==' } }
+    { type: 'text', text: 'a,b\\n1,2' }
   ]);
 
   const dsml = convertAnthropicMessages([{
@@ -106,7 +102,7 @@ test('forwards inline documents as OpenRouter file parts', () => {
 });
 
 test('preserves document files returned by tools in DSML history without exposing base64 as text', () => {
-  const data = 'UEsDBA==';
+  const data = 'JVBERiQ=';
   const messages = convertAnthropicMessages([
     { role: 'assistant', content: [{ type: 'tool_use', id: 'call_file', name: 'GetFile', input: {} }] },
     {
@@ -116,9 +112,9 @@ test('preserves document files returned by tools in DSML history without exposin
         tool_use_id: 'call_file',
         content: [
           { type: 'text', text: 'File downloaded.' },
-          { type: 'document', title: 'export.xlsx', source: {
+          { type: 'document', title: 'export.pdf', source: {
             type: 'base64',
-            media_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            media_type: 'application/pdf',
             data
           } }
         ]
@@ -127,7 +123,7 @@ test('preserves document files returned by tools in DSML history without exposin
   ], { nativeToolCalling: false });
 
   assert.ok(Array.isArray(messages[1].content));
-  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'export.xlsx'));
+  assert.ok(messages[1].content.some((part) => part.type === 'file' && part.file.filename === 'export.pdf'));
   const text = messages[1].content.filter((part) => part.type === 'text').map((part) => part.text).join('\\n');
   assert.match(text, /File downloaded/);
   assert.doesNotMatch(text, new RegExp(data));

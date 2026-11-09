@@ -75,52 +75,35 @@ The model profile is selected from the request model field. The upstream request
 - An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
 - A provider API key, when required by that provider.
 
-## Vision / image input
+## File and image input
 
-`POST /v1/messages` accepts Anthropic-style image and document content blocks. Images are forwarded as OpenAI-compatible `image_url` parts. Inline base64 documents are forwarded as OpenRouter Chat Completions `file` parts with their filename and MIME type. Provider and model support still determine which formats can actually be parsed.
+`POST /v1/messages` accepts Anthropic image blocks, inline PDF `document` blocks, and ordinary text blocks. Images are forwarded as OpenAI-compatible `image_url` parts. PDF documents are forwarded as OpenRouter Chat Completions `file` parts with their filename and base64 data.
 
-Base64 image example:
+Claude's native document handling supports PDF and plain text. Send TXT, CSV, Markdown, JSON, logs, and source-code contents as ordinary `text` blocks, preserving the filename in surrounding text when useful. DOCX, XLSX, and other formats that Claude does not accept as native document blocks should be converted to plain text or PDF first. This avoids pretending an arbitrary binary MIME type is a supported Claude document.
+
+PDF example:
 
 ```json
 {
   "role": "user",
   "content": [
-    { "type": "text", "text": "What is in this picture?" },
+    { "type": "text", "text": "Summarize this report." },
     {
-      "type": "image",
+      "type": "document",
+      "title": "report.pdf",
       "source": {
         "type": "base64",
-        "media_type": "image/png",
-        "data": "BASE64_IMAGE_DATA"
+        "media_type": "application/pdf",
+        "data": "JVBERi0x..."
       }
     }
   ]
 }
 ```
 
-URL image example:
+The current OpenAI-compatible Chat Completions adapter does not resolve Anthropic Files API `file_id` references or URL-based document sources. It also does not implement Anthropic Code Execution's `container_upload` block. Use inline PDF data or include text file contents as normal message text; do not send an Anthropic Files API ID to this adapter and expect it to be fetched automatically.
 
-```json
-{
-  "role": "user",
-  "content": [
-    { "type": "text", "text": "Describe this image." },
-    {
-      "type": "image",
-      "source": {
-        "type": "url",
-        "url": "https://example.com/image.jpg"
-      }
-    }
-  ]
-}
-```
-
-Supported base64 image media types are `image/jpeg`, `image/png`, `image/gif`, and `image/webp`. Image and inline document attachments are retained in native, DSML, text-only, and compaction paths. Inline base64 document blocks map to OpenRouter `file` content parts. PDF processing is documented by OpenRouter; support for other MIME types depends on the selected provider and model. Anthropic URL-based document sources and `file_id` references cannot be mapped to OpenRouter Chat Completions in this adapter. `container_upload` requires Anthropic Code Execution and is rejected clearly because this gateway does not implement that server-side tool.
-
-Anthropic's native document support covers PDF and plain text. Other formats such as DOCX and XLSX may require conversion to plain text or PDF for Claude-native document handling. Do not assume every provider supports every MIME type. File parsing and input-token costs depend on the format and provider.
-
-The default inbound request-body limit is **128 MiB**, matching the first-party Anthropic Messages API. Anthropic's separate Files API permits 500 MB per uploaded file, but this gateway does not expose Anthropic's `/v1/files` endpoint, so the 500 MB limit does not apply here. OpenRouter separately documents a 100 MB Files API upload limit. The current `/v1/messages` inline path uses the 128 MiB body ceiling. If your existing local `.env` contains `MAX_BODY_BYTES=12582912`, remove that line or change it to `134217728`; explicit local values override the code default.
+The default inbound request-body limit is **128 MiB**, matching Anthropic's first-party Messages API limit. Anthropic's separate Files API allows up to 500 MB per uploaded file, but BYV does not implement that upload endpoint, so the 500 MB limit does not apply to `/v1/messages`. If your existing local `.env` explicitly contains `MAX_BODY_BYTES=12582912`, remove that override or change it to `134217728`; explicit local values take precedence over the code default.
 
 ## Setup
 
