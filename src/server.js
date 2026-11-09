@@ -19,6 +19,9 @@ const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = requi
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
 const { createDiagnostics } = require('./diagnostics');
+const { createFileStore } = require('./file-store');
+const { readMultipartFile } = require('./multipart');
+const { resolveFileReferences } = require('./file-content');
 
 const CLAUDE_DESKTOP_PROBE_MAX_TOKENS = 512;
 
@@ -52,6 +55,7 @@ function createServer(options = {}) {
     ? options.experimentVariant
     : NO_TOOL_EXPERIMENT_VARIANT;
   const diagnostics = options.diagnostics || createDiagnostics();
+  const fileStore = options.fileStore || createFileStore();
   const recordDiagnostic = typeof diagnostics === 'function'
     ? diagnostics
     : typeof diagnostics.record === 'function'
@@ -163,6 +167,79 @@ function createServer(options = {}) {
       }));
     }
 
+    if (req.method === 'POST' && route === '/v1/files') {
+      let upload;
+      try {
+        upload = await readMultipartFile(req, {
+          tempDirectory: fileStore.directory,
+          maxFileBytes: fileStore.maxFileBytes
+        });
+        const metadata = await fileStore.create(upload.tempPath, upload);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify(metadata));
+      } catch (error) {
+        if (upload && upload.tempPath) {
+          const fs = require('node:fs/promises');
+          await fs.rm(upload.tempPath, { force: true }).catch(() => {});
+        }
+        recordDiagnostic('files.upload.failed', {
+          level: 'warn',
+          request_id: requestId,
+          error_code: error.code || 'FILE_UPLOAD_FAILED',
+          status: error.statusCode || 500,
+          message: String(error.message || error).slice(0, 500)
+        });
+        return jsonError(res, error.statusCode || 500, error.type || 'api_error',
+          error.message || 'File upload failed.', error.code || 'FILE_UPLOAD_FAILED');
+      }
+    }
+
+    if (req.method === 'GET' && route === '/v1/files') {
+      try {
+        const limitValue = Number(requestUrl.searchParams.get('limit'));
+        const listing = await fileStore.list({
+          limit: Number.isInteger(limitValue) && limitValue > 0 ? limitValue : 20,
+          page: requestUrl.searchParams.get('page') || ''
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify(listing));
+      } catch (error) {
+        return jsonError(res, 500, 'api_error', 'Could not list uploaded files.');
+      }
+    }
+
+    const fileRouteMatch = /^\\/v1\\/files\\/(file_[a-f0-9]{24})(?:\\/(content))?$/i.exec(route);
+    if (fileRouteMatch && req.method === 'GET') {
+      if (fileRouteMatch[2] === 'content') {
+        return jsonError(res, 400, 'invalid_request_error',
+          'Files uploaded through the Files API are not downloadable. Only files created by Code Execution or skills can be downloaded.',
+          'FILE_NOT_DOWNLOADABLE');
+      }
+      try {
+        const metadata = await fileStore.getMetadata(fileRouteMatch[1]);
+        if (!metadata) return jsonError(res, 404, 'not_found_error', 'File not found.', 'FILE_NOT_FOUND');
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify(metadata));
+      } catch {
+        return jsonError(res, 500, 'api_error', 'Could not retrieve file metadata.');
+      }
+    }
+
+    if (fileRouteMatch && req.method === 'DELETE') {
+      try {
+        const deleted = await fileStore.delete(fileRouteMatch[1]);
+        if (!deleted) return jsonError(res, 404, 'not_found_error', 'File not found.', 'FILE_NOT_FOUND');
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        return res.end(JSON.stringify({
+          type: 'file_deleted',
+          id: fileRouteMatch[1],
+          deleted: true
+        }));
+      } catch {
+        return jsonError(res, 500, 'api_error', 'Could not delete file.');
+      }
+    }
+
     if (req.method === 'GET' && route === '/v1/provider/capabilities') {
       const capabilities = await readProviderCapabilities({
         forceRefresh: requestUrl.searchParams.get('refresh') === '1'
@@ -194,6 +271,19 @@ function createServer(options = {}) {
 
     const normalized = normalizeAnthropicMessagesRequest(body);
     body = normalized.body;
+    try {
+      body = await resolveFileReferences(body, fileStore);
+    } catch (error) {
+      recordDiagnostic('request.file_reference.rejected', {
+        level: 'warn',
+        request_id: requestId,
+        error_code: error.code || 'FILE_REFERENCE_FAILED',
+        status: error.statusCode || 400,
+        message: String(error.message || error).slice(0, 500)
+      });
+      return jsonError(res, error.statusCode || 400, error.type || 'invalid_request_error',
+        error.message || 'Could not resolve the referenced file.', error.code || 'FILE_REFERENCE_FAILED');
+    }
     const countTokens = route === '/v1/messages/count_tokens';
     const validationError = validateMessagesRequest(body, { countTokens });
     if (validationError) {
