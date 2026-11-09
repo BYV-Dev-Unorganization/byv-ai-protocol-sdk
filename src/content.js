@@ -167,7 +167,12 @@ function convertAnthropicMessages(messages, options = {}) {
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
     const blocks = blocksOf(message.content);
-    if (isUnsupportedFileContent(blocks)) throw unsupportedFileError();
+    const hasFileAttachment = blocks.some((block) => block && (
+      ['document', 'file', 'container_upload'].includes(block.type) ||
+      (block.type === 'image' && block.source && block.source.type === 'file') ||
+      (block.type === 'tool_result' && isUnsupportedFileContent(block.content))
+    ));
+    if (hasFileAttachment) throw unsupportedFileError();
 
     if (message.role === 'assistant') {
       const text = flattenText(blocks);
