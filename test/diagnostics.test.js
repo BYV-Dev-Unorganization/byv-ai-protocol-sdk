@@ -115,7 +115,7 @@ test('opt-in diagnostics redact base64 image data and image URLs', (t) => {
   assert.equal(serialized.includes(base64), false);
   assert.equal(serialized.includes(signedUrl), false);
   assert.match(serialized, /IMAGE DATA REDACTED/);
-  assert.match(serialized, /IMAGE URL REDACTED/);
+  assert.match(serialized, /ATTACHMENT URL REDACTED/);
 });
 
 test('diagnostics write a correlated timeline and split event categories', (t) => {
