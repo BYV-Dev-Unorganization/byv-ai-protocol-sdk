@@ -6,19 +6,51 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const IMAGE_MEDIA_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp'
+]);
+
+function validImageSource(source) {
+  if (!isPlainObject(source)) return false;
+  if (source.type === 'base64') {
+    return IMAGE_MEDIA_TYPES.has(source.media_type) &&
+      typeof source.data === 'string' &&
+      source.data.length > 0 &&
+      source.data.length % 4 === 0 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(source.data);
+  }
+  if (source.type === 'url' && typeof source.url === 'string') {
+    try {
+      const url = new URL(source.url);
+      return ['http:', 'https:'].includes(url.protocol) &&
+        !url.username &&
+        !url.password;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function validContent(content, allowedTypes) {
   if (typeof content === 'string') return true;
   if (!Array.isArray(content)) return false;
-  return content.every((block) =>
-    isPlainObject(block) &&
-    typeof block.type === 'string' &&
-    allowedTypes.includes(block.type)
-  );
+  return content.every((block) => {
+    if (!isPlainObject(block) ||
+        typeof block.type !== 'string' ||
+        !allowedTypes.includes(block.type)) return false;
+    if (block.type === 'image') return validImageSource(block.source);
+    if (block.type === 'text') return typeof block.text === 'string';
+    return true;
+  });
 }
 
 function validateMessagesRequest(body, options = {}) {
   const countTokens = options.countTokens === true;
-  const allowedBlocks = ['text', 'tool_use', 'tool_result'];
+  const allowedBlocks = ['text', 'image', 'tool_use', 'tool_result'];
 
   if (!isPlainObject(body)) {
     return { type: 'invalid_request_error', message: 'Request body must be a JSON object.' };
@@ -64,6 +96,10 @@ function validateMessagesRequest(body, options = {}) {
       if (block.type === 'tool_result' &&
           (typeof block.tool_use_id !== 'string' || !block.tool_use_id || block.content === undefined)) {
         return { type: 'invalid_request_error', message: 'tool_result blocks require tool_use_id and content.' };
+      }
+      if (block.type === 'tool_result' && !validContent(block.content, ['text', 'image']) &&
+          typeof block.content !== 'string') {
+        return { type: 'invalid_request_error', message: 'tool_result content must be text or supported image blocks.' };
       }
     }
   }
