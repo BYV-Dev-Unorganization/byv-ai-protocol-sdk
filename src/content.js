@@ -59,6 +59,10 @@ function convertAnthropicImageBlock(block) {
 }
 
 function convertAnthropicContentBlocks(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) {
+    return content === null || content === undefined ? '' : JSON.stringify(content);
+  }
   const blocks = blocksOf(content);
   const hasImage = blocks.some((block) => block && block.type === 'image');
   const hasNonText = blocks.some((block) =>
