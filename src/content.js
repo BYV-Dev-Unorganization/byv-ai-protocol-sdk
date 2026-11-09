@@ -21,15 +21,8 @@ function renderToolResultContent(content) {
     return content.map((block) => {
       if (block && block.type === 'text' && typeof block.text === 'string') return block.text;
       if (block && block.type === 'image') return '[Image content supplied]';
-      if (block && block.type === 'document' && block.source && block.source.type === 'text') {
-        return '[document content: ' + String(block.source.data || '') + ']';
-      }
-      if (block && block.type === 'document') {
-        return '[Document attachment supplied' +
-          (typeof block.title === 'string' && block.title.trim() ? ': ' + block.title.trim() : '') + ']';
-      }
-      // Retain non-text Anthropic/MCP result blocks as serialized context.
-      // Binary document payloads are attached separately, never copied into this text.
+      // Retain non-text Anthropic/MCP result blocks as descriptive context.
+
       return block && typeof block.type === 'string'
         ? '[' + block.type + ' content: ' + JSON.stringify(block) + ']'
         : '';
@@ -90,7 +83,7 @@ function unsupportedFileError() {
   });
 }
 
-function isAnthropicAttachment(block) {
+function isAnthropicImage(block) {
   return Boolean(block && block.type === 'image');
 }
 
@@ -101,9 +94,9 @@ function convertAnthropicContentBlocks(content) {
     return content === null || content === undefined ? '' : JSON.stringify(content);
   }
   const blocks = blocksOf(content);
-  const hasAttachment = blocks.some(isAnthropicAttachment);
+  const hasImage = blocks.some(isAnthropicImage);
   const hasNonText = blocks.some((block) => block && block.type !== 'text');
-  if (!hasAttachment && !hasNonText) return flattenText(blocks);
+  if (!hasImage && !hasNonText) return flattenText(blocks);
   const parts = [];
   for (const block of blocks) {
     if (!block) continue;
@@ -121,16 +114,16 @@ function convertAnthropicContentBlocks(content) {
   return parts;
 }
 
-function collectAnthropicAttachments(messages) {
+function collectAnthropicImages(messages) {
   const attachments = [];
   for (let messageIndex = 0; messageIndex < (Array.isArray(messages) ? messages.length : 0); messageIndex++) {
     const message = messages[messageIndex];
     for (const block of blocksOf(message && message.content)) {
-      if (isAnthropicAttachment(block)) {
+      if (isAnthropicImage(block)) {
         attachments.push({ block, messageIndex, role: message.role || 'user' });
       } else if (block && block.type === 'tool_result' && Array.isArray(block.content)) {
         for (const nested of block.content) {
-          if (isAnthropicAttachment(nested)) {
+          if (isAnthropicImage(nested)) {
             attachments.push({
               block: nested,
               messageIndex,
@@ -143,10 +136,6 @@ function collectAnthropicAttachments(messages) {
     }
   }
   return attachments;
-}
-
-function collectAnthropicImages(messages) {
-  return collectAnthropicAttachments(messages).filter((item) => item.block.type === 'image');
 }
 
 function assertToolUseReference(block, knownToolUses, consumedToolUseIds) {
@@ -298,7 +287,7 @@ function convertAnthropicMessages(messages, options = {}) {
       textParts.push(renderedResults);
       if (hasUserAttachments) providerParts.push({ type: 'text', text: renderedResults });
       for (const result of toolResults) {
-        if (Array.isArray(result.content) && result.content.some(isAnthropicAttachment)) {
+        if (Array.isArray(result.content) && result.content.some(isAnthropicImage)) {
           providerParts.push({
             type: 'text',
             text: '[Attachment returned by tool ' + result.tool_use_id + ']'
@@ -309,7 +298,7 @@ function convertAnthropicMessages(messages, options = {}) {
     }
 
     const hasToolResultAttachments = toolResults.some((result) =>
-      Array.isArray(result.content) && result.content.some(isAnthropicAttachment)
+      Array.isArray(result.content) && result.content.some(isAnthropicImage)
     );
     if (hasUserAttachments || hasToolResultAttachments) {
       if (!hasUserAttachments) {
@@ -402,8 +391,7 @@ module.exports = {
   convertAnthropicImageBlock,
   convertAnthropicContentBlocks,
   collectAnthropicImages,
-  collectAnthropicAttachments,
-  isAnthropicAttachment,
+  isAnthropicImage,
   estimateInputTokens,
   estimateProviderInputTokens,
   estimateOutputTokens,
