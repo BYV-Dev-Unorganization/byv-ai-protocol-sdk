@@ -77,6 +77,47 @@ test('opt-in content capture redacts secret fields and common secret patterns', 
   assert.equal(serialized.includes('[REDACTED]'), true);
 });
 
+test('opt-in diagnostics redact base64 image data and image URLs', (t) => {
+  const directory = temporaryDirectory();
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const diagnostics = createDiagnostics({ directory, captureContent: true });
+  const base64 = 'private-image-base64-value';
+  const signedUrl = 'https://images.example.test/private.jpg?signature=private-signature';
+
+  diagnostics.record('request.received', {
+    request_id: 'req_image_capture',
+    content: {
+      body: {
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } },
+            { type: 'image', source: { type: 'url', url: signedUrl } }
+          ]
+        }]
+      }
+    }
+  });
+  diagnostics.record('provider.request.started', {
+    request_id: 'req_image_capture',
+    content: {
+      messages: [{
+        role: 'user',
+        content: [{
+          type: 'image_url',
+          image_url: { url: 'data:image/png;base64,' + base64 }
+        }]
+      }]
+    }
+  });
+
+  const serialized = JSON.stringify(readJsonl(path.join(directory, 'timeline.jsonl')));
+  assert.equal(serialized.includes(base64), false);
+  assert.equal(serialized.includes(signedUrl), false);
+  assert.match(serialized, /IMAGE DATA REDACTED/);
+  assert.match(serialized, /IMAGE URL REDACTED/);
+});
+
 test('diagnostics write a correlated timeline and split event categories', (t) => {
   const directory = temporaryDirectory();
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
