@@ -43,6 +43,10 @@ test('accepts supported base64 and URL image blocks and rejects malformed image 
     ...minimal,
     messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'file:///etc/passwd' } }] }]
   }).message, /unsupported block type/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'assistant', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }]
+  }).message, /image blocks must appear in user messages/);
 });
 
 test('validates tool schemas and tool_choice references', () => {
