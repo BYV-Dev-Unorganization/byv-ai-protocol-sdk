@@ -21,8 +21,12 @@ function renderToolResultContent(content) {
     return content.map((block) => {
       if (block && block.type === 'text' && typeof block.text === 'string') return block.text;
       if (block && block.type === 'image') return '[Image content supplied]';
-      return '';
-    }).filter(Boolean).join('');
+      // Retain non-text Anthropic/MCP result blocks as serialized context.
+      // Image payloads are handled separately as actual image_url parts.
+      return block && typeof block.type === 'string'
+        ? '[' + block.type + ' content: ' + JSON.stringify(block) + ']'
+        : '';
+    }).filter(Boolean).join('\n');
   }
   if (content === null || content === undefined) return '';
   return JSON.stringify(content);
@@ -57,7 +61,10 @@ function convertAnthropicImageBlock(block) {
 function convertAnthropicContentBlocks(content) {
   const blocks = blocksOf(content);
   const hasImage = blocks.some((block) => block && block.type === 'image');
-  if (!hasImage) return flattenText(blocks);
+  const hasNonText = blocks.some((block) =>
+    block && block.type !== 'text' && block.type !== 'image'
+  );
+  if (!hasImage && !hasNonText) return flattenText(blocks);
   const parts = [];
   for (const block of blocks) {
     if (!block) continue;
@@ -65,6 +72,11 @@ function convertAnthropicContentBlocks(content) {
       parts.push({ type: 'text', text: block.text });
     } else if (block.type === 'image') {
       parts.push(convertAnthropicImageBlock(block));
+    } else if (typeof block.type === 'string') {
+      parts.push({
+        type: 'text',
+        text: '[' + block.type + ' content: ' + JSON.stringify(block) + ']'
+      });
     }
   }
   return parts;
