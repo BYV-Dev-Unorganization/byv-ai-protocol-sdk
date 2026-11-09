@@ -22,7 +22,7 @@ const { createDiagnostics } = require('./diagnostics');
 
 const CLAUDE_DESKTOP_PROBE_MAX_TOKENS = 512;
 const WORD_ADDIN_THINKING_HIGHLIGHT_MAX_TOKENS = 256;
-const WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK = 'Reviewing the next steps';
+const WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK = 'Meninjau langkah berikutnya sebelum melanjutkan';
 
 function isClaudeDesktopConnectionProbe(body) {
   if (!body || body.max_tokens !== 1 || body.stream === true) return false;

@@ -174,7 +174,7 @@ test('isolates Word Add-in thinking-highlight empty-output failures from the mai
   assert.equal(receivedOptions.nativeToolCalling, true);
   const result = await response.json();
   assert.equal(result.stop_reason, 'end_turn');
-  assert.deepEqual(result.content, [{ type: 'text', text: 'Reviewing the next steps' }]);
+  assert.deepEqual(result.content, [{ type: 'text', text: 'Meninjau langkah berikutnya sebelum melanjutkan' }]);
   assert.ok(events.some((entry) =>
     entry.event === 'request.auxiliary_fallback' &&
     entry.fallback_code === 'WORD_ADDIN_THINKING_HIGHLIGHT_FALLBACK'
