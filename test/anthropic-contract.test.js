@@ -136,7 +136,7 @@ test('rejects document, file, and container-upload blocks before provider conver
     assert.match(validateMessagesRequest({
       ...minimal,
       messages: [{ role: 'user', content: [block] }]
-    }).message, /unsupported block type/);
+    }).message, /client-side skill or tool/);
   }
 });
 
@@ -176,7 +176,7 @@ test('accepts image blocks inside tool results but rejects nested file and docum
           }]
         }
       ]
-    }).message, /file and document blocks are not supported/);
+    }).message, /client-side skill or tool/);
   }
 });
 
