@@ -206,6 +206,17 @@ test('preserves safe OpenRouter provider error metadata for diagnosis', async (t
   const imageData = 'A'.repeat(200);
   const upstream = response({
     status: 400,
+    payload: { id: 'gen-openrouter-diagnostic', error: {
+      message: 'Provider returned error',
+      code: 400,
+      metadata: {
+        provider_name: 'Stealth',
+        error_type: 'provider_error',
+        provider_code: 'invalid_request',
+        is_byok: false,
+        raw: 'ERROR'
+      }
+    } },
     payload: {
       error: {
         message: 'Provider returned error',
@@ -213,6 +224,8 @@ test('preserves safe OpenRouter provider error metadata for diagnosis', async (t
         metadata: {
           provider_name: 'Stealth',
           error_type: 'provider_error',
+          provider_code: 'invalid_request',
+          is_byok: false,
           raw: 'Unsupported image payload data:image/png;base64,' + imageData +
             '; api_key=provider-secret-value; invalid parameter: reasoning_effort'
         }
@@ -228,7 +241,10 @@ test('preserves safe OpenRouter provider error metadata for diagnosis', async (t
       error.statusCode === 502 &&
       /provider=Stealth/.test(error.message) &&
       /error_type=provider_error/.test(error.message) &&
+      /provider_code=invalid_request/.test(error.message) &&
+      /is_byok=false/.test(error.message) &&
       /provider_raw=/.test(error.message) &&
+      /upstream_request_id=gen-openrouter-diagnostic/.test(error.message) &&
       /upstream_request_id=or-test-request-123/.test(error.message) &&
       /reasoning_effort/.test(error.message) &&
       !error.message.includes(imageData) &&
