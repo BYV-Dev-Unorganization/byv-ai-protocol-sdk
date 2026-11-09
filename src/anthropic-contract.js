@@ -56,9 +56,17 @@ function validContent(content, allowedTypes) {
   });
 }
 
+function containsUnsupportedFileBlock(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(containsUnsupportedFileBlock);
+  if (['document', 'container_upload', 'file'].includes(value.type)) return true;
+  return Object.values(value).some(containsUnsupportedFileBlock);
+}
+
 function validToolResultContent(content) {
   if (content === undefined) return false;
   if (typeof content === 'string') return true;
+  if (containsUnsupportedFileBlock(content)) return false;
 
   // Tool integrations may return structured JSON values as well as Anthropic
   // content blocks. Binary file/document blocks are deliberately not accepted.
