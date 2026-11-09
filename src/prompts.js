@@ -635,7 +635,11 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
     for (let attempt = 0; attempt < 12; attempt++) {
         const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
-        const providerMessages = [systemMessage, { role: 'user', content: transcript }];
+        const imageParts = collectAnthropicImageParts(body.messages);
+        const transcriptContent = imageParts.length
+            ? [{ type: 'text', text: transcript }, ...imageParts]
+            : transcript;
+        const providerMessages = [systemMessage, { role: 'user', content: transcriptContent }];
         const estimatedTokens = estimateProviderInputTokens(providerMessages);
         if (estimatedTokens <= requestedInputTokens) return providerMessages;
 
