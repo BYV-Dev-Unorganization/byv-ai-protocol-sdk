@@ -119,6 +119,23 @@ test('preserves additional rich tool-result blocks as provider text parts', () =
   assert.match(dsmlMessages[1].content, /search_result/);
 });
 
+test('serializes structured JSON objects returned as tool-result content', () => {
+  const messages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_json_result', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_json_result',
+        content: { matches: [{ id: 1, title: 'Example' }] }
+      }]
+    }
+  ]);
+
+  assert.equal(messages[1].role, 'tool');
+  assert.equal(messages[1].content, '{"matches":[{"id":1,"title":"Example"}]}');
+});
+
 test('rejects orphan tool results and duplicate tool-use IDs', () => {
   assert.throws(() => convertAnthropicMessages([
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'missing', content: 'x' }] }
