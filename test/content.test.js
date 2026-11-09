@@ -78,6 +78,38 @@ test('preserves image content returned by tools in text-only DSML history', () =
   assert.match(messages[1].content.find((part) => part.type === 'text').text, /Screenshot captured/);
 });
 
+test('preserves image content returned by tools in provider-native message mode', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_native_image', name: 'Screenshot', input: {} }]
+    },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_native_image',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+        ]
+      }]
+    }
+  ]);
+
+  assert.equal(messages[1].role, 'tool');
+  assert.equal(messages[1].tool_call_id, 'call_native_image');
+  assert.equal(messages[1].content, 'Screenshot captured.');
+  assert.deepEqual(messages[2], {
+    role: 'user',
+    content: [
+      { type: 'text', text: '[Attachment returned by tool call_native_image]' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }
+    ]
+  });
+  assert.doesNotMatch(JSON.stringify(messages), /file_data|"type":"file"/);
+});
+
 test('rejects document, file, file-ID, and container-upload blocks before provider conversion', () => {
   const unsupported = [
     { type: 'document', title: 'report.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
