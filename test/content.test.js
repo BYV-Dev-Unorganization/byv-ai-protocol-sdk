@@ -108,6 +108,27 @@ test('estimates the provider-shaped payload including UTF-8 content and message 
 });
 
 
+test('estimates image inputs independently of base64 payload length', () => {
+  const small = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,AAAA' }
+    }]
+  }];
+  const large = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,' + 'A'.repeat(200000) }
+    }]
+  }];
+  const textOnly = [{ role: 'user', content: 'Describe an image.' }];
+
+  assert.equal(estimateProviderInputTokens(small), estimateProviderInputTokens(large));
+  assert.ok(estimateProviderInputTokens(small) > estimateProviderInputTokens(textOnly));
+});
+
 test('DSML mode converts historical tool_use into DSML and tool_result into structured user content', () => {
   const messages = convertAnthropicMessages([
     { role: 'user', content: 'Run the command and summarize the result.' },
