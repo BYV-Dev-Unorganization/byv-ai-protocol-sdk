@@ -83,6 +83,9 @@ function validateMessagesRequest(body, options = {}) {
       if (message.role === 'assistant' && block.type === 'tool_result') {
         return { type: 'invalid_request_error', message: 'tool_result blocks must appear in user messages.' };
       }
+      if (message.role === 'assistant' && block.type === 'image') {
+        return { type: 'invalid_request_error', message: 'image blocks must appear in user messages.' };
+      }
       if (message.role === 'user' && block.type === 'tool_use') {
         return { type: 'invalid_request_error', message: 'tool_use blocks must appear in assistant messages.' };
       }
