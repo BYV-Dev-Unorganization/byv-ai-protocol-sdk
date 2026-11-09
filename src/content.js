@@ -289,7 +289,7 @@ function estimateProviderInputTokens(messages) {
           return {
             type: 'image_url',
             image_url: {
-              url: /^data:image\\//i.test(part.image_url.url)
+              url: /^data:image\//i.test(part.image_url.url)
                 ? '[embedded image omitted for token estimate]'
                 : part.image_url.url
             }
