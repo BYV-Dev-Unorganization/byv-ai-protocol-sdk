@@ -75,6 +75,14 @@ The model profile is selected from the request model field. The upstream request
 - An OpenAI-compatible provider that implements POST /v1/chat/completions. Native function calling is recommended for agent clients; providers without it can use the DSML text-output fallback.
 - A provider API key, when required by that provider.
 
+## Image and file input
+
+BYV accepts Anthropic image content blocks and converts them to the OpenAI-compatible Chat Completions `image_url` format for the configured provider. Supported image sources are base64 JPEG, PNG, GIF, and WEBP data, plus safe HTTP(S) image URLs. Images in tool results and conversation compaction are preserved as image inputs.
+
+BYV does **not** accept PDF, document, generic file, file-ID, or `container_upload` attachments, and it never creates OpenAI-compatible `file` or `file_data` parts. The gateway does not upload, store, parse, or resolve user files.
+
+For file tasks, Claude Code or the Claude client must use its local skill or tool to read and process the file. The client should then send the extracted text, structured data, or a concise processed result to BYV as ordinary text content. Keep file access and parsing on the Claude client side; do not send raw file attachments to this gateway.
+
 ## Setup
 
 Install dependencies:
@@ -89,12 +97,12 @@ Copy .env.example to .env and set the provider values:
 PROVIDER_BASE_URL=https://your-provider-host/v1
 PROVIDER_API_KEY=your-secret-key
 PROVIDER_MODEL=provider-model-id
-# Optional only. DSML model output, normalized to BYV internally, is the default.
-PROVIDER_NATIVE_TOOL_CALLING=false
+# Tool transport: true = DSML text protocol, false = provider-native function calling.
+DSML_TOOL_CALL=true
 PROVIDER_NATIVE_REASONING_EFFORT=true
 ~~~
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false`, the gateway neither sends native function schemas to the provider nor accepts provider-native tool calls in its responses. The model is instructed to emit DeepSeek DSML in assistant text; the gateway converts that output to BYV internally before parsing and validation. Set it to `true` only when the configured provider supports native function calling.
+With `DSML_TOOL_CALL=true`, the gateway disables provider-native tools, sets the upstream provider `tool_choice` to `none`, and uses DeepSeek DSML text instructions/parser/recovery. With `DSML_TOOL_CALL=false`, the gateway sends native OpenAI-compatible tool schemas and mapped `tool_choice`, normalizes provider `tool_calls`, and does not parse or recover DSML. Tool names that do not satisfy the provider's `[A-Za-z0-9_-]{1,64}` constraint are assigned unique provider-safe aliases; returned calls and named `tool_choice` are mapped back to the original Anthropic tool names inside the gateway. Both modes use the same BYV tool allowlist and JSON Schema validation before returning Anthropic `tool_use`.
 
 The base URL may end in /v1 or be the full /v1/chat/completions URL. The adapter appends /v1/chat/completions when the URL does not already include it.
 
@@ -141,7 +149,7 @@ Authenticated API requests are limited to **30 requests per rolling 60 seconds p
 
 ### Local Word Desktop connection
 
-For Claude for Office running inside the installed Word desktop app on the same computer as BYV, use the local gateway directly. No Cloudflare Tunnel, ngrok, public domain, or `npm run start:office` launcher is needed.
+Claude for Office running inside the installed Word desktop app on the same computer as BYV connects directly to the local gateway at `http://127.0.0.1:8787`.
 
 Keep the gateway bound to loopback in `.env`:
 
@@ -200,7 +208,7 @@ To explicitly capture request and response content for local debugging, set:
 LOG_CAPTURE_CONTENT=true
 ```
 
-When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
+When enabled, the logger redacts configured provider/gateway API keys, common credential fields, and several common token formats. Base64 image data and image URLs are also redacted from captured diagnostics. Redaction is best-effort, not a guarantee: prompts, source code, command output, and tool results may still contain private information. Enable this only in a trusted local environment, inspect the files before sharing them, and turn it off when debugging is complete.
 
 Each JSONL file is limited to 10 MiB by default and keeps three rotated backups. Override with `LOG_MAX_FILE_BYTES` and `LOG_ROTATION_FILES`. The entire `logs/` directory is excluded from Git.
 
@@ -255,6 +263,20 @@ main().catch(console.error);
 
 The SDK appends /v1/messages; do not include /v1 in the baseURL.
 
+## Project documentation
+
+The repository documentation is split by concern:
+
+| Document | Covers |
+| --- | --- |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime flow, module boundaries, security boundary, streaming, recovery |
+| [Configuration](docs/CONFIGURATION.md) | Environment variables, provider limits, gateway settings, diagnostics |
+| [API reference](docs/API.md) | HTTP endpoints, authentication, Messages, streaming, errors |
+| [Tool transport](docs/TOOL-TRANSPORT.md) | DSML vs provider-native function calling and validation |
+| [Testing](docs/TESTING.md) | Local regression matrix, syntax checks, and live smoke tests |
+
+The most important implementation rule for tool transport is that `DSML_TOOL_CALL` is the single provider-facing switch. The same regression suite is executed with both values so changes cannot accidentally work only in the developer's current mode.
+
 ## Live client compatibility smoke tests
 
 The repository includes opt-in live smoke tests for provider and client compatibility. They call the configured upstream provider and/or the running BYV gateway, so they are not part of `npm test` or the GitHub Actions unit-test job. They may consume provider quota.
@@ -291,7 +313,11 @@ This uses the official `@anthropic-ai/sdk` and checks:
 
 The tool fixture requests a harmless echo command, but the smoke test **never executes it**. It sends a synthetic tool result back to verify the Anthropic conversation contract.
 
-Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `byv-flash-v1`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
+For the local gateway, the script reads the authenticated `/health` status and prints the active tool transport (`DSML text` or `provider-native`). The same SDK assertions are intended to pass in either mode; this command tests whichever mode the running gateway loaded at startup. Restart `npm start` after changing `DSML_TOOL_CALL` in `.env`.
+
+The smoke test defaults to the `claude-sonnet-5-5` response profile because that profile is also used by the Claude Code CLI smoke test. Set `ANTHROPIC_MODEL` to test another profile. Tool-call requests use Anthropic `tool_choice: any` (provider `required`) and allow up to 1024 output tokens, so the test requires a structured tool call instead of relying on the model to choose one under `auto`.
+
+Optional environment variables: `BYV_BASE_URL`, `ANTHROPIC_MODEL` (defaults to `claude-sonnet-5-5`), and `ANTHROPIC_SDK_TEST_TIMEOUT_MS` (defaults to 600000).
 
 ### Native provider function-calling smoke test
 
@@ -303,7 +329,7 @@ npm run test:provider-tools
 
 This sends one live OpenAI-compatible Chat Completions request with a synthetic `Read` function and `tool_choice: auto`. It passes only when the configured provider returns one structured function call for `README.md`. The tool is never executed and no client files are read. This is the quickest way to isolate provider-native function calling from Claude Code's permissions and local tool runner.
 
-The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key.
+The script uses `PROVIDER_BASE_URL`, `PROVIDER_API_KEY`, and `PROVIDER_MODEL` from `.env`. It may consume provider quota and does not print the API key. This is a provider-only native function-calling probe: it intentionally bypasses the gateway handler, so it tests native provider support regardless of whether `DSML_TOOL_CALL` is `true` or `false`. It is not a test of the active gateway transport mode. It explicitly enables `nativeToolCalling` and builds the same native-mode system prompt/profile as the gateway, because it calls the provider adapter directly. The probe allows up to 1024 output tokens. The Anthropic SDK smoke test also uses `tool_choice: auto` for live compatibility; exact named-tool-choice mapping remains covered by offline unit tests.
 
 ### Claude Code CLI smoke test
 
@@ -324,7 +350,7 @@ The script launches Claude Code in non-interactive `stream-json` mode against th
 
 The test creates an isolated temporary workspace, applies a narrow tool/permission allowlist, verifies tool results and the Edit/Write changes, and removes the workspace afterward. It does not grant arbitrary shell execution and does not modify the repository. It tests client-to-gateway tool orchestration; the gateway itself does not execute client tools.
 
-Optional environment variables: `BYV_BASE_URL`, `BYV_CLAUDE_CODE_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). The test model is intentionally independent from `ANTHROPIC_MODEL` so a value left over from the Anthropic SDK smoke test cannot change this test. For the local gateway, the script validates the gateway token and model profile before launching Claude Code, and runs the CLI in restricted mode with the six-tool allowlist.
+Optional environment variables: `BYV_BASE_URL`, `BYV_CLAUDE_CODE_MODEL` (defaults to `claude-sonnet-5-5`), and `CLAUDE_CODE_TEST_TIMEOUT_MS` (defaults to 600000). The test model is intentionally independent from `ANTHROPIC_MODEL` so a value left over from the Anthropic SDK smoke test cannot change this test. For the local gateway, the script validates the gateway token and model profile before launching Claude Code, reports the active tool transport, and runs the CLI in restricted mode with the six-tool allowlist. Like the SDK smoke test, it is transport-neutral and should pass with either `DSML_TOOL_CALL` value.
 
 These live integration tests are intentionally separate from:
 
@@ -335,9 +361,23 @@ npm run check
 
 The regular suite remains deterministic and does not require a running provider, a gateway token, the Anthropic SDK runtime, or Claude Code CLI.
 
+### Regression matrix for DSML/native transport
+
+`npm test` intentionally runs the complete Node test suite twice:
+
+```text
+DSML_TOOL_CALL=true
+DSML_TOOL_CALL=false
+```
+
+Both modes must pass. The verified baseline is **211/211 tests in each mode (422 total executions, 0 failures)**. This prevents the local `.env` value from hiding regressions in the alternate tool transport.
+
+For architecture and transport details, see [Tool Transport](docs/TOOL-TRANSPORT.md) and [Architecture](docs/ARCHITECTURE.md).
+
+
 ## Tool calls
 
-When `PROVIDER_NATIVE_TOOL_CALLING=false` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
+When `DSML_TOOL_CALL=true` (the default), the model-facing text protocol is DeepSeek DSML. The gateway places the request's tool allowlist, descriptions, and JSON Schemas in the system prompt and asks the upstream model to return a DSML calls block in assistant text.
 
 Example model output:
 
@@ -361,9 +401,14 @@ The Anthropic `tool_choice` setting is enforced through the gateway's runtime pr
 
 The provider adapter sends neither native OpenAI-compatible `tools` definitions nor `tool_choice` in default DSML mode. The gateway describes callable tools in the prompt, parses textual DSML, and enforces the client allowlist locally. This avoids requiring provider-native function-calling support or an unnecessary provider-specific tool-choice parameter.
 
-### Optional provider-native function calling
+### Tool transport modes
 
-Set `PROVIDER_NATIVE_TOOL_CALLING=true` only when you explicitly want to test or use the upstream provider's native function-calling interface. In that mode, BYV forwards the tool schemas and mapped `tool_choice` to the provider, then normalizes returned native calls into the same validated gateway call representation. The model-facing DSML instructions are not used in that mode.
+`DSML_TOOL_CALL` is the single provider-facing tool transport switch:
+
+- `true` / `on`: DSML text mode. Native provider tools are off and upstream `tool_choice` is `none`. DSML instructions, parsing, and DSML recovery are enabled.
+- `false` / `off`: native mode. Provider-native schemas and mapped `tool_choice` are sent upstream. Provider-native `tool_calls` are normalized directly; DSML instructions, parser, and DSML recovery are skipped.
+
+The default is `true` to preserve the existing DSML behavior. `NO_TOOL_EXPERIMENT_VARIANT` remains a DSML-only prompt experiment: `A` hides tool metadata and `B` exposes tool names/descriptions as reference-only. It is ignored by native mode.
 
 Some providers require reasoning to be disabled for required or named native tool choices. Set `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=true` only when that provider supports `reasoning_effort: "none"` and requires this behavior. The adapter does not infer this capability from a provider or model name.
 
@@ -402,7 +447,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 
 - model
 - system
-- messages with text, tool_use, and tool_result blocks
+- messages with text, image, tool_use, and tool_result blocks
 - max_tokens
 - stream
 - tools and input_schema
@@ -412,7 +457,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 - stop_sequences
 - output_config.effort: low, medium, high, xhigh, max
 
-The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
+The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. PDF/document blocks, generic file attachments, file IDs, and container_upload/Code Execution are intentionally unsupported. Process files in the Claude client with a skill or tool, then send extracted text. Provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are also not implemented.
 
 ### Native reasoning effort
 
@@ -461,7 +506,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
-| PROVIDER_NATIVE_TOOL_CALLING | false | Optional upstream native function calling; DSML model output is the default and is normalized to BYV internally |
+| DSML_TOOL_CALL | true | `true`/`on` = DSML text transport; `false`/`off` = provider-native function calling |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
 | PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
 | PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
@@ -482,7 +527,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |
 | PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |
 | CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
-| MAX_BODY_BYTES | 10485760 | Maximum inbound JSON request body |
+| MAX_BODY_BYTES | 134217728 | Maximum inbound JSON request body (128 MiB, matching Anthropic Messages API) |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
 | MAX_PROMPT_CHARS | 4000000 | Maximum generated system prompt size in characters (configurable up to 8000000) |
 | MAX_PENDING_REQUESTS | 8 | Maximum concurrent gateway requests |

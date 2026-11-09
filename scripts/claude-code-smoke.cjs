@@ -116,6 +116,10 @@ async function resolveGatewayToken() {
     }
 
     if (response.status === 200) {
+      const healthPayload = await response.json();
+      if (!['dsml', 'provider_native'].includes(healthPayload.tool_transport)) {
+        throw new Error('Local gateway does not report a supported tool_transport. Restart npm start from the updated repository.');
+      }
       const modelsResponse = await fetch(new URL('/v1/models', BASE_URL), {
         method: 'GET',
         headers: { Authorization: 'Bearer ' + candidate.token },
@@ -136,7 +140,7 @@ async function resolveGatewayToken() {
           (available.join(', ') || '(none)')
         );
       }
-      return candidate;
+      return { ...candidate, toolTransport: healthPayload.tool_transport };
     }
 
     lastStatus = response.status;
@@ -285,6 +289,7 @@ async function main() {
   if (isLocalGateway(BASE_URL)) {
     console.log('Gateway authentication preflight: PASS');
     console.log('Model profile availability preflight: PASS');
+    console.log('Gateway tool transport:', token.toolTransport === 'dsml' ? 'DSML text' : 'provider-native');
   }
 
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'byv-claude-code-test-'));

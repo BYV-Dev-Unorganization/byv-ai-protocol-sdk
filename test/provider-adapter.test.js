@@ -100,9 +100,11 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
     stream: false,
     temperature: 0.2,
     top_p: 0.9,
-    stop: ['END']
+    stop: ['END'],
+    tool_choice: 'none'
   });
   assert.deepEqual(result, {
+    id: null,
     text: 'Hello from provider.',
     tool_calls: [],
     reasoning: 'brief reasoning',
@@ -110,6 +112,40 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
     usage: { prompt_tokens: 20, completion_tokens: 4 },
     provider_model: model
   });
+});
+
+test('forwards multimodal image_url parts unchanged in regular and streaming provider payloads', async (t) => {
+  const { provider, model } = loadProvider(t);
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Describe this image.' },
+      {
+        type: 'image_url',
+        image_url: { url: 'data:image/png;base64,aGVsbG8=' }
+      }
+    ]
+  }];
+  let captured;
+  global.fetch = async (_url, init) => {
+    captured = JSON.parse(init.body);
+    return response({
+      payload: {
+        model,
+        choices: [{ finish_reason: 'stop', message: { content: 'A test image.' } }]
+      }
+    });
+  };
+
+  await provider.createChatCompletion(messages, { max_tokens: 64 });
+  assert.deepEqual(captured.messages, messages);
+
+  const streamingPayload = provider.buildPayload(messages, {
+    max_tokens: 64,
+    stream: true
+  }).payload;
+  assert.deepEqual(streamingPayload.messages, messages);
+  assert.equal(streamingPayload.stream, true);
 });
 
 test('forwards each supported Anthropic effort as native reasoning_effort', (t) => {
@@ -162,6 +198,46 @@ test('maps upstream HTTP errors without leaking provider credentials', async (t)
       error.statusCode === 502 &&
       /rate limit reached/.test(error.message) &&
       !error.message.includes('provider-test-secret')
+  );
+});
+
+test('preserves safe OpenRouter provider error metadata for diagnosis', async (t) => {
+  const { provider } = loadProvider(t);
+  const imageData = 'A'.repeat(200);
+  const upstream = response({
+    status: 400,
+    payload: {
+      id: 'gen-openrouter-diagnostic',
+      error: {
+        message: 'Provider returned error',
+        code: 400,
+        metadata: {
+          provider_name: 'Stealth',
+          error_type: 'provider_error',
+          provider_code: 'invalid_request',
+          is_byok: false,
+          raw: 'Unsupported image payload data:image/png;base64,' + imageData +
+            '; api_key=provider-secret-value; invalid parameter: reasoning_effort'
+        }
+      }
+    }
+  });
+  upstream.headers = new Headers({ 'x-request-id': 'or-test-request-123' });
+  global.fetch = async () => upstream;
+
+  await assert.rejects(
+    provider.createChatCompletion([{ role: 'user', content: 'Hi' }], { max_tokens: 16 }),
+    (error) => error.code === 'UPSTREAM_HTTP_400' &&
+      error.statusCode === 502 &&
+      /provider=Stealth/.test(error.message) &&
+      /error_type=provider_error/.test(error.message) &&
+      /provider_code=invalid_request/.test(error.message) &&
+      /is_byok=false/.test(error.message) &&
+      /provider_raw=/.test(error.message) &&
+      /upstream_request_id=or-test-request-123/.test(error.message) &&
+      /reasoning_effort/.test(error.message) &&
+      !error.message.includes(imageData) &&
+      !error.message.includes('provider-secret-value')
   );
 });
 

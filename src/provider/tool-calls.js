@@ -1,21 +1,85 @@
 'use strict';
 
-function providerToolChoice(choice) {
+const PROVIDER_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+function createProviderToolNameMap(tools) {
+  const list = Array.isArray(tools) ? tools : [];
+  const originalNames = new Set();
+  const reservedProviderNames = new Set();
+
+  for (const tool of list) {
+    if (!tool || typeof tool.name !== 'string' || !tool.name.trim()) {
+      throw new TypeError('Every provider tool must have a non-empty name.');
+    }
+    if (originalNames.has(tool.name)) {
+      throw new TypeError('Duplicate tool name: ' + tool.name);
+    }
+    originalNames.add(tool.name);
+    if (PROVIDER_TOOL_NAME_PATTERN.test(tool.name)) reservedProviderNames.add(tool.name);
+  }
+
+  const originalToProvider = new Map();
+  const providerToOriginal = new Map();
+  for (const tool of list) {
+    const originalName = tool.name;
+    let providerName = originalName;
+
+    if (!PROVIDER_TOOL_NAME_PATTERN.test(originalName)) {
+      const base = originalName.replace(/[^A-Za-z0-9_-]/g, '_') || 'tool';
+      providerName = base.slice(0, 64);
+      let suffixIndex = 2;
+      while (reservedProviderNames.has(providerName) || providerToOriginal.has(providerName)) {
+        const suffix = '_' + suffixIndex++;
+        const available = 64 - suffix.length;
+        if (available < 1) {
+          throw new TypeError('Unable to create a unique provider-safe name for tool ' + originalName + '.');
+        }
+        providerName = base.slice(0, available) + suffix;
+      }
+    }
+
+    originalToProvider.set(originalName, providerName);
+    providerToOriginal.set(providerName, originalName);
+  }
+
+  return { originalToProvider, providerToOriginal };
+}
+
+function restoreProviderToolCallNames(toolCalls, nameMap) {
+  if (!Array.isArray(toolCalls) || !nameMap || !(nameMap.providerToOriginal instanceof Map)) {
+    return toolCalls;
+  }
+  return toolCalls.map((call) => {
+    if (!call || typeof call.name !== 'string') return call;
+    const originalName = nameMap.providerToOriginal.get(call.name);
+    return originalName ? { ...call, name: originalName } : call;
+  });
+}
+
+function providerToolChoice(choice, nameMap) {
   if (!choice) return 'auto';
   const mode = typeof choice === 'string' ? choice : choice.type;
   if (mode === 'none' || mode === 'auto' || mode === 'required') return mode;
   if (mode === 'any') return 'required';
   if (mode === 'tool' && choice && typeof choice.name === 'string' && choice.name.trim()) {
-    return { type: 'function', function: { name: choice.name } };
+    const providerName = nameMap && nameMap.originalToProvider instanceof Map
+      ? nameMap.originalToProvider.get(choice.name)
+      : choice.name;
+    if (!providerName) throw new TypeError('tool_choice references an undeclared tool: ' + choice.name);
+    return { type: 'function', function: { name: providerName } };
   }
   throw new TypeError('Unsupported Anthropic tool_choice value for the OpenAI-compatible provider.');
 }
 
-function providerFunctionTools(tools) {
+function providerFunctionTools(tools, nameMap = createProviderToolNameMap(tools)) {
   if (!Array.isArray(tools) || tools.length === 0) return [];
   return tools.map((tool) => {
-    if (!tool || typeof tool.name !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(tool.name)) {
-      throw new TypeError('Tool names sent to the provider must match [A-Za-z0-9_-] and be at most 64 characters.');
+    if (!tool || typeof tool.name !== 'string' || !nameMap.originalToProvider.has(tool.name)) {
+      throw new TypeError('Provider tool-name mapping is missing a declared tool.');
+    }
+    const providerName = nameMap.originalToProvider.get(tool.name);
+    if (!PROVIDER_TOOL_NAME_PATTERN.test(providerName)) {
+      throw new TypeError('Mapped provider tool names must match [A-Za-z0-9_-] and be at most 64 characters.');
     }
     const schema = tool.input_schema && typeof tool.input_schema === 'object'
       ? tool.input_schema
@@ -23,7 +87,7 @@ function providerFunctionTools(tools) {
     return {
       type: 'function',
       function: {
-        name: tool.name,
+        name: providerName,
         description: typeof tool.description === 'string' ? tool.description : '',
         parameters: schema
       }
@@ -113,6 +177,8 @@ function finalizeProviderToolCallDeltas(target) {
 module.exports = {
   providerToolChoice,
   providerFunctionTools,
+  createProviderToolNameMap,
+  restoreProviderToolCallNames,
   normalizeProviderToolCalls,
   mergeProviderToolCallDelta,
   finalizeProviderToolCallDeltas

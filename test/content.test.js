@@ -30,6 +30,162 @@ test('converts Anthropic tool_use and tool_result blocks to OpenAI-compatible me
   ]);
 });
 
+test('forwards Anthropic base64 and URL images as OpenAI-compatible image_url content parts', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Describe these images.' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+        { type: 'image', source: { type: 'url', url: 'https://images.example.test/photo.jpg' } }
+      ]
+    }
+  ]);
+
+  assert.deepEqual(messages, [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Describe these images.' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+      { type: 'image_url', image_url: { url: 'https://images.example.test/photo.jpg' } }
+    ]
+  }]);
+  assert.doesNotMatch(JSON.stringify(messages), /file_data|"type":"file"/);
+});
+
+test('preserves image content returned by tools in text-only DSML history', () => {
+  const messages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_screen', name: 'Screenshot', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_screen',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'aGVsbG8=' } }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].role, 'user');
+  assert.ok(Array.isArray(messages[1].content));
+  assert.ok(messages[1].content.some((part) =>
+    part.type === 'image_url' && part.image_url.url === 'data:image/jpeg;base64,aGVsbG8='
+  ));
+  assert.match(messages[1].content.find((part) => part.type === 'text').text, /Screenshot captured/);
+});
+
+test('preserves image content returned by tools in provider-native message mode', () => {
+  const messages = convertAnthropicMessages([
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'call_native_image', name: 'Screenshot', input: {} }]
+    },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_native_image',
+        content: [
+          { type: 'text', text: 'Screenshot captured.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+        ]
+      }]
+    }
+  ]);
+
+  assert.equal(messages[1].role, 'tool');
+  assert.equal(messages[1].tool_call_id, 'call_native_image');
+  assert.equal(messages[1].content, 'Screenshot captured.');
+  assert.deepEqual(messages[2], {
+    role: 'user',
+    content: [
+      { type: 'text', text: '[Attachment returned by tool call_native_image]' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }
+    ]
+  });
+  assert.doesNotMatch(JSON.stringify(messages), /file_data|"type":"file"/);
+});
+
+test('rejects document, file, file-ID, and container-upload blocks before provider conversion', () => {
+  const unsupported = [
+    { type: 'document', title: 'report.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'file', file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
+    { type: 'document', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } },
+    { type: 'container_upload', file_id: 'file_0123456789abcdef01234567' }
+  ];
+
+  for (const block of unsupported) {
+    assert.throws(() => convertAnthropicMessages([{
+      role: 'user',
+      content: [block]
+    }]), (error) => error.code === 'UNSUPPORTED_FILE_ATTACHMENT');
+  }
+});
+
+
+test('preserves additional rich tool-result blocks as provider text parts', () => {
+  const nativeMessages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_rich', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_rich',
+        content: [
+          { type: 'text', text: 'Found one result.' },
+          { type: 'search_result', title: 'Example', url: 'https://example.test' },
+          { type: 'resource', uri: 'https://example.test/report.txt', text: 'Report text' }
+        ]
+      }]
+    }
+  ]);
+
+  assert.equal(nativeMessages[1].role, 'tool');
+  assert.ok(Array.isArray(nativeMessages[1].content));
+  assert.equal(nativeMessages[1].content[0].text, 'Found one result.');
+  assert.match(nativeMessages[1].content[1].text, /search_result content/);
+  assert.match(nativeMessages[1].content[2].text, /resource content/);
+
+  const dsmlMessages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_rich_dsml', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_rich_dsml',
+        content: [
+          { type: 'text', text: 'Found one result.' },
+          { type: 'search_result', title: 'Example', url: 'https://example.test' }
+        ]
+      }]
+    }
+  ], { nativeToolCalling: false });
+
+  assert.match(dsmlMessages[1].content, /Found one result/);
+  assert.match(dsmlMessages[1].content, /search_result/);
+});
+
+test('serializes structured JSON objects returned as tool-result content', () => {
+  const messages = convertAnthropicMessages([
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'call_json_result', name: 'Lookup', input: {} }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_json_result',
+        content: { matches: [{ id: 1, title: 'Example' }] }
+      }]
+    }
+  ]);
+
+  assert.equal(messages[1].role, 'tool');
+  assert.equal(messages[1].content, '{"matches":[{"id":1,"title":"Example"}]}');
+});
+
 test('rejects orphan tool results and duplicate tool-use IDs', () => {
   assert.throws(() => convertAnthropicMessages([
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'missing', content: 'x' }] }
@@ -60,6 +216,27 @@ test('estimates the provider-shaped payload including UTF-8 content and message 
   assert.ok(estimate > 1);
 });
 
+
+test('estimates image inputs independently of base64 payload length', () => {
+  const small = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,AAAA' }
+    }]
+  }];
+  const large = [{
+    role: 'user',
+    content: [{
+      type: 'image_url',
+      image_url: { url: 'data:image/png;base64,' + 'A'.repeat(200000) }
+    }]
+  }];
+  const textOnly = [{ role: 'user', content: 'Describe an image.' }];
+
+  assert.equal(estimateProviderInputTokens(small), estimateProviderInputTokens(large));
+  assert.ok(estimateProviderInputTokens(small) > estimateProviderInputTokens(textOnly));
+});
 
 test('DSML mode converts historical tool_use into DSML and tool_result into structured user content', () => {
   const messages = convertAnthropicMessages([

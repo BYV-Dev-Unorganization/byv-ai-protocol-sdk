@@ -1,9 +1,9 @@
 'use strict';
 
-const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, estimateProviderInputTokens } = require('./content');
+const { blocksOf, flattenText, renderToolResultContent, convertAnthropicMessages, convertAnthropicImageBlock, collectAnthropicImages, estimateProviderInputTokens } = require('./content');
 const {
     MAX_PROMPT_CHARS,
-    PROVIDER_NATIVE_TOOL_CALLING,
+    DSML_TOOL_CALL,
     COMPACTION_MAX_INPUT_TOKENS,
     COMPACTION_MAX_SYSTEM_CHARS
 } = require('./config');
@@ -11,6 +11,14 @@ const { modelProfilePrompt } = require('./model-profiles');
 const { renderToolSchemaPrompt } = require('./protocol/schema-renderer');
 
 const MAX_REPLAY = MAX_PROMPT_CHARS;
+
+function resolveNativeToolCalling(options = {}) {
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
+    if (noToolExperiment) return false;
+    return typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true;
+}
 
 function flattenContent(content) {
     return flattenText(content);
@@ -30,6 +38,8 @@ function renderMessage(message) {
             rendered.push('[Tool result for ' + block.tool_use_id + ': ' + renderToolResultContent(block.content) + ']');
         } else if (block.type === 'image') {
             rendered.push('[Image content supplied]');
+        } else if (block.type === 'document' || block.type === 'container_upload' || block.type === 'file') {
+            rendered.push('[File attachment omitted; process it with a Claude client-side skill or tool and send extracted text.]');
         } else {
             rendered.push('[' + block.type + ' content]');
         }
@@ -122,10 +132,10 @@ const TOOL_RESULT_INSTRUCTIONS = [
 ];
 
 function toolsToPrompt(tools, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
-    if (!tools || !tools.length) return '';
+    const nativeToolCalling = resolveNativeToolCalling(options);
+    // Native schemas and tool choice are sent in the provider request body.
+    // Do not duplicate native tool instructions or schema metadata in the prompt.
+    if (nativeToolCalling || !tools || !tools.length) return '';
 
     const lines = [];
     lines.push('You have access to the tools listed below. These are the only tools available to you for this request.');
@@ -183,15 +193,35 @@ function toolsToPrompt(tools, options = {}) {
 }
 
 function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const parts = [];
     if (system) parts.push('### SYSTEM\n' + flattenContent(system));
     parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
 
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
     const lastHasToolResult = blocksOf(last.content).some((block) => block.type === 'tool_result');
+
+    if (nativeToolCalling) {
+        const nativeParts = [];
+        if (system) nativeParts.push('### SYSTEM\n' + flattenContent(system));
+        nativeParts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+        const history = messages.slice(0, -1);
+        if (history.length) {
+            nativeParts.push('### CONVERSATION HISTORY');
+            for (const message of history) {
+                nativeParts.push('[' + (message.role === 'assistant' ? 'ASSISTANT' : 'USER') + ']\n' + renderMessage(message));
+            }
+        }
+        if (lastHasToolResult) {
+            nativeParts.push('=== TOOL RESULTS ===\n' + renderMessage(last));
+            const originalRequest = originalUserRequestBlock(messages, maxReplay);
+            if (originalRequest) nativeParts.push(originalRequest);
+            nativeParts.push('=== INSTRUCTIONS AFTER TOOL RESULTS ===\n' + TOOL_RESULT_INSTRUCTIONS.join('\n'));
+        } else {
+            nativeParts.push('### LATEST USER MESSAGE\n' + renderMessage(last));
+        }
+        return nativeParts.join('\n\n');
+    }
 
     const history = messages.slice(0, -1);
     if (history.length) {
@@ -230,8 +260,37 @@ function buildFullPrompt(system, messages, tools, maxReplay = MAX_REPLAY, option
     return prompt;
 }
 
-function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY) {
+function buildResumePrompt(system, messages, tools, isToolResultTurn, maxReplay = MAX_REPLAY, options = {}) {
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const last = messages[messages.length - 1] || { role: 'user', content: '' };
+
+    if (nativeToolCalling) {
+        const parts = [];
+        if (system) parts.push('### SYSTEM\n' + flattenContent(system));
+        parts.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+        if (isToolResultTurn) {
+            parts.push('=== SITUATION ===');
+            parts.push('The client has executed a tool and provided its result. Continue the original task using the conversation context.');
+            parts.push('=== LATEST TOOL RESULTS ===');
+            parts.push(truncateTextPreservingEnds(
+                renderMessage(last),
+                Math.max(1024, Math.floor(maxReplay * 0.6))
+            ));
+            const originalRequest = originalUserRequestBlock(messages, maxReplay);
+            if (originalRequest) parts.push(originalRequest);
+            parts.push('=== INSTRUCTIONS AFTER TOOL RESULTS ===');
+            parts.push(...TOOL_RESULT_INSTRUCTIONS);
+        } else {
+            parts.push('=== NEW USER REQUEST ===\n' + renderMessage(last));
+        }
+        const prompt = parts.join('\n');
+        if (prompt.length > MAX_PROMPT_CHARS) {
+            throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce client system instructions.'), {
+                statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+            });
+        }
+        return prompt;
+    }
 
     if (isToolResultTurn) {
         const toolPrompt = toolsToPrompt(tools);
@@ -296,9 +355,7 @@ function parseToolChoice(toolChoice) {
 }
 
 function applyForcedTool(prompt, force, options = {}) {
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     if (force.mode === 'none') {
         return [
             '=== STOP: DO NOT CALL TOOLS ===',
@@ -306,7 +363,9 @@ function applyForcedTool(prompt, force, options = {}) {
             'Using ALL information already available in the context above, answer the user NOW in plain text.',
             '',
             'MANDATORY RULES:',
-            '1. Do not emit DSML calls, invoke, or parameter tags, or legacy <TOOL_CALL> tags.',
+            nativeToolCalling
+                ? '1. Do not invoke provider-native functions or emit structured tool-call wrappers.'
+                : '1. Do not emit DSML calls, invoke, or parameter tags, or legacy <TOOL_CALL> tags.',
             '2. Do NOT call any tools. All tools are disabled for this turn.',
             '3. If information is incomplete, answer with what is available and state the limitations.',
             '4. Respond in the language the user is currently using unless they explicitly request another language.',
@@ -344,14 +403,10 @@ function toolsAsReference(tools) {
 }
 
 function buildSystemPrompt(body = {}, options = {}) {
-    const noToolExperiment = options.noToolExperiment === true;
-    // Text-only inference disables provider-native functions but still permits
-    // textual DSML calls for the gateway adapter.
-    const nativeToolCalling = noToolExperiment
-        ? false
-        : (typeof options.nativeToolCalling === 'boolean'
-            ? options.nativeToolCalling
-            : PROVIDER_NATIVE_TOOL_CALLING);
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const experimentVariant = options.experimentVariant === 'B' ? 'B' : 'A';
     const system = flattenContent(body.system);
     const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -362,6 +417,18 @@ function buildSystemPrompt(body = {}, options = {}) {
 
     if (system) sections.push('### SYSTEM\n' + system);
     sections.push(PROJECT_AND_LANGUAGE_INSTRUCTIONS);
+
+    if (nativeToolCalling) {
+        const profile = modelProfilePrompt(body.model);
+        if (profile) sections.push(profile);
+        const prompt = sections.join('\n\n');
+        if (prompt.length > MAX_PROMPT_CHARS) {
+            throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce client system instructions.'), {
+                statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
+            });
+        }
+        return prompt;
+    }
 
     if (textOnly) {
         sections.push([
@@ -448,12 +515,10 @@ function buildSystemPrompt(body = {}, options = {}) {
     return prompt;
 }
 function buildProviderMessages(body = {}, options = {}) {
-    const noToolExperiment = options.noToolExperiment === true;
-    const nativeToolCalling = noToolExperiment
-        ? false
-        : (typeof options.nativeToolCalling === 'boolean'
-            ? options.nativeToolCalling
-            : PROVIDER_NATIVE_TOOL_CALLING);
+    const noToolExperiment = typeof options.noToolExperiment === 'boolean'
+        ? options.noToolExperiment
+        : DSML_TOOL_CALL;
+    const nativeToolCalling = resolveNativeToolCalling(options);
     const force = parseToolChoice(body.tool_choice);
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const tools = Array.isArray(body.tools) ? body.tools : [];
@@ -473,6 +538,21 @@ function buildProviderMessages(body = {}, options = {}) {
             throw Object.assign(new Error('The assembled system prompt exceeds MAX_PROMPT_CHARS. Reduce tool schemas or client system instructions.'), {
                 statusCode: 413, type: 'invalid_request_error', code: 'SYSTEM_PROMPT_TOO_LARGE'
             });
+        }
+        const attachments = collectAnthropicImages(messages);
+        if (attachments.length) {
+            const contentParts = [{ type: 'text', text: prompt }];
+            attachments.forEach((attachment, index) => {
+                const origin = attachment.toolUseId
+                    ? 'tool result ' + attachment.toolUseId
+                    : attachment.role + ' message ' + (attachment.messageIndex + 1);
+                contentParts.push({
+                    type: 'text',
+                    text: '[Vision image ' + (index + 1) + ' from ' + origin + ']'
+                });
+                contentParts.push(convertAnthropicImageBlock(attachment.block));
+            });
+            return [{ role: 'user', content: contentParts }];
         }
         return [{ role: 'user', content: prompt }];
     }
@@ -594,6 +674,22 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     const systemMessage = { role: 'system', content: systemPrompt };
     const systemOnlyMessages = [systemMessage, { role: 'user', content: '' }];
     const systemOnlyEstimate = estimateProviderInputTokens(systemOnlyMessages);
+    const attachments = collectAnthropicImages(body.messages);
+    const buildTranscriptMessage = (transcript) => {
+        if (!attachments.length) return { role: 'user', content: transcript };
+        const contentParts = [{ type: 'text', text: transcript }];
+        attachments.forEach((attachment, index) => {
+            const origin = attachment.toolUseId
+                ? 'tool result ' + attachment.toolUseId
+                : attachment.role + ' message ' + (attachment.messageIndex + 1);
+            contentParts.push({
+                type: 'text',
+                text: '[Vision image ' + (index + 1) + ' from ' + origin + ']'
+            });
+            contentParts.push(convertAnthropicImageBlock(attachment.block));
+        });
+        return { role: 'user', content: contentParts };
+    };
     if (systemOnlyEstimate > requestedInputTokens) {
         throw Object.assign(new Error(
             'The provider input budget is too small for the required system and project instructions in an autocompaction request.'
@@ -607,7 +703,7 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
     let transcriptBudget = Math.max(0, maxPromptChars - systemPrompt.length - 512);
     for (let attempt = 0; attempt < 12; attempt++) {
         const transcript = buildCompactionTranscript(body.messages, transcriptBudget);
-        const providerMessages = [systemMessage, { role: 'user', content: transcript }];
+        const providerMessages = [systemMessage, buildTranscriptMessage(transcript)];
         const estimatedTokens = estimateProviderInputTokens(providerMessages);
         if (estimatedTokens <= requestedInputTokens) return providerMessages;
 
@@ -622,7 +718,7 @@ function buildCompactionProviderMessages(body = {}, options = {}) {
 
     const finalMessages = [
         systemMessage,
-        { role: 'user', content: buildCompactionTranscript(body.messages, transcriptBudget) }
+        buildTranscriptMessage(buildCompactionTranscript(body.messages, transcriptBudget))
     ];
     if (estimateProviderInputTokens(finalMessages) > requestedInputTokens) {
         throw Object.assign(new Error(
@@ -708,8 +804,23 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
     const isFinal = Number(attempt) >= maxAttempts;
     const diagnostic = (fallback) => sanitizeRecoveryValue(String(error || fallback));
     const earlierResponseNote = 'The earlier response is not included in this conversation.';
+    const nativeToolCalling = resolveNativeToolCalling(options);
 
     if (mode === 'text') {
+        if (nativeToolCalling) {
+            return [
+                '=== TEXT-ONLY RECOVERY ===',
+                'The previous response did not satisfy the required plain-text response contract. ' + earlierResponseNote,
+                'Correct this issue: ' + diagnostic('Return a non-empty plain-text answer.'),
+                RECOVERY_DIAGNOSTIC_NOTE,
+                'Do not invoke provider-native functions or return structured tool-call wrappers.',
+                'Do not request or claim tool execution.',
+                'Answer the original request in plain text using the conversation and available results.',
+                'Preserve any output structure the original request asked for.',
+                'Do not introduce a new task.',
+                ...(isFinal ? ['This is the final recovery attempt. Give the best plain-text answer from the information already present.'] : [])
+            ].join('\n');
+        }
         return [
             '=== TEXT-ONLY RECOVERY ===',
             'The previous response did not satisfy the required plain-text response contract. ' + earlierResponseNote,
@@ -723,14 +834,11 @@ function buildRecoveryMessage(error, attempt, mode, options = {}) {
             ...(isFinal ? ['This is the final recovery attempt. Give the best plain-text answer from the information already present.'] : [])
         ].join('\n');
     }
-    const nativeToolCalling = typeof options.nativeToolCalling === 'boolean'
-        ? options.nativeToolCalling
-        : PROVIDER_NATIVE_TOOL_CALLING;
     if (nativeToolCalling) {
         return [
             '=== TOOL CALL RECOVERY ===',
             'The previous response did not contain a valid native function call for the declared tools. ' + earlierResponseNote,
-            'Use the native function-calling interface supplied with this request. Do not write DSML markup, JSON wrappers, or narration instead of invoking the required function.',
+            'Use the provider native function-calling interface supplied with this request. Do not write textual or JSON tool-call wrappers, or narration instead of invoking the required function.',
             'Correct this issue: ' + diagnostic('Unknown provider tool-call validation error'),
             RECOVERY_DIAGNOSTIC_NOTE,
             'Rebuild the required call from the original user request and available tool schemas.',

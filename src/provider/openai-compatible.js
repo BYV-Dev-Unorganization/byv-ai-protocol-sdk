@@ -4,7 +4,6 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
@@ -15,6 +14,7 @@ const { createProviderRequestLimiter } = require('./request-limiter');
 const {
   providerToolChoice,
   providerFunctionTools,
+  createProviderToolNameMap,
   mergeProviderToolCallDelta,
   finalizeProviderToolCallDeltas
 } = require('./tool-calls');
@@ -87,16 +87,16 @@ function buildPayload(messages, options = {}) {
       ['low', 'medium', 'high', 'xhigh', 'max'].includes(options.reasoning_effort)) {
     payload.reasoning_effort = options.reasoning_effort;
   }
-  // In text-protocol mode, the gateway describes tool schemas in its prompt
-  // and parses calls from assistant text. No provider-native tool fields are
-  // needed: omitting both fields is more portable than sending tool_choice=none
-  // to OpenAI-compatible implementations that reject it without a tools array.
-  if (PROVIDER_NATIVE_TOOL_CALLING &&
+  // DSML mode deliberately disables provider tool execution and sends
+  // tool_choice=none upstream. Native mode sends provider function schemas
+  // and the mapped tool_choice instead.
+  if (options.nativeToolCalling === true &&
       options.tool_choice !== 'none' &&
       Array.isArray(options.tools) && options.tools.length) {
     try {
-      payload.tools = providerFunctionTools(options.tools);
-      payload.tool_choice = providerToolChoice(options.tool_choice);
+      const toolNameMap = options.providerToolNameMap || createProviderToolNameMap(options.tools);
+      payload.tools = providerFunctionTools(options.tools, toolNameMap);
+      payload.tool_choice = providerToolChoice(options.tool_choice, toolNameMap);
       // Some providers require reasoning to be disabled for forced or named
       // native tool choices. This is an explicit generic compatibility option,
       // never inferred from a provider or model name.
@@ -108,15 +108,28 @@ function buildPayload(messages, options = {}) {
       throw new ProviderError(error.message || 'Provider function-tool configuration is invalid.', 400, 'PROVIDER_TOOL_SCHEMA_UNSUPPORTED');
     }
   }
+  if (options.nativeToolCalling !== true) {
+    // DSML is a text-only transport. Never leave an upstream provider free
+    // to choose or execute native tools, even when the client requested auto.
+    payload.tool_choice = 'none';
+  }
   return { config, payload };
 }
 
-function requestHeaders(apiKey, anthropicVersion) {
+function requestHeaders(apiKey, anthropicVersion, providerUrl) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
   if (typeof anthropicVersion === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(anthropicVersion)) {
     headers['anthropic-version'] = anthropicVersion;
   }
+  // Opt in to routing diagnostics only for OpenRouter endpoints. This header
+  // does not change the model payload or tool-calling behavior.
+  try {
+    const hostname = new URL(providerUrl).hostname.toLowerCase();
+    if (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai')) {
+      headers['X-OpenRouter-Metadata'] = 'enabled';
+    }
+  } catch {}
   return headers;
 }
 
@@ -160,16 +173,86 @@ async function fetchWithTimeout(url, init, signal) {
   }
 }
 
+function sanitizeProviderErrorDetail(value, maxLength = 900) {
+  if (typeof value !== 'string') {
+    try { value = JSON.stringify(value); } catch { value = String(value); }
+  }
+  return String(value)
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi, '[IMAGE DATA REDACTED]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sk|rk|pk|sk-or-v1)-[A-Za-z0-9_-]{12,}\b/g, '[REDACTED]')
+    .replace(/(api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*[^\s,;]+/gi, '$1=[REDACTED]')
+    .replace(/\b[A-Za-z0-9+/]{160,}={0,2}\b/g, '[LONG DATA REDACTED]')
+    .slice(0, maxLength);
+}
 async function readProviderError(response) {
   const body = await response.text().catch(() => '');
-  let detail = body.slice(0, 1200);
+  let detail = sanitizeProviderErrorDetail(body, 1200);
+  let parsed = null;
   try {
-    const parsed = JSON.parse(body);
-    detail = parsed.error && (parsed.error.message || parsed.error.code)
-      ? String(parsed.error.message || parsed.error.code)
-      : detail;
+    parsed = JSON.parse(body);
   } catch {}
+
+  const upstreamError = parsed && parsed.error && typeof parsed.error === 'object'
+    ? parsed.error
+    : null;
+  if (upstreamError) {
+    const parts = [];
+    const message = upstreamError.message || upstreamError.code;
+    if (message) parts.push(sanitizeProviderErrorDetail(message, 500));
+
+    const metadata = upstreamError.metadata && typeof upstreamError.metadata === 'object'
+      ? upstreamError.metadata
+      : {};
+    if (metadata.provider_name) {
+      parts.push('provider=' + sanitizeProviderErrorDetail(metadata.provider_name, 100));
+    }
+    if (metadata.error_type) {
+      parts.push('error_type=' + sanitizeProviderErrorDetail(metadata.error_type, 100));
+    }
+    if (metadata.provider_code !== undefined && metadata.provider_code !== null) {
+      parts.push('provider_code=' + sanitizeProviderErrorDetail(metadata.provider_code, 160));
+    }
+    if (typeof metadata.is_byok === 'boolean') {
+      parts.push('is_byok=' + metadata.is_byok);
+    }
+    if (metadata.raw) {
+      let raw = metadata.raw;
+      try {
+        const rawJson = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const nestedMessage = rawJson && rawJson.error &&
+          (rawJson.error.message || rawJson.error.code);
+        if (nestedMessage) raw = nestedMessage;
+      } catch {}
+      parts.push('provider_raw=' + sanitizeProviderErrorDetail(raw, 900));
+    }
+    if (parts.length) detail = parts.join('; ');
+  }
+
+  const routingMetadata = parsed && parsed.openrouter_metadata &&
+    typeof parsed.openrouter_metadata === 'object'
+    ? parsed.openrouter_metadata
+    : (upstreamError && upstreamError.metadata &&
+       upstreamError.metadata.openrouter_metadata &&
+       typeof upstreamError.metadata.openrouter_metadata === 'object'
+      ? upstreamError.metadata.openrouter_metadata
+      : null);
+  if (routingMetadata) {
+    detail += (detail ? '; ' : '') +
+      'openrouter_metadata=' + sanitizeProviderErrorDetail(routingMetadata, 1200);
+  }
+
   const contextOverflow = /context_length_exceeded|maximum context length|context window.{0,40}(?:exceed|limit|token)|(?:prompt|input).{0,40}(?:too long|too many tokens|exceed.{0,20}context)/i.test(detail);
+  const requestId = response.headers && (
+    response.headers.get('x-request-id') ||
+    response.headers.get('x-openrouter-request-id')
+  );
+  const responseRequestId = requestId ||
+    (parsed && (parsed.id || parsed.generation_id || parsed.request_id));
+  if (responseRequestId) {
+    detail += '; upstream_request_id=' + sanitizeProviderErrorDetail(responseRequestId, 120);
+  }
+
   return new ProviderError(
     'OpenAI-compatible provider returned HTTP ' + response.status + (detail ? ': ' + detail : ''),
     contextOverflow ? 400 : 502,
@@ -194,7 +277,7 @@ async function createChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: requestHeaders(config.apiKey, options.anthropicVersion),
+      headers: requestHeaders(config.apiKey, options.anthropicVersion, config.url),
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);
@@ -229,7 +312,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
   try {
     const response = await fetchWithTimeout(config.url, {
       method: 'POST',
-      headers: { ...requestHeaders(config.apiKey, options.anthropicVersion), Accept: 'text/event-stream' },
+      headers: { ...requestHeaders(config.apiKey, options.anthropicVersion, config.url), Accept: 'text/event-stream' },
       body: JSON.stringify(payload)
     }, signal);
     if (!response.ok) throw await readProviderError(response);
@@ -349,6 +432,7 @@ module.exports = {
   ProviderError,
   completionsUrl,
   buildPayload,
+  sanitizeProviderErrorDetail,
   createChatCompletion,
   createStreamingChatCompletion
 };

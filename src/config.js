@@ -44,7 +44,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
-const PROVIDER_NATIVE_TOOL_CALLING = booleanFlag('PROVIDER_NATIVE_TOOL_CALLING', false);
+const DSML_TOOL_CALL = booleanFlag('DSML_TOOL_CALL', true);
 const rawNoToolExperimentVariant = String(process.env.NO_TOOL_EXPERIMENT_VARIANT || 'A').trim().toUpperCase();
 const NO_TOOL_EXPERIMENT_VARIANT = ['A', 'B'].includes(rawNoToolExperimentVariant)
   ? rawNoToolExperimentVariant
@@ -65,7 +65,8 @@ const PROVIDER_CONTEXT_WINDOW_TOKENS = optionalBoundedInteger('PROVIDER_CONTEXT_
 const PROVIDER_MAX_INPUT_TOKENS = optionalBoundedInteger('PROVIDER_MAX_INPUT_TOKENS', 1, 10000000);
 const PROVIDER_MAX_OUTPUT_TOKENS = optionalBoundedInteger('PROVIDER_MAX_OUTPUT_TOKENS', 1, 10000000);
 const CONTEXT_WINDOW_SAFETY_TOKENS = boundedInteger('CONTEXT_WINDOW_SAFETY_TOKENS', 1024, 0, 1000000);
-const MAX_BODY_BYTES = boundedInteger('MAX_BODY_BYTES', 10 * 1024 * 1024, 1024, 100 * 1024 * 1024);
+// Match the first-party Anthropic Messages API request-body limit (128 MiB).
+const MAX_BODY_BYTES = boundedInteger('MAX_BODY_BYTES', 128 * 1024 * 1024, 1024, 128 * 1024 * 1024);
 const MAX_OUTPUT_CHARS = boundedInteger('MAX_OUTPUT_CHARS', 2 * 1024 * 1024, 1024, 20 * 1024 * 1024);
 const MAX_PROMPT_CHARS = boundedInteger('MAX_PROMPT_CHARS', 4000000, 8192, 8000000);
 const COMPACTION_MAX_INPUT_TOKENS = boundedInteger('COMPACTION_MAX_INPUT_TOKENS', 32768, 1024, 1000000);
@@ -110,7 +111,7 @@ module.exports = {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
-  PROVIDER_NATIVE_TOOL_CALLING,
+  DSML_TOOL_CALL,
   NO_TOOL_EXPERIMENT_VARIANT,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,

@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
-const { GATEWAY_API_KEY, PROVIDER_MODEL } = require('../src/config');
+const { GATEWAY_API_KEY, PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
 
 async function withServer(t, options) {
   const server = createServer(options);
@@ -58,6 +58,15 @@ test('limits authenticated API requests to 30 per rolling minute per IP', async 
   assert.equal(blocked.headers.get('x-ratelimit-remaining'), '0');
   const body = await blocked.json();
   assert.equal(body.error.code, 'RATE_LIMITED');
+});
+
+test('reports the active tool transport in gateway health', async (t) => {
+  const base = await withServer(t);
+  const response = await fetch(base + '/health', { headers: authHeaders() });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, 'ok');
+  assert.equal(body.tool_transport, DSML_TOOL_CALL ? 'dsml' : 'provider_native');
 });
 
 test('requires gateway authentication and exposes BYV Flash V1 in model discovery', async (t) => {
@@ -278,11 +287,11 @@ test('exposes provider context and token limits through an authenticated capabil
 });
 
 
-test('text-only inference preserves gateway tool_choice while selecting provider text transport', async (t) => {
+test('DSML mode preserves gateway tool_choice while selecting provider text transport', async (t) => {
   let receivedBody;
   let receivedOptions;
   const base = await withServer(t, {
-    noToolExperiment: false,
+    noToolExperiment: true,
     experimentVariant: 'B',
     handleMessages: async (body, options) => {
       receivedBody = body;
@@ -313,9 +322,47 @@ test('text-only inference preserves gateway tool_choice while selecting provider
   assert.equal(response.status, 200);
   assert.equal(receivedBody.tool_choice, 'auto');
   assert.equal(receivedOptions.noToolExperiment, true);
+  assert.equal(receivedOptions.nativeToolCalling, false);
   assert.equal(receivedOptions.experimentVariant, 'B');
   const result = await response.json();
   assert.deepEqual(result.content, [{ type: 'text', text: 'Text-only response.' }]);
+});
+
+
+test('native mode forwards provider-native tool transport selection', async (t) => {
+  let receivedOptions;
+  const base = await withServer(t, {
+    noToolExperiment: false,
+    handleMessages: async (_body, options) => {
+      receivedOptions = options;
+      return {
+        id: 'msg_native',
+        content: [{ type: 'text', text: 'Native response.' }],
+        toolCalls: [],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 2 },
+        usage_estimated: false
+      };
+    }
+  });
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'byv-flash-v1',
+      max_tokens: 64,
+      tools: [{ name: 'Read', description: 'Read a file', input_schema: { type: 'object', properties: {} } }],
+      tool_choice: 'auto',
+      messages: [{ role: 'user', content: 'Read README.md and summarize it.' }]
+    })
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(receivedOptions.noToolExperiment, false);
+  assert.equal(receivedOptions.nativeToolCalling, true);
+  const result = await response.json();
+  assert.deepEqual(result.content, [{ type: 'text', text: 'Native response.' }]);
 });
 
 
@@ -431,4 +478,46 @@ test('supports Claude for Office CORS preflight and forwards anthropic-version',
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
   assert.equal(receivedAnthropicVersion, '2023-06-01');
   assert.equal((await response.json()).id, 'chatcmpl-office-test');
+});
+
+
+test('keeps raw file handling on the Claude client and rejects gateway file attachments', async (t) => {
+  let handlerCalled = false;
+  const base = await withServer(t, {
+    handleMessages: async () => {
+      handlerCalled = true;
+      throw new Error('unsupported file attachments must be rejected before inference');
+    }
+  });
+
+  const filesApi = await fetch(base + '/v1/files', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ filename: 'report.pdf' })
+  });
+  assert.equal(filesApi.status, 404);
+
+  const response = await fetch(base + '/v1/messages', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: 'byv-flash-v1',
+      max_tokens: 64,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Summarize this report.' },
+          {
+            type: 'document',
+            title: 'report.pdf',
+            source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' }
+          }
+        ]
+      }]
+    })
+  });
+  assert.equal(response.status, 400);
+  assert.equal(handlerCalled, false);
+  const result = await response.json();
+  assert.match(result.error.message, /Claude client-side skill or tool/);
 });

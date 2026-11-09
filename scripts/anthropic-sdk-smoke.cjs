@@ -48,7 +48,7 @@ const apiKey = process.env.GATEWAY_API_KEY ||
   process.env.ANTHROPIC_AUTH_TOKEN ||
   process.env.ANTHROPIC_API_KEY ||
   '';
-const model = process.env.ANTHROPIC_MODEL || process.env.BYV_MODEL || 'byv-flash-v1';
+const model = process.env.ANTHROPIC_MODEL || process.env.BYV_MODEL || 'claude-sonnet-5-5';
 const timeout = Number.parseInt(process.env.ANTHROPIC_SDK_TEST_TIMEOUT_MS || '600000', 10);
 
 const client = new Anthropic({
@@ -57,6 +57,26 @@ const client = new Anthropic({
   maxRetries: 0,
   timeout
 });
+
+async function reportLocalGatewayTransport() {
+  if (!isLocalGateway(baseURL)) {
+    console.log('Gateway tool transport: not introspected (non-local gateway)');
+    return;
+  }
+
+  const response = await fetch(new URL('/health', baseURL), {
+    headers: { Authorization: 'Bearer ' + apiKey },
+    signal: AbortSignal.timeout(5000)
+  });
+  if (!response.ok) {
+    throw new Error('Local gateway health preflight returned HTTP ' + response.status + '.');
+  }
+  const health = await response.json();
+  if (!['dsml', 'provider_native'].includes(health.tool_transport)) {
+    throw new Error('Gateway does not report a supported tool_transport. Restart npm start from the updated repository.');
+  }
+  console.log('Gateway tool transport:', health.tool_transport === 'dsml' ? 'DSML text' : 'provider-native');
+}
 
 function textFrom(message) {
   return message.content
@@ -84,6 +104,8 @@ async function main() {
       ? 'Gateway token not found. Start npm start first so .byv-gateway-token is created, or set GATEWAY_API_KEY.'
       : 'Set ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY for the selected gateway.');
   }
+
+  await reportLocalGatewayTransport();
 
   console.log('\n[1/5] Non-streaming Messages request ...');
   const normal = await client.messages.create({
@@ -142,15 +164,22 @@ async function main() {
   console.log('\n[4/5] Non-streaming tool_use and tool_result round trip ...');
   const toolMessage = await client.messages.create({
     model,
-    max_tokens: 256,
+    max_tokens: 1024,
     tools,
-    tool_choice: { type: 'tool', name: 'Bash' },
+    // Require a tool call without requiring the provider to support
+    // Anthropic's specific-tool choice extension. Exact tool name and input
+    // are still asserted below; named-choice mapping is covered by unit tests.
+    tool_choice: { type: 'any' },
     messages: [{ role: 'user', content: toolPrompt }]
   });
   assertMessageShape(toolMessage, 'tool-use');
-  assert.equal(toolMessage.stop_reason, 'tool_use');
   const toolUse = toolMessage.content.find((block) => block.type === 'tool_use');
-  assert.ok(toolUse, 'tool-use: expected a tool_use block');
+  assert.ok(toolUse,
+    'tool-use: expected a structured tool_use block; stop_reason=' + toolMessage.stop_reason +
+    '; content=' + JSON.stringify(toolMessage.content).slice(0, 2000) +
+    '; usage=' + JSON.stringify(toolMessage.usage));
+  assert.equal(toolMessage.stop_reason, 'tool_use',
+    'tool-use: stop_reason must be tool_use when a structured tool call is returned');
   assert.equal(toolUse.name, 'Bash');
   assert.deepEqual(toolUse.input, { command: 'echo BYV_SDK_TOOL_CALL_OK' });
 
@@ -186,10 +215,10 @@ async function main() {
   console.log('\n[5/5] Streaming tool_use ...');
   const toolStream = await client.messages.create({
     model,
-    max_tokens: 256,
+    max_tokens: 1024,
     stream: true,
     tools,
-    tool_choice: { type: 'tool', name: 'Bash' },
+    tool_choice: { type: 'auto' },
     messages: [{
       role: 'user',
       content: 'Call the Bash tool with command exactly "echo BYV_SDK_STREAM_TOOL_OK". Do not answer in plain text.'

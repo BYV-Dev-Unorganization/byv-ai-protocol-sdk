@@ -21,6 +21,118 @@ test('validates required fields, message roles, and content block types', () => 
   assert.match(validateMessagesRequest({ ...minimal, messages: [{ role: 'user', content: [{ type: 'image' }] }] }).message, /unsupported/);
 });
 
+test('accepts supported base64 and URL image blocks and rejects malformed image sources', () => {
+  const base64Image = {
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' }
+  };
+  const urlImage = {
+    type: 'image',
+    source: { type: 'url', url: 'https://images.example.test/photo.webp' }
+  };
+
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [base64Image, urlImage] }]
+  }), null);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'text/plain', data: 'aGVsbG8=' } }] }]
+  }).message, /unsupported block type/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'url', url: 'file:///etc/passwd' } }] }]
+  }).message, /unsupported block type/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{ role: 'assistant', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }]
+  }).message, /image blocks must appear in user messages/);
+});
+
+test('rejects PDF, document, generic file, file-ID, and container-upload attachments', () => {
+  const unsupported = [
+    { type: 'document', title: 'report.pdf', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+    { type: 'document', source: { type: 'text', data: 'document text' } },
+    { type: 'file', file: { filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERiQ=' } },
+    { type: 'container_upload', file_id: 'file_123' },
+    { type: 'image', source: { type: 'file', file_id: 'file_0123456789abcdef01234567' } }
+  ];
+
+  for (const block of unsupported) {
+    const error = validateMessagesRequest({
+      ...minimal,
+      messages: [{ role: 'user', content: [block] }]
+    });
+    assert.ok(error);
+    assert.match(error.message, /Claude client-side skill or tool/);
+  }
+});
+
+test('accepts additional structured Anthropic and MCP tool-result content blocks', () => {
+  const request = {
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_lookup', name: 'Lookup', input: {} }] },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_lookup',
+          content: [
+            { type: 'text', text: 'Found one result.' },
+            { type: 'search_result', title: 'Example', url: 'https://example.test' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+          ]
+        }]
+      }
+    ]
+  };
+
+  assert.equal(validateMessagesRequest(request), null);
+  assert.equal(validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_json', name: 'Lookup', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call_json', content: { matches: [{ id: 1, title: 'Example' }] } }] }
+    ]
+  }), null);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'call_missing',
+        content: [{ type: 'image', source: { type: 'base64', media_type: 'text/plain', data: 'aGVsbG8=' } }]
+      }]
+    }]
+  }).message, /Tool results cannot contain raw files or documents/);
+});
+
+test('rejects file and document payloads nested inside structured tool results', () => {
+  const result = validateMessagesRequest({
+    ...minimal,
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_file', name: 'Read', input: {} }] },
+      {
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'call_file',
+          content: {
+            result: {
+              document: { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERiQ=' } },
+              attachment: { type: 'file', file: { file_data: 'data:application/pdf;base64,JVBERiQ=' } }
+            }
+          }
+        }]
+      }
+    ]
+  });
+  assert.ok(result);
+  assert.match(result.message, /Tool results cannot contain raw files or documents/);
+});
+
 test('validates tool schemas and tool_choice references', () => {
   const tools = [{
     name: 'Read',

@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { handleMessages, normalizeUsage, detectToolLoop, resolveCompactionBudgets } = require('../src/handler');
-const { PROVIDER_NATIVE_TOOL_CALLING } = require('../src/config');
 
 function body(options = {}) {
   return {
@@ -87,6 +86,8 @@ test('forces a text response after three identical tool calls', async () => {
     messages,
     tool_choice: 'auto'
   }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (messages, options) => {
         providerMessages.push(messages);
@@ -119,6 +120,8 @@ test('converts valid BYV model output into Anthropic tool_use blocks', async () 
     '<|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter>' +
     '</|BYV| invoke></|BYV| calls>';
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => ({ text: output, reasoning: '', finish_reason: 'stop', usage: null })
     }
@@ -165,6 +168,8 @@ test('logs validated BYV tool-call metadata without recording arguments', async 
   const events = [];
   const privatePath = '/workspace/private-file-name.txt';
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     requestId: 'req_safe_tool_log',
     logger: (event) => events.push(event),
     provider: {
@@ -309,6 +314,7 @@ test('second recovery explains a repeated native-call rejection before accepting
 test('converts native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
     nativeToolCalling: true,
     provider: {
       createChatCompletion: async (_messages, options) => {
@@ -344,6 +350,7 @@ test('converts native provider function calls into Anthropic tool_use blocks', a
 test('converts streamed native provider function calls into Anthropic tool_use blocks', async () => {
   let receivedOptions;
   const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    noToolExperiment: false,
     nativeToolCalling: true,
     provider: {
       getModelCapabilities: async () => null,
@@ -380,6 +387,8 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
   let count = 0;
   const seenMessages = [];
   const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (messages, options) => {
         count++;
@@ -399,13 +408,15 @@ test('recovers invalid tool arguments using DSML protocol instructions', async (
 
   assert.equal(count, 2);
   assert.match(seenMessages[1].messages.at(-1).content, /Output only one DeepSeek DSML calls block/);
-  assert.equal(seenMessages[1].options.tool_choice, PROVIDER_NATIVE_TOOL_CALLING ? 'auto' : 'none');
+  assert.equal(seenMessages[1].options.tool_choice, 'none');
   assert.equal(result.toolCalls[0].id, 'call_good_byv');
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
 });
 test('rejects mixed native function calls and BYV markup as an ambiguous response', async () => {
   await assert.rejects(
     handleMessages(body(), {
+      noToolExperiment: true,
+      nativeToolCalling: false,
       provider: {
         createChatCompletion: async () => ({
           text: '<|BYV| calls><|BYV| invoke name="Read" id="call_markup"><|BYV| parameter name="file_path" type="string">README.md</|BYV| parameter></|BYV| invoke></|BYV| calls>',
@@ -426,6 +437,8 @@ test('performs bounded recovery for schema-invalid tool arguments', async () => 
   let count = 0;
   const events = [];
   const result = await handleMessages(body(), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     requestId: 'req_recovery_log',
     logger: (event) => events.push(event),
     provider: {
@@ -473,6 +486,8 @@ test('performs bounded recovery for schema-invalid tool arguments', async () => 
 test('recovers to plain text when tools are disabled but model emits BYV markup', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -491,6 +506,8 @@ test('recovers to plain text when tools are disabled but model emits BYV markup'
 test('recovers an initially empty response when tools are disabled', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -509,6 +526,8 @@ test('recovers an initially empty response when tools are disabled', async () =>
 test('text-only recovery rejects an empty response and retries with plain text', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
     provider: {
       createChatCompletion: async (_messages, options) => {
         count++;
@@ -534,9 +553,33 @@ test('text-only recovery rejects an empty response and retries with plain text',
   assert.match(result.text, /tools are disabled/);
 });
 
+test('native text-only recovery contains no DSML protocol instruction', async () => {
+  const seenMessages = [];
+  const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (messages) => {
+        seenMessages.push(messages);
+        return seenMessages.length === 1
+          ? { text: '', finish_reason: 'stop', usage: null }
+          : { text: 'Plain-text fallback response.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(seenMessages.length, 2);
+  assert.doesNotMatch(seenMessages[0][0].content, /DSML/i);
+  assert.doesNotMatch(seenMessages[1].at(-1).content, /DSML/i);
+  assert.equal(result.stop_reason, 'end_turn');
+  assert.equal(result.text, 'Plain-text fallback response.');
+});
+
 test('text-only recovery rejects native tool calls instead of silently accepting them', async () => {
   let count = 0;
   const result = await handleMessages(body({ tools: [], tool_choice: 'none' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
     provider: {
       createChatCompletion: async () => {
         count++;
@@ -577,6 +620,8 @@ test('text-only recovery rejects native tool calls instead of silently accepting
 test('fails explicitly when a required tool call cannot be recovered', async () => {
   await assert.rejects(
     handleMessages(body({ tool_choice: 'any' }), {
+      noToolExperiment: true,
+      nativeToolCalling: false,
       provider: {
         createChatCompletion: async () => ({ text: 'Here is a plain text answer.', finish_reason: 'stop' })
       }
@@ -682,6 +727,7 @@ test('native-disabled provider receives DSML history and structured tool results
   ];
   let sentMessages;
   const result = await handleMessages(body({ messages }), {
+    noToolExperiment: true,
     nativeToolCalling: false,
     provider: {
       getModelCapabilities: async () => null,
@@ -693,21 +739,16 @@ test('native-disabled provider receives DSML history and structured tool results
   });
 
   assert.equal(result.stop_reason, 'end_turn');
-  assert.equal(sentMessages[0].role, 'system');
+  // DSML mode consolidates history, schemas, results, and the latest request
+  // into a single text prompt instead of sending native tool roles.
+  assert.equal(sentMessages.length, 1);
+  assert.equal(sentMessages[0].role, 'user');
   assert.match(sentMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.ok(sentMessages[0].content.includes('Read(file_path*'));
+  assert.match(sentMessages[0].content, /Tool call Read with input/);
+  assert.match(sentMessages[0].content, /Tool result for toolu_history: README body/);
+  assert.match(sentMessages[0].content, /Summarize the result/);
   assert.equal(sentMessages.some((message) => message.role === 'tool'), false);
-  const historicalAssistant = sentMessages.find((message) =>
-    message.role === 'assistant' && typeof message.content === 'string' &&
-    message.content.includes('HISTORICAL TOOL INVOCATIONS')
-  );
-  assert.ok(historicalAssistant);
-  assert.match(historicalAssistant.content, /<｜DSML｜tool_calls>/);
-  const historicalResult = sentMessages.find((message) =>
-    message.role === 'user' && typeof message.content === 'string' &&
-    message.content.includes('HISTORICAL TOOL RESULTS')
-  );
-  assert.ok(historicalResult);
-  assert.match(historicalResult.content, /README body/);
   assert.equal(sentMessages.some((message) => Array.isArray(message.tool_calls)), false);
 });
 
@@ -750,6 +791,42 @@ test('text-only inference converts DSML text to tool_use while provider-native t
   assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
   assert.equal(result.content[0].type, 'tool_use');
 });
+
+test('native mode normalizes provider tool calls without parsing DSML text', async () => {
+  let receivedOptions;
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return {
+          text: '<｜DSML｜ calls><｜DSML｜ invoke name="Read"></｜DSML｜ invoke></｜DSML｜ calls>',
+          tool_calls: [{
+            id: 'call_native',
+            type: 'function',
+            function: {
+              name: 'Read',
+              arguments: '{"file_path":"README.md"}'
+            }
+          }],
+          finish_reason: 'tool_calls',
+          usage: null
+        };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.nativeToolCalling, true);
+  assert.equal(receivedOptions.tool_choice, 'auto');
+  assert.equal(receivedOptions.tools.length, 1);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.text, '<｜DSML｜ calls><｜DSML｜ invoke name="Read"></｜DSML｜ invoke></｜DSML｜ calls>');
+});
+
 
 test('explicit tool_choice none keeps DSML unavailable in text-only inference', async () => {
   let count = 0;

@@ -8,17 +8,17 @@ test('does not inject Anthropic effort settings into provider system prompt text
   const base = buildSystemPrompt({
     model: 'byv-flash-v1',
     tools: [{ name: 'Read', input_schema: { type: 'object' } }]
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   const low = buildSystemPrompt({
     model: 'byv-flash-v1',
     output_config: { effort: 'low' },
     tools: [{ name: 'Read', input_schema: { type: 'object' } }]
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   const high = buildSystemPrompt({
     model: 'byv-flash-v1',
     output_config: { effort: 'high' },
     tools: [{ name: 'Read', input_schema: { type: 'object' } }]
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
 
   assert.equal(low, base);
   assert.equal(high, base);
@@ -31,7 +31,7 @@ test('keeps runtime tool-choice controls before model-profile guidance without a
     output_config: { effort: 'high' },
     tools: [{ name: 'Read', input_schema: { type: 'object' } }],
     tool_choice: 'any'
-  });
+  }, { noToolExperiment: true, nativeToolCalling: false });
   const profile = prompt.indexOf('=== MODEL RESPONSE PROFILE ===');
   const runtime = prompt.indexOf('=== ACTIVE GATEWAY TOOL-CHOICE CONTROL ===');
 

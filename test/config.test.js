@@ -13,7 +13,7 @@ function loadConfig(env) {
     "process.stdout.write(JSON.stringify({",
     "PORT: c.PORT,",
     "PROVIDER_MODEL: c.PROVIDER_MODEL,",
-    "PROVIDER_NATIVE_TOOL_CALLING: c.PROVIDER_NATIVE_TOOL_CALLING,",
+    "DSML_TOOL_CALL: c.DSML_TOOL_CALL,",
     "PROVIDER_NATIVE_REASONING_EFFORT: c.PROVIDER_NATIVE_REASONING_EFFORT,",
     "PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: c.PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
@@ -37,7 +37,7 @@ function loadConfig(env) {
   ].join('\n');
   const result = spawnSync(process.execPath, ['-e', source], {
     cwd: root,
-    env: { ...process.env, PROVIDER_NATIVE_TOOL_CALLING: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
+    env: { ...process.env, DSML_TOOL_CALL: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -48,7 +48,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
   const config = loadConfig({
     PORT: '8877',
     PROVIDER_MODEL: 'configured-model-from-env',
-    PROVIDER_NATIVE_TOOL_CALLING: false,
+    DSML_TOOL_CALL: false,
     PROVIDER_NATIVE_REASONING_EFFORT: 'true',
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true',
     PROVIDER_TIMEOUT_MS: '120000',
@@ -73,7 +73,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
   assert.deepEqual(config, {
     PORT: 8877,
     PROVIDER_MODEL: 'configured-model-from-env',
-    PROVIDER_NATIVE_TOOL_CALLING: false,
+    DSML_TOOL_CALL: false,
     PROVIDER_NATIVE_REASONING_EFFORT: true,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: true,
     PROVIDER_TIMEOUT_MS: 120000,
@@ -100,7 +100,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   const config = loadConfig({
     PORT: '0',
     PROVIDER_MODEL: 'another-configured-model-from-env',
-    PROVIDER_NATIVE_TOOL_CALLING: false,
+    DSML_TOOL_CALL: 'maybe',
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'maybe',
     PROVIDER_TIMEOUT_MS: '300000.5',
@@ -125,7 +125,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   assert.deepEqual(config, {
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
-    PROVIDER_NATIVE_TOOL_CALLING: false,
+    DSML_TOOL_CALL: true,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
     PROVIDER_TIMEOUT_MS: 300000,
@@ -137,7 +137,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PROVIDER_MAX_INPUT_TOKENS: null,
     PROVIDER_MAX_OUTPUT_TOKENS: null,
     CONTEXT_WINDOW_SAFETY_TOKENS: 1024,
-    MAX_BODY_BYTES: 10485760,
+    MAX_BODY_BYTES: 134217728,
     MAX_OUTPUT_CHARS: 2097152,
     MAX_PROMPT_CHARS: 4000000,
     COMPACTION_MAX_INPUT_TOKENS: 32768,
@@ -165,8 +165,10 @@ test('defaults the system prompt character budget to 4 million and accepts an 8 
   assert.equal(loadConfig({ MAX_PROMPT_CHARS: '8000000' }).MAX_PROMPT_CHARS, 8000000);
 });
 
-test('keeps provider-native function calling opt-in and disabled by default', () => {
-  assert.equal(loadConfig({}).PROVIDER_NATIVE_TOOL_CALLING, false);
-  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_CALLING: 'false' }).PROVIDER_NATIVE_TOOL_CALLING, false);
-  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_CALLING: 'true' }).PROVIDER_NATIVE_TOOL_CALLING, true);
+test('uses DSML_TOOL_CALL as the single tool transport switch', () => {
+  assert.equal(loadConfig({}).DSML_TOOL_CALL, true);
+  assert.equal(loadConfig({ DSML_TOOL_CALL: 'true' }).DSML_TOOL_CALL, true);
+  assert.equal(loadConfig({ DSML_TOOL_CALL: 'on' }).DSML_TOOL_CALL, true);
+  assert.equal(loadConfig({ DSML_TOOL_CALL: 'false' }).DSML_TOOL_CALL, false);
+  assert.equal(loadConfig({ DSML_TOOL_CALL: 'off' }).DSML_TOOL_CALL, false);
 });
