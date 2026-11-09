@@ -38,6 +38,26 @@ function sanitizeString(value, secrets) {
 
 function redact(value, secrets, fieldName = '') {
   if (SECRET_FIELD.test(fieldName)) return '[REDACTED]';
+  if (fieldName === 'source' && value && typeof value === 'object') {
+    if (value.type === 'base64' && typeof value.data === 'string') {
+      return {
+        type: 'base64',
+        media_type: value.media_type || null,
+        data: '[IMAGE DATA REDACTED]',
+        data_bytes: Buffer.byteLength(value.data, 'utf8')
+      };
+    }
+    if (value.type === 'url' && typeof value.url === 'string') {
+      return { type: 'url', url: '[IMAGE URL REDACTED]' };
+    }
+  }
+  if (fieldName === 'image_url' && value && typeof value === 'object' && typeof value.url === 'string') {
+    const isDataUrl = /^data:image\//i.test(value.url);
+    return {
+      url: isDataUrl ? '[IMAGE DATA REDACTED]' : '[IMAGE URL REDACTED]',
+      ...(isDataUrl ? { data_bytes: Buffer.byteLength(value.url, 'utf8') } : {})
+    };
+  }
   if (typeof value === 'string') return sanitizeString(value, secrets);
   if (Array.isArray(value)) return value.map((item) => redact(item, secrets));
   if (value && typeof value === 'object') {
