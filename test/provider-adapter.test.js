@@ -201,6 +201,41 @@ test('maps upstream HTTP errors without leaking provider credentials', async (t)
   );
 });
 
+test('preserves safe OpenRouter provider error metadata for diagnosis', async (t) => {
+  const { provider } = loadProvider(t);
+  const imageData = 'A'.repeat(200);
+  const upstream = response({
+    status: 400,
+    payload: {
+      error: {
+        message: 'Provider returned error',
+        code: 400,
+        metadata: {
+          provider_name: 'Stealth',
+          error_type: 'provider_error',
+          raw: 'Unsupported image payload data:image/png;base64,' + imageData +
+            '; api_key=provider-secret-value; invalid parameter: reasoning_effort'
+        }
+      }
+    }
+  });
+  upstream.headers = new Headers({ 'x-request-id': 'or-test-request-123' });
+  global.fetch = async () => upstream;
+
+  await assert.rejects(
+    provider.createChatCompletion([{ role: 'user', content: 'Hi' }], { max_tokens: 16 }),
+    (error) => error.code === 'UPSTREAM_HTTP_400' &&
+      error.statusCode === 502 &&
+      /provider=Stealth/.test(error.message) &&
+      /error_type=provider_error/.test(error.message) &&
+      /provider_raw=/.test(error.message) &&
+      /upstream_request_id=or-test-request-123/.test(error.message) &&
+      /reasoning_effort/.test(error.message) &&
+      !error.message.includes(imageData) &&
+      !error.message.includes('provider-secret-value')
+  );
+});
+
 test('rejects invalid JSON and structurally invalid provider responses', async (t) => {
   const { provider } = loadProvider(t);
   global.fetch = async () => response({ jsonError: new SyntaxError('Unexpected token') });
