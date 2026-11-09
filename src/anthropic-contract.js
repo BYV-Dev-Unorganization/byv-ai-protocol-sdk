@@ -102,6 +102,15 @@ function validateMessagesRequest(body, options = {}) {
       return { type: 'invalid_request_error', message: 'messages[' + i + '].role must be user or assistant.' };
     }
     if (!validContent(message.content, allowedBlocks)) {
+      const fileBlock = Array.isArray(message.content)
+        ? message.content.find((block) => block && ['document', 'file', 'container_upload'].includes(block.type))
+        : null;
+      if (fileBlock) {
+        return {
+          type: 'invalid_request_error',
+          message: 'File/document attachments are not supported by this gateway. Process the file with a client-side skill or tool, then send the extracted text or processed result.'
+        };
+      }
       return { type: 'invalid_request_error', message: 'messages[' + i + '].content contains an unsupported block type or invalid image source.' };
     }
     for (const block of Array.isArray(message.content) ? message.content : []) {
@@ -123,7 +132,7 @@ function validateMessagesRequest(body, options = {}) {
         return { type: 'invalid_request_error', message: 'tool_result blocks require tool_use_id and content.' };
       }
       if (block.type === 'tool_result' && !validToolResultContent(block.content)) {
-        return { type: 'invalid_request_error', message: 'tool_result content must be JSON data or text/image content blocks; file and document blocks are not supported.' };
+        return { type: 'invalid_request_error', message: 'File/document content in tool results must be processed by the client-side skill or tool and returned as text; raw file blocks are not supported.' };
       }
     }
   }
