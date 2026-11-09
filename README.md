@@ -402,7 +402,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 
 - model
 - system
-- messages with text, tool_use, and tool_result blocks
+- messages with text, image, tool_use, and tool_result blocks
 - max_tokens
 - stream
 - tools and input_schema
@@ -412,7 +412,7 @@ The gateway validates and supports the core fields used by the Anthropic Message
 - stop_sequences
 - output_config.effort: low, medium, high, xhigh, max
 
-The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. Image and document blocks, provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are not implemented.
+The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. User image blocks are supported for JPEG, PNG, GIF, and WEBP base64 sources and HTTP(S) URLs; BYV forwards them as OpenAI-compatible `image_url` content parts, including images present in tool results. Document/PDF blocks, generic file attachments, file IDs, and `container_upload` blocks are intentionally rejected and are never converted to OpenRouter `file` parts. For file tasks, the client/agent must use its local skill or tool to process the file first, then send the extracted text or other processed result to BYV. The gateway does not execute client-side skills or tools. Provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are also not implemented.
 
 ### Native reasoning effort
 
