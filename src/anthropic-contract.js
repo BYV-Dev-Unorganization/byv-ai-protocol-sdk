@@ -102,7 +102,10 @@ function validateMessagesRequest(body, options = {}) {
     }
     if (!validContent(message.content, allowedBlocks)) {
       const unsupportedFileBlock = Array.isArray(message.content) && message.content.some((block) =>
-        block && ['document', 'file', 'container_upload'].includes(block.type)
+        block && (
+          ['document', 'file', 'container_upload'].includes(block.type) ||
+          (block.type === 'image' && block.source && block.source.type === 'file')
+        )
       );
       if (unsupportedFileBlock) {
         return {
