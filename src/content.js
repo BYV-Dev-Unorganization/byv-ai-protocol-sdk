@@ -41,8 +41,14 @@ function renderToolResultContent(content) {
 
 function convertAnthropicImageBlock(block) {
   const source = block && block.source;
+  const supportedMediaTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp'
+  ]);
   if (source && source.type === 'base64' &&
-      typeof source.media_type === 'string' &&
+      supportedMediaTypes.has(source.media_type) &&
       typeof source.data === 'string' && source.data) {
     return {
       type: 'image_url',
@@ -65,66 +71,31 @@ function convertAnthropicImageBlock(block) {
   });
 }
 
-function convertAnthropicDocumentBlock(block) {
-  const source = block && block.source;
-  if (source && source.type === 'base64' &&
-      source.media_type === 'text/plain' &&
-      typeof source.data === 'string' && source.data) {
-    const text = Buffer.from(source.data, 'base64').toString('utf8');
-    const title = typeof block.title === 'string' && block.title.trim() ? block.title.trim() : 'document.txt';
-    const context = typeof block.context === 'string' && block.context.trim() ? block.context.trim() + '\\n\\n' : '';
-    return { type: 'text', text: '[File: ' + title + ']\\n' + context + text };
-  }
-  if (source && source.type === 'base64' &&
-      source.media_type === 'application/pdf' &&
-      typeof source.data === 'string' && source.data) {
-    const rawTitle = typeof block.title === 'string' && block.title.trim() ? block.title.trim() : '';
-    const safeTitle = rawTitle && rawTitle.length <= 255 &&
-      !rawTitle.includes('/') && !rawTitle.includes('\\') &&
-      !/[<>:"|?*]/.test(rawTitle)
-      ? rawTitle
-      : (source.media_type === 'application/pdf' ? 'document.pdf' : 'attachment');
-    return {
-      type: 'file',
-      file: {
-        filename: safeTitle,
-        file_data: 'data:' + source.media_type + ';base64,' + source.data
-      }
-    };
-  }
-  if (source && source.type === 'url') {
-    throw Object.assign(new Error(
-      'Document URL sources are not supported by this Chat Completions adapter. Send inline base64 file data.'
-    ), {
-      statusCode: 400,
-      type: 'invalid_request_error',
-      code: 'UNSUPPORTED_DOCUMENT_URL_SOURCE'
-    });
-  }
-  if (source && source.type === 'file') {
-    throw Object.assign(new Error(
-      'Anthropic file_id references cannot be passed to OpenRouter as file IDs. Send inline base64 data or use the provider file upload workflow.'
-    ), {
-      statusCode: 400,
-      type: 'invalid_request_error',
-      code: 'UNSUPPORTED_ANTHROPIC_FILE_ID'
-    });
-  }
-  throw Object.assign(new Error('This document source cannot be forwarded by the Chat Completions adapter. Use PDF or text/plain document content; convert DOCX/XLSX to plain text or PDF.'), {
+function isUnsupportedFileContent(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some(isUnsupportedFileContent);
+  if (['document', 'file', 'container_upload'].includes(value.type)) return true;
+  if (Object.prototype.hasOwnProperty.call(value, 'file_data')) return true;
+  if (value.type === 'image' && value.source && value.source.type === 'file') return true;
+  return Object.values(value).some(isUnsupportedFileContent);
+}
+
+function unsupportedFileError() {
+  return Object.assign(new Error(
+    'File and document attachments are not supported by this gateway. Use a Claude client-side skill or tool to read the file, then send the extracted text as a text block.'
+  ), {
     statusCode: 400,
     type: 'invalid_request_error',
-    code: source && source.type === 'base64' ? 'UNSUPPORTED_DOCUMENT_MEDIA_TYPE' : 'INVALID_DOCUMENT_SOURCE'
+    code: 'UNSUPPORTED_FILE_ATTACHMENT'
   });
 }
 
 function isAnthropicAttachment(block) {
-  return Boolean(block && (
-    block.type === 'image' ||
-    (block.type === 'document' && block.source && block.source.type !== 'text')
-  ));
+  return Boolean(block && block.type === 'image');
 }
 
 function convertAnthropicContentBlocks(content) {
+  if (isUnsupportedFileContent(content)) throw unsupportedFileError();
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) {
     return content === null || content === undefined ? '' : JSON.stringify(content);
@@ -140,10 +111,6 @@ function convertAnthropicContentBlocks(content) {
       parts.push({ type: 'text', text: block.text });
     } else if (block.type === 'image') {
       parts.push(convertAnthropicImageBlock(block));
-    } else if (block.type === 'document' && block.source && block.source.type === 'text') {
-      parts.push({ type: 'text', text: '[document content: ' + String(block.source.data || '') + ']' });
-    } else if (block.type === 'document') {
-      parts.push(convertAnthropicDocumentBlock(block));
     } else if (typeof block.type === 'string') {
       parts.push({
         type: 'text',
@@ -211,16 +178,7 @@ function convertAnthropicMessages(messages, options = {}) {
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
     const blocks = blocksOf(message.content);
-
-    if (blocks.some((block) => block && block.type === 'container_upload')) {
-      throw Object.assign(new Error(
-        'container_upload requires Anthropic Code Execution and is not supported by this Chat Completions gateway.'
-      ), {
-        statusCode: 400,
-        type: 'invalid_request_error',
-        code: 'UNSUPPORTED_CONTAINER_UPLOAD'
-      });
-    }
+    if (isUnsupportedFileContent(blocks)) throw unsupportedFileError();
 
     if (message.role === 'assistant') {
       const text = flattenText(blocks);
@@ -282,7 +240,7 @@ function convertAnthropicMessages(messages, options = {}) {
 
     const toolResults = blocks.filter((block) => block && block.type === 'tool_result');
     const userContent = convertAnthropicContentBlocks(
-      blocks.filter((block) => block && ['text', 'image', 'document'].includes(block.type))
+      blocks.filter((block) => block && ['text', 'image'].includes(block.type))
     );
     const hasUserAttachments = Array.isArray(userContent);
 
@@ -294,7 +252,7 @@ function convertAnthropicMessages(messages, options = {}) {
         assertToolUseReference(result, knownToolUses, consumedToolUseIds);
         const converted = convertAnthropicContentBlocks(result.content);
         const attachments = Array.isArray(converted)
-          ? converted.filter((part) => part && ['file', 'image_url'].includes(part.type))
+          ? converted.filter((part) => part && part.type === 'image_url')
           : [];
         if (attachments.length) {
           const text = converted.filter((part) => part && part.type === 'text')
@@ -384,7 +342,6 @@ function estimateInputTokens(body) {
 function estimateProviderInputTokens(messages) {
   const sourceMessages = Array.isArray(messages) ? messages : [];
   let imageCount = 0;
-  let fileCount = 0;
   const normalizedMessages = sourceMessages.map((message) => {
     if (!message || !Array.isArray(message.content)) return message;
     return {
@@ -398,16 +355,6 @@ function estimateProviderInputTokens(messages) {
               url: /^data:image\//i.test(part.image_url.url)
                 ? '[embedded image omitted for token estimate]'
                 : part.image_url.url
-            }
-          };
-        }
-        if (part && part.type === 'file' && part.file && typeof part.file.file_data === 'string') {
-          fileCount++;
-          return {
-            type: 'file',
-            file: {
-              filename: part.file.filename || null,
-              file_data: '[embedded file omitted for token estimate]'
             }
           };
         }
@@ -426,10 +373,7 @@ function estimateProviderInputTokens(messages) {
   // not the length of an embedded base64 string. Use a bounded per-image
   // estimate instead of treating encoded bytes as ordinary text tokens.
   const imageTokenEstimate = imageCount * 2048;
-  // File parsing/tokenization varies by provider; reserve a bounded per-file
-  // estimate without counting encoded bytes as ordinary prompt text.
-  const fileTokenEstimate = fileCount * 4096;
-  return Math.max(1, Math.ceil(bytes / 3.5) + messageOverhead + imageTokenEstimate + fileTokenEstimate);
+  return Math.max(1, Math.ceil(bytes / 3.5) + messageOverhead + imageTokenEstimate);
 }
 
 function estimateOutputTokens(result) {
@@ -456,7 +400,6 @@ module.exports = {
   renderToolResultContent,
   convertAnthropicMessages,
   convertAnthropicImageBlock,
-  convertAnthropicDocumentBlock,
   convertAnthropicContentBlocks,
   collectAnthropicImages,
   collectAnthropicAttachments,
