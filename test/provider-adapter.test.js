@@ -114,6 +114,40 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
   });
 });
 
+test('forwards multimodal image_url parts unchanged in regular and streaming provider payloads', async (t) => {
+  const { provider, model } = loadProvider(t);
+  const messages = [{
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Describe this image.' },
+      {
+        type: 'image_url',
+        image_url: { url: 'data:image/png;base64,aGVsbG8=' }
+      }
+    ]
+  }];
+  let captured;
+  global.fetch = async (_url, init) => {
+    captured = JSON.parse(init.body);
+    return response({
+      payload: {
+        model,
+        choices: [{ finish_reason: 'stop', message: { content: 'A test image.' } }]
+      }
+    });
+  };
+
+  await provider.createChatCompletion(messages, { max_tokens: 64 });
+  assert.deepEqual(captured.messages, messages);
+
+  const streamingPayload = provider.buildPayload(messages, {
+    max_tokens: 64,
+    stream: true
+  }).payload;
+  assert.deepEqual(streamingPayload.messages, messages);
+  assert.equal(streamingPayload.stream, true);
+});
+
 test('forwards each supported Anthropic effort as native reasoning_effort', (t) => {
   const { provider } = loadProvider(t);
   const messages = [{ role: 'user', content: 'Think carefully.' }];
