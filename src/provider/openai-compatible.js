@@ -202,6 +202,12 @@ async function readProviderError(response) {
     if (metadata.error_type) {
       parts.push('error_type=' + sanitizeProviderErrorDetail(metadata.error_type, 100));
     }
+    if (metadata.provider_code !== undefined && metadata.provider_code !== null) {
+      parts.push('provider_code=' + sanitizeProviderErrorDetail(metadata.provider_code, 160));
+    }
+    if (typeof metadata.is_byok === 'boolean') {
+      parts.push('is_byok=' + metadata.is_byok);
+    }
     if (metadata.raw) {
       let raw = metadata.raw;
       try {
@@ -220,7 +226,11 @@ async function readProviderError(response) {
     response.headers.get('x-request-id') ||
     response.headers.get('x-openrouter-request-id')
   );
-  if (requestId) detail += '; upstream_request_id=' + sanitizeProviderErrorDetail(requestId, 120);
+  const responseRequestId = requestId ||
+    (parsed && (parsed.id || parsed.generation_id || parsed.request_id));
+  if (responseRequestId) {
+    detail += '; upstream_request_id=' + sanitizeProviderErrorDetail(responseRequestId, 120);
+  }
 
   return new ProviderError(
     'OpenAI-compatible provider returned HTTP ' + response.status + (detail ? ': ' + detail : ''),
