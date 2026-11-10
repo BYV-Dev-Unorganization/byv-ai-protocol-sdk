@@ -58,7 +58,7 @@ test('generates dotted and hyphenated aliases for every Claude model profile', (
   }
 
   for (const canonicalId of Object.keys(MODEL_PROFILES)) {
-    const match = canonicalId.match(/^(claude-.+?)-(\\d+)[.-](\\d+)$/);
+    const match = canonicalId.match(/^(claude-.+?)-(\d+)[.-](\d+)$/);
     if (!match) continue;
     const [, family, major, minor] = match;
     const dotted = family + '-' + major + '.' + minor;
