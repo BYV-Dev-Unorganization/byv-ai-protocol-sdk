@@ -3,7 +3,7 @@
 const MODEL_PROFILES = Object.freeze({
   'byv-flash-v1': {
     display_name: 'BYV Flash V1',
-    line: 'default',
+    line: null,
     instructions: [
       'Role: default assistant for everyday work, and the fallback for unrecognized models. Aim for a correct answer on the first pass at low latency.',
       'Planning: write none. Act directly, and ask only when a missing fact blocks progress.',
