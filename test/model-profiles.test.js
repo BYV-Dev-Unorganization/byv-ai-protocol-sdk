@@ -4,14 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { MODEL_PROFILES, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
 
-test('exposes six response profiles with the BYV Flash V1 default', () => {
+test('exposes all response profiles with the BYV Flash V1 default', () => {
   assert.deepEqual(Object.keys(MODEL_PROFILES), [
     'byv-flash-v1',
     'claude-opus-5-5',
     'claude-sonnet-5-5',
     'claude-haiku-5-5',
     'claude-mythos-5-1',
-    'claude-fable-5.1'
+    'claude-fable-5.1',
+    'claude-fable-5-2',
+    'claude-mythos-5-2',
+    'claude-opus-5',
+    'claude-opus-4-8'
   ]);
   assert.deepEqual(
     listModels().map(({ id, display_name }) => [id, display_name]),
@@ -21,7 +25,11 @@ test('exposes six response profiles with the BYV Flash V1 default', () => {
       ['claude-sonnet-5-5', 'Sonnet 5.5'],
       ['claude-haiku-5-5', 'Haiku 5.5'],
       ['claude-mythos-5-1', 'Mythos 5.1'],
-      ['claude-fable-5.1', 'Fable 5.1']
+      ['claude-fable-5.1', 'Fable 5.1'],
+      ['claude-fable-5-2', 'Fable 5.2'],
+      ['claude-mythos-5-2', 'Mythos 5.2'],
+      ['claude-opus-5', 'Opus 5'],
+      ['claude-opus-4-8', 'Opus 4.8']
     ]
   );
 });
