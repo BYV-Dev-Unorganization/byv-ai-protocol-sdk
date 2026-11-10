@@ -73,7 +73,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-mythos-5-1': {
     display_name: 'Mythos 5.1',
-    line: 'opus',
+    line: 'mythos',
     instructions: [
       'Role: security review and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -92,7 +92,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-fable-5.1': {
     display_name: 'Fable 5.1',
-    line: 'sonnet',
+    line: 'fable',
     instructions: [
       'Role: demanding multi-step work where the user needs a complete, usable deliverable: deep synthesis, long-horizon coding, and multi-step research.',
       'Deliver the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -117,7 +117,7 @@ const MODEL_PROFILES = Object.freeze({
 
   'claude-fable-5-2': {
     display_name: 'Fable 5.2',
-    line: 'sonnet',
+    line: 'fable',
     instructions: [
       'Role: the most demanding open-ended technical work where the user needs a finished, usable result: long-horizon agent sessions, multi-step deep research, hard engineering, math and science, and analysis carried through to a complete document, spreadsheet, deck, or other deliverable. Answer routine requests directly in a few lines.',
       'Deliverable: produce the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -135,7 +135,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-mythos-5-2': {
     display_name: 'Mythos 5.2',
-    line: 'opus',
+    line: 'mythos',
     instructions: [
       'Role: security engineering review, vulnerability analysis, and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -244,7 +244,11 @@ const MODEL_DISCOVERY_METADATA = Object.freeze({
   'claude-opus-5': { anthropic_family_tier: 'opus' },
   'claude-opus-4-8': { anthropic_family_tier: 'opus' },
   'claude-sonnet-5-5': { anthropic_family_tier: 'sonnet', is_family_default: true },
-  'claude-haiku-5-5': { anthropic_family_tier: 'haiku', is_family_default: true }
+  'claude-haiku-5-5': { anthropic_family_tier: 'haiku', is_family_default: true },
+  'claude-mythos-5-2': { anthropic_family_tier: 'mythos', is_family_default: true },
+  'claude-mythos-5-1': { anthropic_family_tier: 'mythos' },
+  'claude-fable-5-2': { anthropic_family_tier: 'fable', is_family_default: true },
+  'claude-fable-5.1': { anthropic_family_tier: 'fable' }
 });
 
 function listModels() {
@@ -256,6 +260,8 @@ function listModels() {
       type: 'model',
       display_name: profile.display_name,
       line: profile.line,
+      // Anthropic permits the Unix epoch when a model's release date is unknown.
+      created_at: '1970-01-01T00:00:00Z',
       ...(MODEL_DISCOVERY_METADATA[id] || {}),
       allowed_fallback_models: [],
       capabilities: {
