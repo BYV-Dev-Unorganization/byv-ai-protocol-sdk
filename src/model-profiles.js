@@ -199,7 +199,7 @@ const MODEL_PROFILE_ALIASES = Object.freeze((() => {
   };
 
   for (const canonicalId of Object.keys(MODEL_PROFILES)) {
-    const match = canonicalId.match(/^(claude-.+?)-(\\d+)[.-](\\d+)$/);
+    const match = canonicalId.match(/^(claude-.+?)-(\d+)[.-](\d+)$/);
     if (!match) continue;
 
     const [, family, major, minor] = match;
