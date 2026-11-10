@@ -20,16 +20,16 @@ test('exposes all response profiles with the BYV Flash V1 default', () => {
   assert.deepEqual(
     listModels().map(({ id, display_name }) => [id, display_name]),
     [
-      ['byv-flash-v1', 'BYV Flash V1'],
       ['claude-opus-5-5', 'Opus 5.5'],
       ['claude-sonnet-5-5', 'Sonnet 5.5'],
       ['claude-haiku-5-5', 'Haiku 5.5'],
-      ['claude-mythos-5-1', 'Mythos 5.1'],
-      ['claude-fable-5.1', 'Fable 5.1'],
-      ['claude-fable-5-2', 'Fable 5.2'],
       ['claude-mythos-5-2', 'Mythos 5.2'],
+      ['claude-mythos-5-1', 'Mythos 5.1'],
+      ['claude-fable-5-2', 'Fable 5.2'],
+      ['claude-fable-5.1', 'Fable 5.1'],
       ['claude-opus-5', 'Opus 5'],
-      ['claude-opus-4-8', 'Opus 4.8']
+      ['claude-opus-4-8', 'Opus 4.8'],
+      ['byv-flash-v1', 'BYV Flash V1']
     ]
   );
 });
@@ -59,4 +59,31 @@ test('accepts canonical profile IDs and documented aliases, rejects arbitrary ID
   assert.equal(isSupportedModel('claude-fable-5-1'), true);
   assert.equal(isSupportedModel('claude-mythos-5.1'), true);
   assert.equal(isSupportedModel('an-unknown-model'), false);
+});
+
+
+test('Claude Desktop discovery metadata identifies stable tier defaults', () => {
+  const models = listModels();
+  const byId = Object.fromEntries(models.map((model) => [model.id, model]));
+  assert.equal(byId['claude-opus-5-5'].anthropic_family_tier, 'opus');
+  assert.equal(byId['claude-opus-5-5'].is_family_default, true);
+  assert.equal(byId['claude-opus-5'].anthropic_family_tier, 'opus');
+  assert.equal(byId['claude-sonnet-5-5'].anthropic_family_tier, 'sonnet');
+  assert.equal(byId['claude-sonnet-5-5'].is_family_default, true);
+  assert.equal(byId['claude-haiku-5-5'].anthropic_family_tier, 'haiku');
+  assert.equal(byId['claude-haiku-5-5'].is_family_default, true);
+  assert.equal(byId['claude-mythos-5-2'].anthropic_family_tier, 'mythos');
+  assert.equal(byId['claude-mythos-5-2'].is_family_default, true);
+  assert.equal(byId['claude-mythos-5-1'].anthropic_family_tier, 'mythos');
+  assert.equal(byId['claude-fable-5-2'].anthropic_family_tier, 'fable');
+  assert.equal(byId['claude-fable-5-2'].is_family_default, true);
+  assert.equal(byId['claude-fable-5.1'].anthropic_family_tier, 'fable');
+  assert.ok(models.every((model) => model.created_at === '1970-01-01T00:00:00Z'));
+  assert.ok(models.every((model) => (model.line === null || ['opus', 'sonnet', 'haiku', 'fable', 'mythos'].includes(model.line))));
+});
+
+test('model discovery output is deterministic across calls', () => {
+  const first = listModels();
+  const second = listModels();
+  assert.deepEqual(first, second);
 });
