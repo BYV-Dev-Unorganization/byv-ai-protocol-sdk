@@ -189,16 +189,29 @@ const MODEL_PROFILES = Object.freeze({
   }
 });
 
-const MODEL_PROFILE_ALIASES = Object.freeze({
-  'byv': 'byv-flash-v1',
-  'byv-default': 'byv-flash-v1',
-  'claude-mythos-5.1': 'claude-mythos-5-1',
-  'claude-mythos-5-1': 'claude-mythos-5-1',
-  'claude-fable-5-1': 'claude-fable-5.1',
-  'claude-fable-5.2': 'claude-fable-5-2',
-  'claude-mythos-5.2': 'claude-mythos-5-2',
-  'claude-opus-4.8': 'claude-opus-4-8'
-});
+// Accept both dotted and hyphenated version spellings for every Claude profile.
+// Canonical IDs remain the keys in MODEL_PROFILES; aliases are generated from them
+// so adding a profile cannot silently leave its alternate spelling unsupported.
+const MODEL_PROFILE_ALIASES = Object.freeze((() => {
+  const aliases = {
+    byv: 'byv-flash-v1',
+    'byv-default': 'byv-flash-v1'
+  };
+
+  for (const canonicalId of Object.keys(MODEL_PROFILES)) {
+    const match = canonicalId.match(/^(claude-.+?)-(\\d+)[.-](\\d+)$/);
+    if (!match) continue;
+
+    const [, family, major, minor] = match;
+    const dotted = family + '-' + major + '.' + minor;
+    const hyphenated = family + '-' + major + '-' + minor;
+
+    if (dotted !== canonicalId) aliases[dotted] = canonicalId;
+    if (hyphenated !== canonicalId) aliases[hyphenated] = canonicalId;
+  }
+
+  return aliases;
+})());
 
 function canonicalModelId(model) {
   return MODEL_PROFILE_ALIASES[model] || model || 'byv-flash-v1';
