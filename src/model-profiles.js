@@ -3,7 +3,7 @@
 const MODEL_PROFILES = Object.freeze({
   'byv-flash-v1': {
     display_name: 'BYV Flash V1',
-    line: 'default',
+    line: null,
     instructions: [
       'Role: default assistant for everyday work, and the fallback for unrecognized models. Aim for a correct answer on the first pass at low latency.',
       'Planning: write none. Act directly, and ask only when a missing fact blocks progress.',
@@ -73,7 +73,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-mythos-5-1': {
     display_name: 'Mythos 5.1',
-    line: 'opus',
+    line: 'mythos',
     instructions: [
       'Role: security review and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -92,7 +92,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-fable-5.1': {
     display_name: 'Fable 5.1',
-    line: 'sonnet',
+    line: 'fable',
     instructions: [
       'Role: demanding multi-step work where the user needs a complete, usable deliverable: deep synthesis, long-horizon coding, and multi-step research.',
       'Deliver the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -117,7 +117,7 @@ const MODEL_PROFILES = Object.freeze({
 
   'claude-fable-5-2': {
     display_name: 'Fable 5.2',
-    line: 'sonnet',
+    line: 'fable',
     instructions: [
       'Role: the most demanding open-ended technical work where the user needs a finished, usable result: long-horizon agent sessions, multi-step deep research, hard engineering, math and science, and analysis carried through to a complete document, spreadsheet, deck, or other deliverable. Answer routine requests directly in a few lines.',
       'Deliverable: produce the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -135,7 +135,7 @@ const MODEL_PROFILES = Object.freeze({
   },
   'claude-mythos-5-2': {
     display_name: 'Mythos 5.2',
-    line: 'opus',
+    line: 'mythos',
     instructions: [
       'Role: security engineering review, vulnerability analysis, and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -223,27 +223,60 @@ function modelProfilePrompt(model) {
   ].join('\n');
 }
 
-function listModels() {
-  return Object.entries(MODEL_PROFILES).map(([id, profile]) => ({
-    id,
-    type: 'model',
-    display_name: profile.display_name,
-    line: profile.line,
-    created_at: new Date().toISOString(),
-    allowed_fallback_models: [],
-    capabilities: {
-      effort: {
-        supported: true,
-        low: { supported: true },
-        medium: { supported: true },
-        high: { supported: true },
-        xhigh: { supported: true },
-        max: { supported: true }
-      }
-    },
-    max_input_tokens: null,
-    max_tokens: null
-  }));
-}
+// Explicit public discovery order; do not depend on object insertion order.
+const MODEL_LIST_ORDER = Object.freeze([
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+  'claude-mythos-5-2',
+  'claude-mythos-5-1',
+  'claude-fable-5-2',
+  'claude-fable-5.1',
+  'claude-opus-5',
+  'claude-opus-4-8',
+  'byv-flash-v1'
+]);
 
-module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
+// Desktop uses this metadata to map discovered models to its Claude tier picker.
+// Keep all five model families distinct; do not collapse Fable/Mythos into Sonnet/Opus.
+const MODEL_DISCOVERY_METADATA = Object.freeze({
+  'claude-opus-5-5': { anthropic_family_tier: 'opus', is_family_default: true },
+  'claude-opus-5': { anthropic_family_tier: 'opus' },
+  'claude-opus-4-8': { anthropic_family_tier: 'opus' },
+  'claude-sonnet-5-5': { anthropic_family_tier: 'sonnet', is_family_default: true },
+  'claude-haiku-5-5': { anthropic_family_tier: 'haiku', is_family_default: true },
+  'claude-mythos-5-2': { anthropic_family_tier: 'mythos', is_family_default: true },
+  'claude-mythos-5-1': { anthropic_family_tier: 'mythos' },
+  'claude-fable-5-2': { anthropic_family_tier: 'fable', is_family_default: true },
+  'claude-fable-5.1': { anthropic_family_tier: 'fable' }
+});
+
+function listModels() {
+  return MODEL_LIST_ORDER.map((id) => {
+    const profile = MODEL_PROFILES[id];
+    if (!profile) throw new Error('Model list references an unknown profile: ' + id);
+    return {
+      id,
+      type: 'model',
+      display_name: profile.display_name,
+      line: profile.line,
+      // Anthropic permits the Unix epoch when a model's release date is unknown.
+      created_at: '1970-01-01T00:00:00Z',
+      ...(MODEL_DISCOVERY_METADATA[id] || {}),
+      allowed_fallback_models: [],
+      capabilities: {
+        effort: {
+          supported: true,
+          low: { supported: true },
+          medium: { supported: true },
+          high: { supported: true },
+          xhigh: { supported: true },
+          max: { supported: true }
+        }
+      },
+      max_input_tokens: null,
+      max_tokens: null
+    };
+  });
+}
+module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, MODEL_LIST_ORDER, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
