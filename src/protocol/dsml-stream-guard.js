@@ -28,7 +28,15 @@ class DsmlStreamGuard {
   push(value) {
     if (this.finished) throw new Error('DSML stream guard is already finished.');
     if (typeof value !== 'string' || value.length === 0 || this.protocolDetected) return [];
+    const previousLength = this.source.length;
     this.source += value;
+
+    // Normal tokens without a pending protocol prefix need no full-history scan.
+    // This keeps the common token-by-token path close to O(total output), not O(n²).
+    if (this.cursor === previousLength && !/[<{]/.test(value)) {
+      this.cursor = this.source.length;
+      return [value];
+    }
 
     const searchable = maskMarkdownCode(this.source);
     const completeMarker = PROTOCOL_MARKER.exec(searchable);
