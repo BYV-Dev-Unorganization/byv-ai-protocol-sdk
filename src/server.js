@@ -458,9 +458,11 @@ function createServer(options = {}) {
           streamedText.trim()
         ].filter(Boolean);
         const matchingPrefix = streamedPrefixes.find((prefix) => finalText.startsWith(prefix));
-        const finalRemainder = matchingPrefix
-          ? finalText.slice(matchingPrefix.length)
-          : '';
+        const finalRemainder = streamedText.length === 0
+          ? finalText
+          : matchingPrefix
+            ? finalText.slice(matchingPrefix.length)
+            : '';
         // A DSML/BYV/legacy tool-call envelope is protocol data, never user-visible text.
         // If recovery changed the already-streamed prefix, do not duplicate or corrupt the stream.
         if (finalRemainder && !streamGuard.containsProtocol(finalRemainder)) {
