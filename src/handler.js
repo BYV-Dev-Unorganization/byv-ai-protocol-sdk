@@ -12,7 +12,7 @@ const {
   uuid
 } = require('./config');
 const { buildProviderMessages, buildCompactionProviderMessages, buildRecoveryMessage } = require('./prompts');
-const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
+const { createChatCompletion, createStreamingChatCompletion, streamChatCompletionEvents } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
@@ -244,10 +244,34 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     upstreamStarted = true;
 
     const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
+    const streamEventsCall = provider.streamChatCompletionEvents ||
+      (typeof provider.createStreamingChatCompletion === 'function' ? null : streamChatCompletionEvents);
     const normalCall = provider.createChatCompletion || createChatCompletion;
-    const result = body.stream === true
-      ? await streamCall(messages, options, signal)
-      : await normalCall(messages, options, signal);
+    let result;
+    if (body.stream === true && typeof diagnostic.onStreamEvent === 'function' && streamEventsCall) {
+      let streamedChars = 0;
+      for await (const event of streamEventsCall(messages, options, signal)) {
+        if (event.type === 'completion') {
+          result = event.completion;
+          continue;
+        }
+        if (event.type === 'text_delta' && typeof event.text === 'string') {
+          streamedChars += event.text.length;
+        } else if (event.type === 'tool_call_delta') {
+          streamedChars += JSON.stringify(event.deltas || []).length;
+        }
+        if (streamedChars > MAX_OUTPUT_CHARS) {
+          throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
+            statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+          });
+        }
+        await diagnostic.onStreamEvent(event);
+      }
+    } else {
+      result = body.stream === true
+        ? await streamCall(messages, options, signal)
+        : await normalCall(messages, options, signal);
+    }
     if (!result || typeof result.text !== 'string') {
       throw Object.assign(new Error('Provider completion did not contain text output.'), {
         statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
@@ -546,6 +570,9 @@ async function handleMessages(body, options = {}) {
         experimentVariant
       });
   let providerAttempt = 0;
+  // The server has already committed the Anthropic SSE lifecycle (message_start).
+  // A retry would therefore replay a request inside an already-open client stream.
+  let streamOutputStarted = body.stream === true && typeof options.onStreamEvent === 'function';
   const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
     let retry = 0;
     while (true) {
@@ -561,11 +588,19 @@ async function handleMessages(body, options = {}) {
           requestIntent: options.requestIntent || (compactionRequest ? 'claude_code_compaction' : 'normal'),
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
           compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
-          anthropicVersion: options.anthropicVersion
+          anthropicVersion: options.anthropicVersion,
+          onStreamEvent: phase === 'initial' &&
+            typeof options.onStreamEvent === 'function' &&
+            force.mode !== 'any' && force.mode !== 'tool' && force.mode !== 'required'
+            ? async (event) => {
+                if (event.type === 'text_delta') streamOutputStarted = true;
+                await options.onStreamEvent(event);
+              }
+            : null
         });
       } catch (error) {
         const code = String(error && error.code || '');
-        const retryable = !signal?.aborted &&
+        const retryable = !signal?.aborted && !streamOutputStarted &&
           code !== 'CLIENT_DISCONNECTED' &&
           code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' &&
           code !== 'PROVIDER_MAX_OUTPUT_EXCEEDED' &&

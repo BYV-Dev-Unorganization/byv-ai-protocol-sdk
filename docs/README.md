@@ -4,6 +4,8 @@ The root [README](../README.md) is the primary entry point for setup, API routes
 
 ## Current implementation references
 
+- [End-to-end streaming](STREAMING.md) — provider SSE, Anthropic event mapping, DSML/native tool-call safety, backpressure, cancellation, and integration tests.
+
 - [Claude Code autocompaction](AUTOCOMPACTION.md) — current request detection, bounded transcript replay, provider-neutral budgets, diagnostics, errors, and limitations.
 - [README: Configuration](../README.md#configuration) — complete environment-variable reference.
 - [`.env.example`](../.env.example) — copyable configuration template.

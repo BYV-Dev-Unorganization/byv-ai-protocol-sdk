@@ -306,7 +306,7 @@ async function createChatCompletion(messages, options = {}, signal) {
   }
 }
 
-async function createStreamingChatCompletion(messages, options = {}, signal) {
+async function* streamChatCompletionEvents(messages, options = {}, signal) {
   const { config, payload } = buildPayload(messages, { ...options, stream: true });
   const release = await acquireProviderRequestSlot(signal);
   try {
@@ -328,6 +328,7 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     let finishReason = 'stop';
     let usage = null;
     let responseId = null;
+    let providerModel = config.model;
     const toolCallDeltas = new Map();
     let done = false;
     let timedOut = false;
@@ -344,12 +345,12 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
     function processEvent(eventText) {
       const dataLines = eventText.split(/\r?\n/)
         .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).trim());
-      if (!dataLines.length) return;
+        .map((line) => line.slice(5).replace(/^\s/, ''));
+      if (!dataLines.length) return [];
       const dataText = dataLines.join('\n');
       if (dataText === '[DONE]') {
         done = true;
-        return;
+        return [];
       }
       let data;
       try {
@@ -364,34 +365,62 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
           data.error.code || 'PROVIDER_STREAM_ERROR'
         );
       }
-      if (data.usage) usage = data.usage;
+
+      const events = [];
+      if (data.usage) {
+        usage = data.usage;
+        events.push({ type: 'usage', usage });
+      }
       if (!responseId && typeof data.id === 'string' && data.id) responseId = data.id;
+      if (typeof data.model === 'string' && data.model) providerModel = data.model;
       const choice = data.choices && data.choices[0];
-      if (!choice) return;
+      if (!choice) return events;
+
       const delta = choice.delta || {};
-      if (typeof delta.content === 'string') text += delta.content;
-      else if (Array.isArray(delta.content)) text += normalizeMessageContent(delta.content);
-      if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
-      mergeProviderToolCallDelta(toolCallDeltas, delta.tool_calls);
-      if (choice.finish_reason) finishReason = choice.finish_reason;
+      let textDelta = '';
+      if (typeof delta.content === 'string') textDelta = delta.content;
+      else if (Array.isArray(delta.content)) textDelta = normalizeMessageContent(delta.content);
+      if (textDelta) {
+        text += textDelta;
+        events.push({ type: 'text_delta', text: textDelta });
+      }
+      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+        reasoning += delta.reasoning_content;
+        events.push({ type: 'reasoning_delta', text: delta.reasoning_content });
+      }
+      if (Array.isArray(delta.tool_calls) && delta.tool_calls.length) {
+        mergeProviderToolCallDelta(toolCallDeltas, delta.tool_calls);
+        events.push({ type: 'tool_call_delta', deltas: delta.tool_calls });
+      }
+      if (choice.finish_reason) {
+        finishReason = choice.finish_reason;
+        events.push({ type: 'finish', reason: finishReason });
+      }
+      return events;
     }
 
     try {
       while (!done) {
         const result = await reader.read();
-        if (result.done) break;
+        if (result.done) {
+          buffer += decoder.decode();
+          break;
+        }
         buffer += decoder.decode(result.value, { stream: true });
         let boundary;
         while ((boundary = buffer.search(/\r?\n\r?\n/)) >= 0) {
-          const eventText = buffer.slice(0, boundary);
           const separator = buffer.slice(boundary).match(/^\r?\n\r?\n/)[0];
+          const eventText = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + separator.length);
-          processEvent(eventText);
+          for (const event of processEvent(eventText)) yield event;
           if (done) break;
         }
       }
-      if (buffer.trim()) processEvent(buffer);
+      if (buffer.trim()) {
+        for (const event of processEvent(buffer)) yield event;
+      }
     } catch (error) {
+      try { await reader.cancel(error); } catch {}
       if (error instanceof ProviderError) throw error;
       if (signal && signal.aborted) {
         throw new ProviderError('Provider streaming response was cancelled because the client disconnected.', 499, 'CLIENT_DISCONNECTED');
@@ -414,18 +443,32 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
       throw new ProviderError('Provider stream ended before the [DONE] marker; partial output was discarded.', 502, 'PROVIDER_STREAM_INCOMPLETE');
     }
 
-    return {
-      id: responseId,
-      text,
-      tool_calls: finalizeProviderToolCallDeltas(toolCallDeltas),
-      reasoning,
-      finish_reason: finishReason,
-      usage,
-      provider_model: config.model
+    yield {
+      type: 'completion',
+      completion: {
+        id: responseId,
+        text,
+        tool_calls: finalizeProviderToolCallDeltas(toolCallDeltas),
+        reasoning,
+        finish_reason: finishReason,
+        usage,
+        provider_model: providerModel
+      }
     };
   } finally {
     release();
   }
+}
+
+async function createStreamingChatCompletion(messages, options = {}, signal) {
+  let completion = null;
+  for await (const event of streamChatCompletionEvents(messages, options, signal)) {
+    if (event.type === 'completion') completion = event.completion;
+  }
+  if (!completion) {
+    throw new ProviderError('Provider stream did not produce a completion.', 502, 'PROVIDER_STREAM_INCOMPLETE');
+  }
+  return completion;
 }
 
 module.exports = {
@@ -434,5 +477,6 @@ module.exports = {
   buildPayload,
   sanitizeProviderErrorDetail,
   createChatCompletion,
-  createStreamingChatCompletion
+  createStreamingChatCompletion,
+  streamChatCompletionEvents
 };

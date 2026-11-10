@@ -2,7 +2,7 @@ name: BYV SDK checks
 
 on:
   push:
-    branches: [main, experiment/text-only-inference, feat/dsml-tool-call-mode]
+    branches: [main, experiment/text-only-inference, feat/dsml-tool-call-mode, feat/e2e-token-streaming-phase-1-5]
   pull_request:
     branches: [main, feat/dsml-prompt-byv-adapter]
 
