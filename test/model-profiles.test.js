@@ -72,8 +72,14 @@ test('Claude Desktop discovery metadata identifies stable tier defaults', () => 
   assert.equal(byId['claude-sonnet-5-5'].is_family_default, true);
   assert.equal(byId['claude-haiku-5-5'].anthropic_family_tier, 'haiku');
   assert.equal(byId['claude-haiku-5-5'].is_family_default, true);
-  assert.equal(byId['claude-mythos-5-2'].anthropic_family_tier, undefined);
-  assert.equal(byId['claude-fable-5-2'].anthropic_family_tier, undefined);
+  assert.equal(byId['claude-mythos-5-2'].anthropic_family_tier, 'mythos');
+  assert.equal(byId['claude-mythos-5-2'].is_family_default, true);
+  assert.equal(byId['claude-mythos-5-1'].anthropic_family_tier, 'mythos');
+  assert.equal(byId['claude-fable-5-2'].anthropic_family_tier, 'fable');
+  assert.equal(byId['claude-fable-5-2'].is_family_default, true);
+  assert.equal(byId['claude-fable-5.1'].anthropic_family_tier, 'fable');
+  assert.ok(models.every((model) => model.created_at === '1970-01-01T00:00:00Z'));
+  assert.ok(models.every((model) => ['opus', 'sonnet', 'haiku', 'fable', 'mythos', 'default'].includes(model.line)));
 });
 
 test('model discovery output is deterministic across calls', () => {
