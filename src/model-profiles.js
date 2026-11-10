@@ -238,7 +238,7 @@ const MODEL_LIST_ORDER = Object.freeze([
 ]);
 
 // Desktop uses this metadata to map discovered models to its Claude tier picker.
-// Fable and Mythos are kept unclassified rather than mislabeled as Sonnet/Opus.
+// Keep all five model families distinct; do not collapse Fable/Mythos into Sonnet/Opus.
 const MODEL_DISCOVERY_METADATA = Object.freeze({
   'claude-opus-5-5': { anthropic_family_tier: 'opus', is_family_default: true },
   'claude-opus-5': { anthropic_family_tier: 'opus' },
