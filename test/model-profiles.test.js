@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { MODEL_PROFILES, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
+const { MODEL_PROFILES, MODEL_PROFILE_ALIASES, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
 
 test('exposes all response profiles with the BYV Flash V1 default', () => {
   assert.deepEqual(Object.keys(MODEL_PROFILES), [
@@ -45,19 +45,35 @@ test('each profile makes clear it is style guidance over the same upstream model
   }
 });
 
-test('profile aliases resolve to their canonical profile', () => {
-  assert.equal(modelProfilePrompt('byv-default'), modelProfilePrompt('byv-flash-v1'));
-  assert.equal(modelProfilePrompt('byv'), modelProfilePrompt('byv-flash-v1'));
-  assert.equal(modelProfilePrompt('claude-mythos-5.1'), modelProfilePrompt('claude-mythos-5-1'));
-  assert.equal(modelProfilePrompt('claude-fable-5-1'), modelProfilePrompt('claude-fable-5.1'));
+test('generates dotted and hyphenated aliases for every Claude model profile', () => {
+  for (const [alias, canonicalId] of Object.entries(MODEL_PROFILE_ALIASES)) {
+    assert.notEqual(alias, canonicalId, `alias must not map to itself: ${alias}`);
+    assert.ok(Object.hasOwn(MODEL_PROFILES, canonicalId), `alias target must exist: ${alias}`);
+    assert.equal(isSupportedModel(alias), true, `alias must be supported: ${alias}`);
+    assert.equal(
+      modelProfilePrompt(alias),
+      modelProfilePrompt(canonicalId),
+      `alias must resolve to its canonical profile: ${alias}`
+    );
+  }
+
+  for (const canonicalId of Object.keys(MODEL_PROFILES)) {
+    const match = canonicalId.match(/^(claude-.+?)-(\\d+)[.-](\\d+)$/);
+    if (!match) continue;
+    const [, family, major, minor] = match;
+    const dotted = family + '-' + major + '.' + minor;
+    const hyphenated = family + '-' + major + '-' + minor;
+    assert.equal(isSupportedModel(dotted), true, `dotted spelling must be supported: ${dotted}`);
+    assert.equal(isSupportedModel(hyphenated), true, `hyphenated spelling must be supported: ${hyphenated}`);
+    assert.equal(modelProfilePrompt(dotted), modelProfilePrompt(canonicalId));
+    assert.equal(modelProfilePrompt(hyphenated), modelProfilePrompt(canonicalId));
+  }
 });
 
-test('accepts canonical profile IDs and documented aliases, rejects arbitrary IDs', () => {
+test('accepts canonical profile IDs and BYV aliases, rejects arbitrary IDs', () => {
   assert.equal(isSupportedModel('byv-flash-v1'), true);
   assert.equal(isSupportedModel('byv-default'), true);
   assert.equal(isSupportedModel('byv'), true);
-  assert.equal(isSupportedModel('claude-fable-5-1'), true);
-  assert.equal(isSupportedModel('claude-mythos-5.1'), true);
   assert.equal(isSupportedModel('an-unknown-model'), false);
 });
 
