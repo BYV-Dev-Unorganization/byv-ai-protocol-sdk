@@ -223,27 +223,54 @@ function modelProfilePrompt(model) {
   ].join('\n');
 }
 
-function listModels() {
-  return Object.entries(MODEL_PROFILES).map(([id, profile]) => ({
-    id,
-    type: 'model',
-    display_name: profile.display_name,
-    line: profile.line,
-    created_at: new Date().toISOString(),
-    allowed_fallback_models: [],
-    capabilities: {
-      effort: {
-        supported: true,
-        low: { supported: true },
-        medium: { supported: true },
-        high: { supported: true },
-        xhigh: { supported: true },
-        max: { supported: true }
-      }
-    },
-    max_input_tokens: null,
-    max_tokens: null
-  }));
-}
+// Explicit public discovery order; do not depend on object insertion order.
+const MODEL_LIST_ORDER = Object.freeze([
+  'claude-opus-5-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+  'claude-mythos-5-2',
+  'claude-mythos-5-1',
+  'claude-fable-5-2',
+  'claude-fable-5.1',
+  'claude-opus-5',
+  'claude-opus-4-8',
+  'byv-flash-v1'
+]);
 
-module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
+// Desktop uses this metadata to map discovered models to its Claude tier picker.
+// Fable and Mythos are kept unclassified rather than mislabeled as Sonnet/Opus.
+const MODEL_DISCOVERY_METADATA = Object.freeze({
+  'claude-opus-5-5': { anthropic_family_tier: 'opus', is_family_default: true },
+  'claude-opus-5': { anthropic_family_tier: 'opus' },
+  'claude-opus-4-8': { anthropic_family_tier: 'opus' },
+  'claude-sonnet-5-5': { anthropic_family_tier: 'sonnet', is_family_default: true },
+  'claude-haiku-5-5': { anthropic_family_tier: 'haiku', is_family_default: true }
+});
+
+function listModels() {
+  return MODEL_LIST_ORDER.map((id) => {
+    const profile = MODEL_PROFILES[id];
+    if (!profile) throw new Error('Model list references an unknown profile: ' + id);
+    return {
+      id,
+      type: 'model',
+      display_name: profile.display_name,
+      line: profile.line,
+      ...(MODEL_DISCOVERY_METADATA[id] || {}),
+      allowed_fallback_models: [],
+      capabilities: {
+        effort: {
+          supported: true,
+          low: { supported: true },
+          medium: { supported: true },
+          high: { supported: true },
+          xhigh: { supported: true },
+          max: { supported: true }
+        }
+      },
+      max_input_tokens: null,
+      max_tokens: null
+    };
+  });
+}
+module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, MODEL_LIST_ORDER, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
