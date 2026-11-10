@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/server');
 const { GATEWAY_API_KEY, PROVIDER_MODEL, DSML_TOOL_CALL } = require('../src/config');
+const { MODEL_PROFILES } = require('../src/model-profiles');
 
 async function withServer(t, options) {
   const server = createServer(options);
@@ -77,7 +78,7 @@ test('requires gateway authentication and exposes BYV Flash V1 in model discover
   const accepted = await fetch(base + '/v1/models', { headers: authHeaders() });
   assert.equal(accepted.status, 200);
   const body = await accepted.json();
-  assert.equal(body.data.length, 6);
+  assert.equal(body.data.length, Object.keys(MODEL_PROFILES).length);
   assert.equal(body.data[0].id, 'byv-flash-v1');
   assert.equal(body.data[0].display_name, 'BYV Flash V1');
 });
