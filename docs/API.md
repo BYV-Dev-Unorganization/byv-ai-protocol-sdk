@@ -53,7 +53,7 @@ Important fields include:
 - `tools`: optional declared tool schemas;
 - `tool_choice`: `auto`, `any`, `none`, or a specific tool.
 
-The configured upstream model remains `PROVIDER_MODEL` regardless of the requested BYV profile.
+The configured upstream model remains `PROVIDER_MODEL` regardless of the requested BYV profile. Each BYV profile has its own generation defaults, but only parameters confirmed for the configured provider/model are sent. Explicit request values override profile defaults.
 
 ### Image and file input
 
@@ -69,7 +69,7 @@ Do not treat a profile ID such as `claude-sonnet-5-5` as evidence that BYV is ca
 
 ## Provider capabilities
 
-`GET /v1/provider/capabilities` exposes detected context, input, output, and cache capabilities for the configured upstream model.
+`GET /v1/provider/capabilities` exposes detected context, input, output, cache, and sampling-parameter capabilities for the configured upstream model. Its `sampling` object reports supported, unsupported, and unknown fields, including exact reasoning-effort levels when known. Use `?refresh=1` to force a metadata/probe refresh.
 
 Use `?refresh=1` to force a metadata refresh.
 
