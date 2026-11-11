@@ -4,6 +4,7 @@ const http = require('node:http');
 const {
   PORT, HOST, MAX_PENDING_REQUESTS, GATEWAY_API_KEY_SOURCE, PROVIDER_BASE_URL, PROVIDER_MODEL,
   DSML_TOOL_CALL,
+  PROVIDER_SAMPLING_AUTO_PROBE,
   NO_TOOL_EXPERIMENT_VARIANT,
   STREAM_PING_INTERVAL_MS
 } = require('./config');
@@ -11,6 +12,7 @@ const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages, resolveCompactionBudgets } = require('./handler');
 const { buildProviderMessages, buildCompactionProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
+const { initializeSamplingAutoProbe } = require('./provider/openai-compatible');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
 const { writeEventAsync, createAnthropicStreamWriter } = require('./sse-sink');
@@ -568,6 +570,21 @@ function start() {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
+    if (PROVIDER_SAMPLING_AUTO_PROBE) {
+      console.log('Provider sampling auto-probe: enabled (checking provider/model parameter support)');
+      initializeSamplingAutoProbe().then((sampling) => {
+        console.log('Provider sampling auto-probe result: ' + sampling.status +
+          '; accepted=[' + sampling.accepted_parameters.join(', ') + ']' +
+          '; rejected=[' + sampling.rejected_parameters.join(', ') + ']' +
+          '; unknown=[' + sampling.unknown_parameters.join(', ') + ']' +
+          '; requests=' + sampling.probe_requests);
+      }).catch((error) => {
+        console.warn('Provider sampling auto-probe failed; provider/model defaults will be used: ' +
+          String(error && error.message || error).slice(0, 500));
+      });
+    } else {
+      console.log('Provider sampling auto-probe: disabled (provider/model sampling defaults will be used)');
+    }
     console.log('Tool transport: ' + (DSML_TOOL_CALL
       ? 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'
       : 'provider-native function calling'));
