@@ -6,6 +6,7 @@ const MODEL_PROFILES = Object.freeze({
     line: null,
     generation: Object.freeze({
       temperature: 0.7,
+      reasoning_effort: 'low',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -23,6 +24,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'opus',
     generation: Object.freeze({
       temperature: 0.4,
+      reasoning_effort: 'medium',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -52,6 +54,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'sonnet',
     generation: Object.freeze({
       temperature: 0.3,
+      reasoning_effort: 'medium',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -77,6 +80,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'haiku',
     generation: Object.freeze({
       temperature: 0.2,
+      reasoning_effort: 'low',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -100,6 +104,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'mythos',
     generation: Object.freeze({
       temperature: 0.1,
+      reasoning_effort: 'high',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -125,6 +130,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'fable',
     generation: Object.freeze({
       temperature: 0.45,
+      reasoning_effort: 'high',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -156,6 +162,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'fable',
     generation: Object.freeze({
       temperature: 0.35,
+      reasoning_effort: 'high',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -180,6 +187,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'mythos',
     generation: Object.freeze({
       temperature: 0.1,
+      reasoning_effort: 'high',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -202,6 +210,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'opus',
     generation: Object.freeze({
       temperature: 0.25,
+      reasoning_effort: 'high',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
@@ -226,6 +235,7 @@ const MODEL_PROFILES = Object.freeze({
     line: 'opus',
     generation: Object.freeze({
       temperature: 0.2,
+      reasoning_effort: 'xhigh',
       top_p: null,
       top_k: null,
       provider_params: Object.freeze({})
