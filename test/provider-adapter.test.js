@@ -70,7 +70,9 @@ function response({ status = 200, payload = {}, raw, jsonError } = {}) {
 test('uses upstream sampling defaults when auto-probe is disabled and normalizes output', async (t) => {
   const { provider, model } = loadProvider(t);
   let captured;
+  let fetchCalls = 0;
   global.fetch = async (url, init) => {
+    fetchCalls++;
     captured = { url, init, payload: JSON.parse(init.body) };
     return response({
       payload: {
@@ -102,6 +104,7 @@ test('uses upstream sampling defaults when auto-probe is disabled and normalizes
   assert.equal(captured.url, 'https://provider.example/v1/chat/completions');
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.headers.Authorization, 'Bearer provider-test-secret');
+  assert.equal(fetchCalls, 1, 'disabled auto-probe must not send a sampling probe');
   assert.equal(Object.hasOwn(captured.payload, 'temperature'), false);
   assert.equal(Object.hasOwn(captured.payload, 'top_p'), false);
   assert.equal(Object.hasOwn(captured.payload, 'top_k'), false);
