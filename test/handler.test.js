@@ -71,6 +71,44 @@ test('forwards manual sampling parameters from the Messages request to the provi
   assert.deepEqual(receivedOptions.provider_params, providerParams);
 });
 
+test('removes disabled profile and request sampling values before provider payload construction', async () => {
+  let receivedOptions;
+  const provider = {
+    getModelCapabilities: async () => null,
+    getSamplingCapabilities: async () => ({
+      source: 'disabled',
+      status: 'disabled',
+      parameters: {
+        temperature: false,
+        top_p: false,
+        top_k: false,
+        reasoning_effort: false,
+        min_p: false
+      }
+    }),
+    createChatCompletion: async (_messages, options) => {
+      receivedOptions = { ...options };
+      return { text: 'Provider defaults used.', finish_reason: 'stop', usage: null };
+    }
+  };
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    temperature: 0.9,
+    top_p: 0.8,
+    top_k: 40,
+    provider_params: { min_p: 0.05 },
+    output_config: { effort: 'high' },
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  for (const field of ['temperature', 'top_p', 'top_k', 'reasoning_effort', 'provider_params']) {
+    assert.equal(Object.hasOwn(receivedOptions, field), false, field + ' must be omitted when sampling is disabled');
+  }
+  assert.equal(receivedOptions.max_tokens, 256);
+});
+
 test('uses profile generation defaults while explicit Messages settings take precedence', async () => {
   const observed = [];
   const provider = {
