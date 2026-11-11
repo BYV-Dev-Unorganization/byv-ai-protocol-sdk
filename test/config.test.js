@@ -148,8 +148,8 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   });
 });
 
-test('keeps non-standard native provider reasoning effort opt-in', () => {
-  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, false);
+test('enables detected native provider reasoning effort by default and supports explicit opt-out', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, true);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'true' }).PROVIDER_NATIVE_REASONING_EFFORT, true);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'false' }).PROVIDER_NATIVE_REASONING_EFFORT, false);
 });
