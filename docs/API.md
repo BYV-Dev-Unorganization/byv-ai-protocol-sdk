@@ -63,7 +63,7 @@ PDF, document, generic file, file-ID, and `container_upload` attachments are rej
 
 ## Model discovery
 
-`GET /v1/models` returns the local BYV profile catalog. The profile IDs are compatibility/style profiles over the one configured provider model.
+`GET /v1/models` returns the local BYV profile catalog. The profile IDs are compatibility/style profiles over the one configured provider model. Its `capabilities.effort` values reflect reasoning-effort levels detected for the configured upstream; when no level is confirmed, BYV does not advertise it.
 
 Do not treat a profile ID such as `claude-sonnet-5-5` as evidence that BYV is calling Anthropic. It is a BYV compatibility profile.
 
