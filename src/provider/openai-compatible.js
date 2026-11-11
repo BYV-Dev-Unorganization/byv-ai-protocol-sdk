@@ -4,6 +4,7 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
+  PROVIDER_SAMPLING_AUTO_PROBE,
   PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,
   PROVIDER_TIMEOUT_MS,
@@ -12,6 +13,7 @@ const {
 } = require('../config');
 const { createProviderRequestLimiter } = require('./request-limiter');
 const { validateProviderParams } = require('./request-parameters');
+const { initializeProviderSamplingCapabilities } = require('./sampling-capabilities');
 const {
   providerToolChoice,
   providerFunctionTools,
@@ -79,14 +81,34 @@ function buildPayload(messages, options = {}) {
     max_tokens: options.max_tokens,
     stream: options.stream === true
   };
-  if (typeof options.temperature === 'number') payload.temperature = options.temperature;
-  if (typeof options.top_p === 'number') payload.top_p = options.top_p;
-  if (options.top_k !== undefined) payload.top_k = options.top_k;
   const providerParamsError = validateProviderParams(options.provider_params);
   if (providerParamsError) {
     throw new ProviderError(providerParamsError, 400, 'INVALID_PROVIDER_PARAMS');
   }
-  if (options.provider_params) Object.assign(payload, options.provider_params);
+
+  // Sampling overrides are opt-in. When auto-probe is disabled, omit all of
+  // them so the configured upstream model uses its own defaults. When enabled,
+  // only include fields the configured provider/model accepted during probing.
+  const acceptedSamplingParameters = PROVIDER_SAMPLING_AUTO_PROBE &&
+    options.samplingCapabilities &&
+    Array.isArray(options.samplingCapabilities.accepted_parameters)
+    ? new Set(options.samplingCapabilities.accepted_parameters)
+    : new Set();
+
+  if (acceptedSamplingParameters.has('temperature') && typeof options.temperature === 'number') {
+    payload.temperature = options.temperature;
+  }
+  if (acceptedSamplingParameters.has('top_p') && typeof options.top_p === 'number') {
+    payload.top_p = options.top_p;
+  }
+  if (acceptedSamplingParameters.has('top_k') && options.top_k !== undefined) {
+    payload.top_k = options.top_k;
+  }
+  if (options.provider_params) {
+    for (const [name, value] of Object.entries(options.provider_params)) {
+      if (acceptedSamplingParameters.has(name)) payload[name] = value;
+    }
+  }
   if (Array.isArray(options.stop_sequences) && options.stop_sequences.length) {
     payload.stop = options.stop_sequences;
   }
@@ -278,8 +300,55 @@ function normalizeMessageContent(content) {
   return '';
 }
 
+async function probeSamplingParameterSet(parameters) {
+  let release = null;
+  try {
+    const config = providerConfiguration();
+    const payload = {
+      model: config.model,
+      messages: [{ role: 'user', content: 'Reply with OK.' }],
+      max_tokens: 1,
+      stream: false,
+      ...parameters
+    };
+    release = await acquireProviderRequestSlot();
+    const response = await fetchWithTimeout(config.url, {
+      method: 'POST',
+      headers: requestHeaders(config.apiKey, null, config.url),
+      body: JSON.stringify(payload)
+    });
+
+    const raw = await response.text().catch(() => '');
+    return {
+      ok: response.ok,
+      status: response.status,
+      error: response.ok ? null : sanitizeProviderErrorDetail(raw, 700)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: Number.isInteger(error && error.statusCode) ? error.statusCode : 0,
+      error: sanitizeProviderErrorDetail(error && error.message || error, 700)
+    };
+  } finally {
+    if (release) release();
+  }
+}
+
+function initializeSamplingAutoProbe() {
+  return initializeProviderSamplingCapabilities({
+    enabled: PROVIDER_SAMPLING_AUTO_PROBE,
+    probe: probeSamplingParameterSet
+  });
+}
+
 async function createChatCompletion(messages, options = {}, signal) {
-  const { config, payload } = buildPayload(messages, { ...options, stream: false });
+  const samplingCapabilities = await initializeSamplingAutoProbe();
+  const { config, payload } = buildPayload(messages, {
+    ...options,
+    samplingCapabilities,
+    stream: false
+  });
   const release = await acquireProviderRequestSlot(signal);
   try {
     const response = await fetchWithTimeout(config.url, {
@@ -314,7 +383,12 @@ async function createChatCompletion(messages, options = {}, signal) {
 }
 
 async function* streamChatCompletionEvents(messages, options = {}, signal) {
-  const { config, payload } = buildPayload(messages, { ...options, stream: true });
+  const samplingCapabilities = await initializeSamplingAutoProbe();
+  const { config, payload } = buildPayload(messages, {
+    ...options,
+    samplingCapabilities,
+    stream: true
+  });
   const release = await acquireProviderRequestSlot(signal);
   try {
     const response = await fetchWithTimeout(config.url, {
@@ -483,6 +557,7 @@ module.exports = {
   completionsUrl,
   buildPayload,
   sanitizeProviderErrorDetail,
+  initializeSamplingAutoProbe,
   createChatCompletion,
   createStreamingChatCompletion,
   streamChatCompletionEvents
