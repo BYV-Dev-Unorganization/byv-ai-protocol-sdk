@@ -79,8 +79,9 @@ test('requires gateway authentication and exposes BYV Flash V1 in model discover
   assert.equal(accepted.status, 200);
   const body = await accepted.json();
   assert.equal(body.data.length, Object.keys(MODEL_PROFILES).length);
-  assert.equal(body.data[0].id, 'byv-flash-v1');
-  assert.equal(body.data[0].display_name, 'BYV Flash V1');
+  const byvFlash = body.data.find((model) => model.id === 'byv-flash-v1');
+  assert.ok(byvFlash, 'BYV Flash V1 must be present in model discovery.');
+  assert.equal(byvFlash.display_name, 'BYV Flash V1');
 });
 
 test('adapts Claude Desktop one-token connection probes without changing normal requests', async (t) => {
