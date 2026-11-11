@@ -214,6 +214,8 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     max_tokens: body.max_tokens,
     temperature: body.temperature,
     top_p: body.top_p,
+    top_k: body.top_k,
+    provider_params: body.provider_params,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
     nativeToolCalling,
