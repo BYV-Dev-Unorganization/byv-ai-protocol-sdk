@@ -6,11 +6,14 @@ The selected BYV response profile does not change `PROVIDER_MODEL`. Each profile
 
 ## Discovery order
 
-At server startup, BYV resolves sampling support in this order:
+`PROVIDER_SAMPLING_AUTO_PROBE` is the master switch for optional generation/sampling overrides.
+
+- **`false` (default):** BYV does not request provider metadata or send inference probes for sampling. It marks every optional generation/sampling field as disabled and removes profile/client values such as `temperature`, `top_p`, `top_k`, `reasoning_effort`, and `provider_params` before the upstream request. The configured provider/model therefore uses its own defaults. The explicit allowlist is also ignored in this mode.
+- **`true`:** BYV discovers support for the configured upstream model and only forwards fields that are confirmed. Discovery uses this order:
 
 1. **Explicit environment allowlist.** When `PROVIDER_SUPPORTED_SAMPLING_PARAMETERS` is non-empty, it is authoritative. Only listed fields are enabled.
 2. **Provider model metadata.** BYV requests the exact model metadata resource and then the model catalog, looking for a `supported_parameters` array. A metadata list is treated as authoritative for listed and unlisted fields.
-3. **Active request probes.** When metadata does not publish parameter support and `PROVIDER_SAMPLING_AUTO_PROBE=true`, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using a small `max_tokens: 16` budget and `stream: false`. When metadata confirms the `reasoning_effort` field but omits its supported values, BYV probes the supported effort levels individually.
+3. **Active request probes.** When metadata does not publish parameter support, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using a small `max_tokens: 16` budget and `stream: false`. When metadata confirms the `reasoning_effort` field but omits its supported values, BYV probes the supported effort levels individually.
 4. **Unknown / fail closed.** If support cannot be determined, BYV does not add that optional field to provider requests.
 
 The active probe checks `temperature`, `top_p`, `top_k`, `min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`, `typical_p`, `top_a`, `tfs_z`, `seed`, `mirostat`, `mirostat_tau`, and `mirostat_eta` individually. `reasoning_effort` is treated separately: BYV probes each level (`low`, `medium`, `high`, `xhigh`, and `max`) and only sends a level that was accepted or explicitly listed in model metadata. `logit_bias` is not actively probed because token IDs are tokenizer-specific; enable it only through authoritative metadata or the explicit environment allowlist.
@@ -19,7 +22,7 @@ A 2xx probe result means the endpoint accepted the request containing that field
 
 An isolated HTTP 400 or 422 after a successful baseline marks that one field unsupported for the configured endpoint/model. Authentication, quota, rate-limit, timeout, network, and server errors are inconclusive. BYV records those fields as unknown and omits them. If the baseline cannot be completed, no field is guessed as supported.
 
-Active probes may consume a small amount of provider quota. They are run at startup only when a usable `supported_parameters` metadata list and manual allowlist are not available. Probes use a small 16-token output budget and ask for a short `OK` reply; they do not stream, call tools, or include user conversation data.
+Active probes may consume a small amount of provider quota. They run only when `PROVIDER_SAMPLING_AUTO_PROBE=true` and neither a usable `supported_parameters` metadata list nor a manual allowlist is available. Probes use a small 16-token output budget and ask for a short `OK` reply; they do not stream, call tools, or include user conversation data.
 
 ## Per-profile generation defaults
 
@@ -72,13 +75,13 @@ Use `?refresh=1` to refresh provider metadata and sampling discovery. The JSON r
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PROVIDER_SAMPLING_AUTO_PROBE` | `true` | Run active parameter probes when provider metadata does not publish a support list |
+| `PROVIDER_SAMPLING_AUTO_PROBE` | `false` | Master switch: false omits every optional generation/sampling override and uses provider/model defaults; true enables discovery and filtering |
 | `PROVIDER_SAMPLING_PROBE_TIMEOUT_MS` | `5000` | Timeout for each small baseline/parameter probe |
 | `PROVIDER_SUPPORTED_SAMPLING_PARAMETERS` | empty | Optional comma-separated authoritative allowlist, e.g. `temperature,top_p,min_p` |
 | `PROVIDER_CAPABILITIES_CACHE_MS` | `300000` | Cache duration for discovered capabilities |
 | `PROVIDER_NATIVE_REASONING_EFFORT` | `true` | Forward `reasoning_effort` only after capability discovery accepts it; set false to disable explicitly |
 
-Set `PROVIDER_SAMPLING_AUTO_PROBE=false` to avoid inference probes. If there is no metadata list or explicit allowlist, optional parameters remain unknown and are omitted. Use the environment allowlist only when the provider documentation or a controlled test confirms those fields are accepted.
+Keep `PROVIDER_SAMPLING_AUTO_PROBE=false` to use the provider/model defaults without sending optional generation/sampling overrides. Set it to `true` to enable capability discovery and parameter forwarding. When true, the optional environment allowlist is authoritative and can avoid active inference probes; use it only when provider documentation or controlled tests confirm those fields are accepted. `PROVIDER_NATIVE_REASONING_EFFORT` also requires this master switch to be true.
 
 ## Official provider documentation
 
