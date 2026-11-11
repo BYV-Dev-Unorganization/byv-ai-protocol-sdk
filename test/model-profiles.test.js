@@ -58,15 +58,31 @@ test('each response profile has an independent generation default', () => {
   assert.deepEqual(modelProfileGeneration('claude-opus-5.5'), modelProfileGeneration('claude-opus-5-5'));
 });
 
-test('each profile makes clear it is style guidance over the same upstream model', () => {
+test('each profile separates work instructions from provider-filtered generation defaults', () => {
   for (const model of Object.keys(MODEL_PROFILES)) {
     const prompt = modelProfilePrompt(model);
     assert.match(prompt, /same configured upstream provider and model/);
     assert.match(prompt, /does not change model weights/i);
-    assert.match(prompt, /style guidance only/i);
+    assert.match(prompt, /generation defaults separately/i);
     assert.match(prompt, /active gateway runtime controls/i);
     assert.match(prompt, /tool permissions, input schemas, or required output format/i);
   }
+});
+
+test('model discovery advertises only reasoning effort levels detected for the provider model', () => {
+  const unknown = listModels();
+  assert.ok(unknown.every((model) => model.capabilities.effort.supported === false));
+  assert.ok(unknown.every((model) => model.capabilities.effort.high.supported === false));
+
+  const detected = listModels({
+    parameters: { reasoning_effort: true },
+    reasoning_effort_levels: ['low', 'high']
+  });
+  assert.ok(detected.every((model) => model.capabilities.effort.supported === true));
+  assert.ok(detected.every((model) => model.capabilities.effort.low.supported === true));
+  assert.ok(detected.every((model) => model.capabilities.effort.medium.supported === false));
+  assert.ok(detected.every((model) => model.capabilities.effort.high.supported === true));
+  assert.ok(detected.every((model) => model.capabilities.effort.max.supported === false));
 });
 
 test('generates dotted and hyphenated aliases for every Claude model profile', () => {
