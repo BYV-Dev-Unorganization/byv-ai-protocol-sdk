@@ -138,9 +138,37 @@ test('fails closed when provider baseline probe cannot be completed', async (t) 
   assert.equal(postCalls, 1);
 });
 
-test('manual supported-parameter allowlist overrides discovery and disables all unlisted fields', async (t) => {
+test('disabled mode skips metadata, probes, and allowlists so provider defaults are used', async (t) => {
   const sampling = loadSamplingCapabilities(t, {
     PROVIDER_SAMPLING_AUTO_PROBE: 'false',
+    PROVIDER_SUPPORTED_SAMPLING_PARAMETERS: 'temperature,min_p'
+  });
+  global.fetch = async () => {
+    throw new Error('disabled mode must not perform metadata requests or inference probes');
+  };
+
+  const result = await sampling.getSamplingCapabilities({ forceRefresh: true });
+  assert.equal(result.source, 'disabled');
+  assert.equal(result.status, 'disabled');
+  assert.ok(Object.values(result.parameters).every((supported) => supported === false));
+
+  const filtered = sampling.filterSamplingOptions({
+    temperature: 0.4,
+    top_p: 0.9,
+    top_k: 40,
+    reasoning_effort: 'high',
+    provider_params: { min_p: 0.05, seed: 42 },
+    max_tokens: 256
+  }, result);
+  assert.deepEqual(filtered.options, { max_tokens: 256 });
+  assert.deepEqual(filtered.omitted, [
+    'temperature', 'top_p', 'top_k', 'reasoning_effort', 'min_p', 'seed'
+  ]);
+});
+
+test('manual supported-parameter allowlist overrides discovery and disables all unlisted fields', async (t) => {
+  const sampling = loadSamplingCapabilities(t, {
+    PROVIDER_SAMPLING_AUTO_PROBE: 'true',
     PROVIDER_SUPPORTED_SAMPLING_PARAMETERS: 'temperature,min_p'
   });
   global.fetch = async () => {
