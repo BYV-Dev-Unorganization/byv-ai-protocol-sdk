@@ -158,7 +158,8 @@ function createServer(options = {}) {
     }
 
     if (req.method === 'GET' && route === '/v1/models') {
-      const models = listModels();
+      const sampling = await readSamplingCapabilities();
+      const models = listModels(sampling);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         data: models,
