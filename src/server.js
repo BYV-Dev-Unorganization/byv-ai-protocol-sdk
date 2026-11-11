@@ -570,6 +570,7 @@ function createServer(options = {}) {
 async function start() {
   // Complete best-effort provider sampling discovery before exposing the gateway.
   // Unknown or unsupported optional settings are omitted from subsequent requests.
+  console.log('[sampling] Discovering capabilities for the configured provider/model before listening...');
   const samplingCapabilities = await getSamplingCapabilities({ forceRefresh: true });
   const server = createServer();
   server.listen(PORT, HOST, () => {
