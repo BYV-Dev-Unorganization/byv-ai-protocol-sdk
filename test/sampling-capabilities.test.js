@@ -118,7 +118,7 @@ test('falls back to active per-parameter probes when metadata has no parameter l
   assert.equal(result.parameters.min_p, false);
   assert.equal(result.parameters.repetition_penalty, true);
   assert.ok(probes.length > 2);
-  assert.ok(probes.every((payload) => payload.max_tokens === 1 && payload.stream === false));
+  assert.ok(probes.every((payload) => payload.max_tokens === 16 && payload.stream === false));
   assert.ok(probes.every((payload) => payload.messages.length === 1));
 });
 
@@ -209,6 +209,17 @@ test('forwards only the exact reasoning effort levels confirmed by discovery', (
   assert.equal(accepted.options.reasoning_effort, 'high');
   assert.equal(rejected.options.reasoning_effort, undefined);
   assert.deepEqual(rejected.omitted, ['reasoning_effort']);
+});
+
+test('does not force OpenRouter routing when no optional sampling field is sent', () => {
+  const sampling = require('../src/provider/sampling-capabilities');
+  const filtered = sampling.filterSamplingOptions({
+    max_tokens: 256
+  }, {
+    parameters: {},
+    provider_require_parameters: true
+  });
+  assert.equal(Object.hasOwn(filtered.options, 'provider'), false);
 });
 
 test('adds OpenRouter require_parameters only when model metadata is from OpenRouter', () => {
