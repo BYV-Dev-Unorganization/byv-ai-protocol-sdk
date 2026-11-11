@@ -36,20 +36,21 @@ test('exposes all response profiles with the BYV Flash V1 default', () => {
 
 test('each response profile has an independent generation default', () => {
   const expected = {
-    'byv-flash-v1': 0.7,
-    'claude-opus-5-5': 0.4,
-    'claude-sonnet-5-5': 0.3,
-    'claude-haiku-5-5': 0.2,
-    'claude-mythos-5-1': 0.1,
-    'claude-fable-5.1': 0.45,
-    'claude-fable-5-2': 0.35,
-    'claude-mythos-5-2': 0.1,
-    'claude-opus-5': 0.25,
-    'claude-opus-4-8': 0.2
+    'byv-flash-v1': [0.7, 'low'],
+    'claude-opus-5-5': [0.4, 'medium'],
+    'claude-sonnet-5-5': [0.3, 'medium'],
+    'claude-haiku-5-5': [0.2, 'low'],
+    'claude-mythos-5-1': [0.1, 'high'],
+    'claude-fable-5.1': [0.45, 'high'],
+    'claude-fable-5-2': [0.35, 'high'],
+    'claude-mythos-5-2': [0.1, 'high'],
+    'claude-opus-5': [0.25, 'high'],
+    'claude-opus-4-8': [0.2, 'xhigh']
   };
-  for (const [id, temperature] of Object.entries(expected)) {
+  for (const [id, [temperature, effort]] of Object.entries(expected)) {
     const generation = modelProfileGeneration(id);
     assert.equal(generation.temperature, temperature, id);
+    assert.equal(generation.reasoning_effort, effort, id);
     assert.equal(generation.top_p, null, id);
     assert.equal(generation.top_k, null, id);
     assert.deepEqual(generation.provider_params, {}, id);
