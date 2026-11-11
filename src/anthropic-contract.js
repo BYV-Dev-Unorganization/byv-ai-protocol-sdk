@@ -1,6 +1,7 @@
 'use strict';
 
 const { compileJsonSchema } = require('./tools/json-schema');
+const { validateProviderParams } = require('./provider/request-parameters');
 
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -203,6 +204,16 @@ function validateMessagesRequest(body, options = {}) {
 
   if (body.stream !== undefined && typeof body.stream !== 'boolean') {
     return { type: 'invalid_request_error', message: 'Field stream must be a boolean.' };
+  }
+  if (body.top_k !== undefined &&
+      (!Number.isInteger(body.top_k) || body.top_k < 0 || body.top_k > 500)) {
+    return { type: 'invalid_request_error', message: 'Field top_k must be an integer between 0 and 500.' };
+  }
+  if (body.provider_params !== undefined) {
+    const providerParamsError = validateProviderParams(body.provider_params);
+    if (providerParamsError) {
+      return { type: 'invalid_request_error', message: providerParamsError };
+    }
   }
   for (const field of ['temperature', 'top_p']) {
     if (body[field] !== undefined &&
