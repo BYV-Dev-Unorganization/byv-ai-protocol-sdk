@@ -1189,3 +1189,47 @@ test('falls back to DSML once when an upstream rejects the initial native-tools 
   assert.equal(providerStarts[0].tool_count, 1);
   assert.equal(providerStarts[1].tool_count, 0);
 });
+
+test('falls back to DSML when a streaming native-tools request returns a structured provider rejection before text', async () => {
+  let calls = 0;
+  const streamed = [];
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
+  const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
+    onStreamEvent: async (event) => streamed.push(event),
+    provider: {
+      getModelCapabilities: async () => null,
+      streamChatCompletionEvents: async function* (_messages, options) {
+        calls++;
+        if (calls === 1) {
+          assert.equal(options.nativeToolCalling, true);
+          assert.equal(options.tools.length, 1);
+          throw Object.assign(new Error(
+            'The model rejected this request. It may not support the input you sent or a parameter is invalid.'
+          ), {
+            statusCode: 502,
+            code: 'PROVIDER_STREAM_ERROR'
+          });
+        }
+        assert.equal(options.nativeToolCalling, false);
+        assert.deepEqual(options.tools, []);
+        yield { type: 'text_delta', text: dsml };
+        yield {
+          type: 'completion',
+          completion: { text: dsml, finish_reason: 'stop', usage: null }
+        };
+      }
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(streamed.filter((event) => event.type === 'text_delta').length, 1);
+});
