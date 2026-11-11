@@ -454,10 +454,47 @@ The gateway validates and supports the core fields used by the Anthropic Message
 - tool_choice: auto, any, none, or a specific tool
 - temperature
 - top_p
+- top_k (BYV compatibility extension)
+- provider_params (allowlisted provider-specific sampling controls)
 - stop_sequences
 - output_config.effort: low, medium, high, xhigh, max
 
-The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. PDF/document blocks, generic file attachments, file IDs, and container_upload/Code Execution are intentionally unsupported. Process files in the Claude client with a skill or tool, then send extracted text. Provider-specific cache-control request parameters, Anthropic-specific sampling controls not mapped above, and native Anthropic thinking signatures are also not implemented.
+The current version is a compatibility layer, not a complete reimplementation of every Anthropic API feature. PDF/document blocks, generic file attachments, file IDs, and container_upload/Code Execution are intentionally unsupported. Process files in the Claude client with a skill or tool, then send extracted text. Provider-specific cache-control request parameters and native Anthropic thinking signatures are not implemented.
+
+### Manual sampling and provider parameters
+
+Clients can set temperature, top_p, and top_k per request. For provider-specific OpenAI-compatible sampling extensions, send a provider_params object. BYV validates the keys and value ranges, then maps each accepted entry to a top-level field in the upstream Chat Completions JSON payload; it does not send a nested provider_params object upstream.
+
+Example request body:
+
+~~~json
+{
+  "model": "byv-flash-v1",
+  "max_tokens": 1024,
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "top_k": 40,
+  "provider_params": {
+    "min_p": 0.05,
+    "frequency_penalty": 0.2,
+    "presence_penalty": 0.1,
+    "repetition_penalty": 1.1,
+    "typical_p": 0.95,
+    "seed": 42,
+    "mirostat": 2,
+    "mirostat_tau": 5,
+    "mirostat_eta": 0.1,
+    "logit_bias": { "123": -2.5 }
+  },
+  "stream": true,
+  "messages": [
+    { "role": "user", "content": "Explain the sampling configuration." }
+  ]
+}
+~~~
+
+The current allowlist accepts min_p, frequency_penalty, presence_penalty, repetition_penalty, typical_p, top_a, tfs_z, seed, logit_bias, mirostat, mirostat_tau, and mirostat_eta. Unknown keys are rejected instead of being forwarded blindly. Parameter availability and exact semantics vary across OpenAI-compatible providers and models: only send values supported by the configured upstream. If an upstream rejects a supported BYV parameter, BYV returns the upstream error; it does not silently remove or rewrite the parameter. Omit parameters to leave provider/model defaults unchanged.
+
 
 ### Native reasoning effort
 
