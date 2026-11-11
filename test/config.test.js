@@ -14,6 +14,7 @@ function loadConfig(env) {
     "PORT: c.PORT,",
     "PROVIDER_MODEL: c.PROVIDER_MODEL,",
     "DSML_TOOL_CALL: c.DSML_TOOL_CALL,",
+    "PROVIDER_SAMPLING_AUTO_PROBE: c.PROVIDER_SAMPLING_AUTO_PROBE,",
     "PROVIDER_NATIVE_REASONING_EFFORT: c.PROVIDER_NATIVE_REASONING_EFFORT,",
     "PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: c.PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
@@ -37,7 +38,7 @@ function loadConfig(env) {
   ].join('\n');
   const result = spawnSync(process.execPath, ['-e', source], {
     cwd: root,
-    env: { ...process.env, DSML_TOOL_CALL: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
+    env: { ...process.env, DSML_TOOL_CALL: '', PROVIDER_SAMPLING_AUTO_PROBE: '', PROVIDER_NATIVE_REASONING_EFFORT: '', ...env },
     encoding: 'utf8'
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -49,6 +50,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     PORT: '8877',
     PROVIDER_MODEL: 'configured-model-from-env',
     DSML_TOOL_CALL: false,
+    PROVIDER_SAMPLING_AUTO_PROBE: 'true',
     PROVIDER_NATIVE_REASONING_EFFORT: 'true',
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'true',
     PROVIDER_TIMEOUT_MS: '120000',
@@ -74,6 +76,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     PORT: 8877,
     PROVIDER_MODEL: 'configured-model-from-env',
     DSML_TOOL_CALL: false,
+    PROVIDER_SAMPLING_AUTO_PROBE: true,
     PROVIDER_NATIVE_REASONING_EFFORT: true,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: true,
     PROVIDER_TIMEOUT_MS: 120000,
@@ -101,6 +104,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PORT: '0',
     PROVIDER_MODEL: 'another-configured-model-from-env',
     DSML_TOOL_CALL: 'maybe',
+    PROVIDER_SAMPLING_AUTO_PROBE: 'maybe',
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: 'maybe',
     PROVIDER_TIMEOUT_MS: '300000.5',
@@ -126,6 +130,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     PORT: 8787,
     PROVIDER_MODEL: 'another-configured-model-from-env',
     DSML_TOOL_CALL: true,
+    PROVIDER_SAMPLING_AUTO_PROBE: false,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
     PROVIDER_TIMEOUT_MS: 300000,
@@ -146,6 +151,14 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     MAX_PENDING_REQUESTS: 8,
     MAX_RECOVERY_ATTEMPTS: 2
   });
+});
+
+test('keeps provider sampling auto-probe opt-in and supports explicit on/off values', () => {
+  assert.equal(loadConfig({}).PROVIDER_SAMPLING_AUTO_PROBE, false);
+  assert.equal(loadConfig({ PROVIDER_SAMPLING_AUTO_PROBE: 'true' }).PROVIDER_SAMPLING_AUTO_PROBE, true);
+  assert.equal(loadConfig({ PROVIDER_SAMPLING_AUTO_PROBE: 'on' }).PROVIDER_SAMPLING_AUTO_PROBE, true);
+  assert.equal(loadConfig({ PROVIDER_SAMPLING_AUTO_PROBE: 'false' }).PROVIDER_SAMPLING_AUTO_PROBE, false);
+  assert.equal(loadConfig({ PROVIDER_SAMPLING_AUTO_PROBE: 'off' }).PROVIDER_SAMPLING_AUTO_PROBE, false);
 });
 
 test('keeps non-standard native provider reasoning effort opt-in', () => {
