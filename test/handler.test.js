@@ -71,6 +71,36 @@ test('forwards manual sampling parameters from the Messages request to the provi
   assert.deepEqual(receivedOptions.provider_params, providerParams);
 });
 
+test('uses profile generation defaults while explicit Messages settings take precedence', async () => {
+  const observed = [];
+  const provider = {
+    getModelCapabilities: async () => null,
+    createChatCompletion: async (_messages, options) => {
+      observed.push({ ...options });
+      return { text: 'Profile settings applied.', finish_reason: 'stop', usage: null };
+    }
+  };
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    temperature: 0.9,
+    output_config: { effort: 'low' },
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  assert.equal(observed[0].temperature, 0.4);
+  assert.equal(observed[0].reasoning_effort, 'medium');
+  assert.equal(observed[1].temperature, 0.9);
+  assert.equal(observed[1].reasoning_effort, 'low');
+});
+
 test('detects repeated identical tool calls in conversation history', () => {
   const messages = [1, 2, 3].flatMap((index) => [
     {
