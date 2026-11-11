@@ -239,7 +239,7 @@ function mapMetadataParameters(supportedParameters) {
 function parseManualSupportedParameters(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   const values = raw.split(',').map((value) => value.trim()).filter(Boolean);
-  const allowed = new Set([...PROBE_PARAMETER_NAMES, 'logit_bias']);
+  const allowed = new Set([...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias']);
   const invalid = values.filter((value) => !allowed.has(value));
   if (invalid.length) {
     return { error: 'Unknown sampling parameter(s) in PROVIDER_SUPPORTED_SAMPLING_PARAMETERS: ' + invalid.join(', ') };
@@ -268,7 +268,7 @@ function buildSnapshot(parameters, source, status, extras = {}) {
 
 async function probeSamplingParameters() {
   const parameters = Object.fromEntries(
-    [...PROBE_PARAMETER_NAMES, 'logit_bias'].map((name) => [name, null])
+    [...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias'].map((name) => [name, null])
   );
 
   if (!PROVIDER_BASE_URL || !PROVIDER_MODEL) {
@@ -325,7 +325,7 @@ async function discoverSamplingCapabilities() {
   const manual = parseManualSupportedParameters(PROVIDER_SUPPORTED_SAMPLING_PARAMETERS);
   if (manual && manual.error) {
     return buildSnapshot(
-      Object.fromEntries([...PROBE_PARAMETER_NAMES, 'logit_bias'].map((name) => [name, null])),
+      Object.fromEntries([...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias'].map((name) => [name, null])),
       'unknown',
       'invalid_manual_override',
       { warning: manual.error }
