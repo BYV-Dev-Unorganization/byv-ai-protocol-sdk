@@ -11,6 +11,7 @@ const {
   PROVIDER_MAX_CONCURRENT_REQUESTS
 } = require('../config');
 const { createProviderRequestLimiter } = require('./request-limiter');
+const { validateProviderParams } = require('./request-parameters');
 const {
   providerToolChoice,
   providerFunctionTools,
@@ -80,6 +81,12 @@ function buildPayload(messages, options = {}) {
   };
   if (typeof options.temperature === 'number') payload.temperature = options.temperature;
   if (typeof options.top_p === 'number') payload.top_p = options.top_p;
+  if (options.top_k !== undefined) payload.top_k = options.top_k;
+  const providerParamsError = validateProviderParams(options.provider_params);
+  if (providerParamsError) {
+    throw new ProviderError(providerParamsError, 400, 'INVALID_PROVIDER_PARAMS');
+  }
+  if (options.provider_params) Object.assign(payload, options.provider_params);
   if (Array.isArray(options.stop_sequences) && options.stop_sequences.length) {
     payload.stop = options.stop_sequences;
   }
