@@ -167,6 +167,43 @@ test('validates optional generation parameters', () => {
   assert.match(validateMessagesRequest({ ...minimal, output_config: { effort: 'extreme' } }).message, /effort/);
 });
 
+test('validates top_k and allowlisted provider-specific sampling parameters', () => {
+  const request = {
+    ...minimal,
+    top_k: 40,
+    provider_params: {
+      min_p: 0.05,
+      frequency_penalty: 0.2,
+      presence_penalty: -0.1,
+      repetition_penalty: 1.1,
+      typical_p: 0.95,
+      top_a: 0.2,
+      tfs_z: 0.9,
+      seed: 42,
+      logit_bias: { '123': -2.5 },
+      mirostat: 2,
+      mirostat_tau: 5,
+      mirostat_eta: 0.1
+    }
+  };
+
+  assert.equal(validateMessagesRequest(request), null);
+  assert.equal(validateMessagesRequest({ ...minimal, top_k: 0 }), null);
+  assert.match(validateMessagesRequest({ ...minimal, top_k: 501 }).message, /top_k/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    provider_params: { min_p: 1.1 }
+  }).message, /provider_params.min_p/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    provider_params: { unsupported_sampling_flag: true }
+  }).message, /not supported by the BYV provider-parameter allowlist/);
+  assert.match(validateMessagesRequest({
+    ...minimal,
+    provider_params: { logit_bias: { token: 101 } }
+  }).message, /provider_params.logit_bias/);
+});
+
 test('rejects tool blocks placed in the wrong message role', () => {
   assert.match(validateMessagesRequest({
     ...minimal,
