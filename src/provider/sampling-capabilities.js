@@ -184,7 +184,7 @@ async function probeRequest(extraFields = {}) {
       body: JSON.stringify({
         model: PROVIDER_MODEL,
         messages: [{ role: 'user', content: 'Reply with OK.' }],
-        max_tokens: 1,
+        max_tokens: 16,
         stream: false,
         ...extraFields,
         ...(new URL(PROVIDER_BASE_URL).hostname === 'openrouter.ai'
@@ -284,8 +284,7 @@ async function probeSamplingParameters() {
   const baseline = await probeRequest();
   if (baseline.supported !== true) {
     return buildSnapshot(parameters, 'active_probe', 'baseline_unavailable', {
-      baseline_status: baseline.status,
-      baseline_detail: baseline.detail || null
+      baseline_status: baseline.status
     });
   }
 
@@ -446,7 +445,13 @@ function filterSamplingOptions(options = {}, capabilities = {}) {
     else delete filtered.provider_params;
   }
 
-  if (capabilities.provider_require_parameters === true) {
+  const hasOptionalSamplingParameters =
+    FILTERED_TOP_LEVEL_FIELDS.some((field) =>
+      filtered[field] !== undefined && filtered[field] !== null
+    ) ||
+    (filtered.provider_params && Object.keys(filtered.provider_params).length > 0);
+
+  if (capabilities.provider_require_parameters === true && hasOptionalSamplingParameters) {
     filtered.provider = {
       ...(filtered.provider && typeof filtered.provider === 'object' ? filtered.provider : {}),
       require_parameters: true
