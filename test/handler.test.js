@@ -41,6 +41,36 @@ test('forwards Anthropic output_config.effort to the provider as native metadata
   assert.equal(result.stop_reason, 'end_turn');
 });
 
+test('forwards manual sampling parameters from the Messages request to the provider', async () => {
+  let receivedOptions;
+  const providerParams = {
+    min_p: 0.05,
+    frequency_penalty: 0.2,
+    repetition_penalty: 1.1,
+    seed: 42
+  };
+
+  await handleMessages(body({
+    top_k: 40,
+    provider_params: providerParams,
+    tools: [],
+    tool_choice: 'none'
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return { text: 'Sampling parameters received.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.top_k, 40);
+  assert.deepEqual(receivedOptions.provider_params, providerParams);
+});
+
 test('detects repeated identical tool calls in conversation history', () => {
   const messages = [1, 2, 3].flatMap((index) => [
     {
