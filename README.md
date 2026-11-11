@@ -69,7 +69,7 @@ The `claude-*` values are compatibility profile identifiers only. They do not co
 
 The model profile is selected from the request model field. The upstream request always uses PROVIDER_MODEL.
 
-Each profile also has a separate generation preset in `src/model-profiles.js`. The preset currently supplies a task-tuned `temperature`; `top_p`, `top_k`, and provider extensions remain unset unless explicitly configured. These are BYV recommendations, not official settings for the profile names or a claim that the upstream model is an Anthropic model. The client's explicit parameter wins over the profile default.
+Each profile also has a separate generation preset in `src/model-profiles.js`, currently with a task-tuned `temperature` and `reasoning_effort`. These are BYV recommendations, not official settings for the profile names or a claim that the upstream model is an Anthropic model. `top_p`, `top_k`, and provider extensions remain unset unless explicitly configured. The client's explicit parameter wins over the profile default, and the provider adapter sends only detected-supported fields and exact effort levels.
 
 ## Requirements
 
@@ -500,7 +500,7 @@ The current allowlist accepts min_p, frequency_penalty, presence_penalty, repeti
 
 ### Native reasoning effort
 
-When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards Anthropic `output_config.effort` as the top-level provider `reasoning_effort` parameter only when capability discovery accepts that field. This non-standard extension is enabled by default but can be disabled explicitly. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Providers may clamp levels that their configured model does not support, so supported field names do not guarantee identical effort semantics across providers.
+When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards the selected profile's default `reasoning_effort` as a top-level provider parameter only when capability discovery accepts that exact level. An explicit Anthropic `output_config.effort` overrides the profile default. BYV checks `low`, `medium`, `high`, `xhigh`, and `max` individually; unsupported or unknown levels are omitted. This non-standard extension is enabled by default but can be disabled explicitly. Providers can implement the same field with different semantics, so acceptance does not guarantee equivalent reasoning behavior.
 
 ### Provider capabilities and context budgeting
 
