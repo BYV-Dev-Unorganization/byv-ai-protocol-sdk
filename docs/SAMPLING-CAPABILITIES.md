@@ -10,7 +10,7 @@ At server startup, BYV resolves sampling support in this order:
 
 1. **Explicit environment allowlist.** When `PROVIDER_SUPPORTED_SAMPLING_PARAMETERS` is non-empty, it is authoritative. Only listed fields are enabled.
 2. **Provider model metadata.** BYV requests the exact model metadata resource and then the model catalog, looking for a `supported_parameters` array. A metadata list is treated as authoritative for listed and unlisted fields.
-3. **Active request probes.** When metadata does not publish parameter support and `PROVIDER_SAMPLING_AUTO_PROBE=true`, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using `max_tokens: 1` and `stream: false`.
+3. **Active request probes.** When metadata does not publish parameter support and `PROVIDER_SAMPLING_AUTO_PROBE=true`, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using `max_tokens: 1` and `stream: false`. When metadata confirms the `reasoning_effort` field but omits its supported values, BYV probes the supported effort levels individually.
 4. **Unknown / fail closed.** If support cannot be determined, BYV does not add that optional field to provider requests.
 
 The active probe checks `temperature`, `top_p`, `top_k`, `min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`, `typical_p`, `top_a`, `tfs_z`, `seed`, `mirostat`, `mirostat_tau`, and `mirostat_eta` individually. `reasoning_effort` is treated separately: BYV probes each level (`low`, `medium`, `high`, `xhigh`, and `max`) and only sends a level that was accepted or explicitly listed in model metadata. `logit_bias` is not actively probed because token IDs are tokenizer-specific; enable it only through authoritative metadata or the explicit environment allowlist.
@@ -46,7 +46,7 @@ For each field, the explicit Anthropic client request overrides the selected BYV
 
 Before each upstream completion, BYV filters `temperature`, `top_p`, `top_k`, `reasoning_effort`, and every `provider_params` entry against the detected capability map. Reasoning effort is filtered by exact level, not merely by field name. Unsupported or unknown fields are removed independently. Supported siblings remain in the request. For example, if only `temperature` and `min_p` are supported, BYV can send those two while omitting `top_k`, `frequency_penalty`, and other unrecognized fields.
 
-The same filtering occurs for streaming, non-streaming, and recovery completions. The gateway records omitted field names and the discovery source in its local structured diagnostics; it does not record parameter values or prompts in that event.
+The same filtering occurs for streaming, non-streaming, and recovery completions. `/v1/models` also advertises only the effort levels confirmed for the configured provider/model, rather than assuming every level is available. The gateway records omitted field names and the discovery source in its local structured diagnostics; it does not record parameter values or prompts in that event.
 
 For OpenRouter model metadata, `supported_parameters` is the union across serving endpoints. BYV adds OpenRouter's `provider.require_parameters=true` routing hint so the router selects an endpoint that supports every optional parameter included in the request.
 
