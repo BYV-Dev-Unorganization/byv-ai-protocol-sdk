@@ -51,6 +51,14 @@ Native mode:
 
 Both modes use the same gateway-side tool validation before returning Anthropic `tool_use`.
 
+### Native-mode compatibility fallback
+
+```env
+PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML=true
+```
+
+When native mode is active, BYV first sends provider-native function tools. If that initial tool-enabled request is rejected with upstream HTTP 400 before any response text has been sent, BYV can rebuild the request with the DSML text-call protocol and retry once. The fallback is request-scoped: it does not change the configured transport for later requests. Set the flag to `false` to keep strict native mode and return the provider error without retrying. This does not infer tool support from a provider or model name.
+
 ## Prompt experiment
 
 ```env
