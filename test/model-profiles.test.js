@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { MODEL_PROFILES, MODEL_PROFILE_ALIASES, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
+const { MODEL_PROFILES, MODEL_PROFILE_ALIASES, modelProfileGeneration, modelProfilePrompt, listModels, isSupportedModel } = require('../src/model-profiles');
 
 test('exposes all response profiles with the BYV Flash V1 default', () => {
   assert.deepEqual(Object.keys(MODEL_PROFILES), [
@@ -32,6 +32,29 @@ test('exposes all response profiles with the BYV Flash V1 default', () => {
       ['byv-flash-v1', 'BYV Flash V1']
     ]
   );
+});
+
+test('each response profile has an independent generation default', () => {
+  const expected = {
+    'byv-flash-v1': 0.7,
+    'claude-opus-5-5': 0.4,
+    'claude-sonnet-5-5': 0.3,
+    'claude-haiku-5-5': 0.2,
+    'claude-mythos-5-1': 0.1,
+    'claude-fable-5.1': 0.45,
+    'claude-fable-5-2': 0.35,
+    'claude-mythos-5-2': 0.1,
+    'claude-opus-5': 0.25,
+    'claude-opus-4-8': 0.2
+  };
+  for (const [id, temperature] of Object.entries(expected)) {
+    const generation = modelProfileGeneration(id);
+    assert.equal(generation.temperature, temperature, id);
+    assert.equal(generation.top_p, null, id);
+    assert.equal(generation.top_k, null, id);
+    assert.deepEqual(generation.provider_params, {}, id);
+  }
+  assert.deepEqual(modelProfileGeneration('claude-opus-5.5'), modelProfileGeneration('claude-opus-5-5'));
 });
 
 test('each profile makes clear it is style guidance over the same upstream model', () => {
