@@ -73,7 +73,7 @@ Use `?refresh=1` to refresh provider metadata and sampling discovery. The JSON r
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PROVIDER_SAMPLING_AUTO_PROBE` | `true` | Run active parameter probes when provider metadata does not publish a support list |
-| `PROVIDER_SAMPLING_PROBE_TIMEOUT_MS` | `15000` | Timeout for each small baseline/parameter probe |
+| `PROVIDER_SAMPLING_PROBE_TIMEOUT_MS` | `5000` | Timeout for each small baseline/parameter probe |
 | `PROVIDER_SUPPORTED_SAMPLING_PARAMETERS` | empty | Optional comma-separated authoritative allowlist, e.g. `temperature,top_p,min_p` |
 | `PROVIDER_CAPABILITIES_CACHE_MS` | `300000` | Cache duration for discovered capabilities |
 | `PROVIDER_NATIVE_REASONING_EFFORT` | `true` | Forward `reasoning_effort` only after capability discovery accepts it; set false to disable explicitly |
