@@ -316,6 +316,18 @@ async function probeSamplingParameters() {
 }
 
 async function discoverSamplingCapabilities() {
+  // Disabled means provider/model defaults: skip the metadata endpoints,
+  // explicit allowlist, and inference probes, and mark every optional
+  // sampling field as disabled so the request filter removes them.
+  if (!PROVIDER_SAMPLING_AUTO_PROBE) {
+    return buildSnapshot(
+      Object.fromEntries([...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias'].map((name) => [name, false])),
+      'disabled',
+      'disabled',
+      { note: 'Sampling overrides are disabled; the upstream provider/model uses its defaults.' }
+    );
+  }
+
   if (!PROVIDER_BASE_URL || !PROVIDER_MODEL) {
     return buildSnapshot(
       Object.fromEntries([...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias'].map((name) => [name, null])),
