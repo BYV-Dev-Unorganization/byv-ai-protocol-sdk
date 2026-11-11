@@ -68,6 +68,19 @@ PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS=false
 
 Enable `PROVIDER_NATIVE_REASONING_EFFORT` only when the upstream provider supports the `reasoning_effort` parameter.
 
+## Sampling parameters
+
+```env
+PROVIDER_SAMPLING_AUTO_PROBE=false
+```
+
+- `false` (default): BYV omits request-level `temperature`, `top_p`, `top_k`, and `provider_params`, leaving sampling to the configured provider/model defaults.
+- `true`: BYV probes the configured model at startup and forwards only sampling fields accepted by the upstream Chat Completions endpoint.
+- Probing uses minimal one-token completion requests. When a combined probe is rejected, BYV checks fields individually. This can consume provider quota.
+- If probing is unavailable or inconclusive, unconfirmed sampling fields are omitted rather than risking an unsupported-parameter error.
+
+This only tests whether the endpoint accepts a parameter; it cannot guarantee that the model uses it semantically. The setting does not control native `reasoning_effort`, which has its own opt-in flag above.
+
 `PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS` is an explicit compatibility workaround for providers that require `reasoning_effort: none` for required or named native tool choices. BYV does not infer this behavior from provider or model names.
 
 ## Gateway
