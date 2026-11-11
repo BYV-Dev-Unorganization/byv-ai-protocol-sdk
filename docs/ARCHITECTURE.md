@@ -86,9 +86,13 @@ Request intent is also detected for special flows such as Claude Code compaction
 
 ## Streaming
 
-For streaming requests, BYV converts the upstream provider SSE stream into the Anthropic SSE contract. It emits the Anthropic `message_start` event early and sends periodic `ping` events while waiting for provider output.
+For the request lifecycle, the streaming server opens an Anthropic SSE response, the provider adapter yields normalized SSE events incrementally, and the handler awaits each downstream write before reading the next event. This propagates HTTP response backpressure to the upstream reader.
 
-Provider tool-call deltas are accumulated by tool-call index and finalized before normalization.
+The provider adapter retains `createStreamingChatCompletion()` as a compatibility collector, while the live HTTP path uses `streamChatCompletionEvents()`. Plain text deltas are mapped to Anthropic `content_block_delta` events as they arrive. DSML/BYV and legacy tool-call envelopes are held back from user-visible text; the completed invocation is still processed by the existing DSML adapter, BYV parser, tool allowlist, and JSON Schema validator.
+
+Native provider tool-call fragments are assembled by index. The gateway emits Anthropic `tool_use` blocks only after the final call is normalized and validated. Partial provider argument JSON is never forwarded as an executable tool call.
+
+The server emits `message_start` and periodic `ping` events, applies output limits, disables common reverse-proxy buffering with `X-Accel-Buffering: no`, aborts the provider reader when the client disconnects, and emits an Anthropic SSE `error` event if a failure occurs after headers are committed. Because an SSE lifecycle has already begun, transient provider retries are disabled for the live streaming path. See [End-to-end streaming](STREAMING.md) for the event contract and deployment guidance.
 
 ## Recovery
 

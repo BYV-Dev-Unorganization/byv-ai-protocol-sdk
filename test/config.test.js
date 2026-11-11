@@ -16,6 +16,7 @@ function loadConfig(env) {
     "DSML_TOOL_CALL: c.DSML_TOOL_CALL,",
     "PROVIDER_NATIVE_REASONING_EFFORT: c.PROVIDER_NATIVE_REASONING_EFFORT,",
     "PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: c.PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS,",
+    "PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML: c.PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML,",
     "PROVIDER_TIMEOUT_MS: c.PROVIDER_TIMEOUT_MS,",
     "PROVIDER_MAX_REQUESTS_PER_MINUTE: c.PROVIDER_MAX_REQUESTS_PER_MINUTE,",
     "PROVIDER_MAX_CONCURRENT_REQUESTS: c.PROVIDER_MAX_CONCURRENT_REQUESTS,",
@@ -76,6 +77,7 @@ test('reads the upstream provider model from PROVIDER_MODEL and accepts valid bo
     DSML_TOOL_CALL: false,
     PROVIDER_NATIVE_REASONING_EFFORT: true,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: true,
+    PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML: true,
     PROVIDER_TIMEOUT_MS: 120000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 6,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 1,
@@ -128,6 +130,7 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
     DSML_TOOL_CALL: true,
     PROVIDER_NATIVE_REASONING_EFFORT: false,
     PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS: false,
+    PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML: true,
     PROVIDER_TIMEOUT_MS: 300000,
     PROVIDER_MAX_REQUESTS_PER_MINUTE: 0,
     PROVIDER_MAX_CONCURRENT_REQUESTS: 0,
@@ -148,10 +151,16 @@ test('falls back or ignores invalid, fractional, and out-of-range configuration 
   });
 });
 
-test('keeps non-standard native provider reasoning effort opt-in', () => {
-  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, false);
+test('enables detected native provider reasoning effort by default and supports explicit opt-out', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_REASONING_EFFORT, true);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'true' }).PROVIDER_NATIVE_REASONING_EFFORT, true);
   assert.equal(loadConfig({ PROVIDER_NATIVE_REASONING_EFFORT: 'false' }).PROVIDER_NATIVE_REASONING_EFFORT, false);
+});
+
+test('enables native-tool-to-DSML compatibility fallback by default and supports explicit opt-out', () => {
+  assert.equal(loadConfig({}).PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML, true);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML: 'true' }).PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML, true);
+  assert.equal(loadConfig({ PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML: 'false' }).PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML, false);
 });
 
 test('keeps provider-specific forced-tool reasoning workarounds opt-in', () => {

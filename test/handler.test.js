@@ -41,6 +41,104 @@ test('forwards Anthropic output_config.effort to the provider as native metadata
   assert.equal(result.stop_reason, 'end_turn');
 });
 
+test('forwards manual sampling parameters from the Messages request to the provider', async () => {
+  let receivedOptions;
+  const providerParams = {
+    min_p: 0.05,
+    frequency_penalty: 0.2,
+    repetition_penalty: 1.1,
+    seed: 42
+  };
+
+  await handleMessages(body({
+    top_k: 40,
+    provider_params: providerParams,
+    tools: [],
+    tool_choice: 'none'
+  }), {
+    noToolExperiment: true,
+    nativeToolCalling: false,
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (_messages, options) => {
+        receivedOptions = options;
+        return { text: 'Sampling parameters received.', finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(receivedOptions.top_k, 40);
+  assert.deepEqual(receivedOptions.provider_params, providerParams);
+});
+
+test('removes disabled profile and request sampling values before provider payload construction', async () => {
+  let receivedOptions;
+  const provider = {
+    getModelCapabilities: async () => null,
+    getSamplingCapabilities: async () => ({
+      source: 'disabled',
+      status: 'disabled',
+      parameters: {
+        temperature: false,
+        top_p: false,
+        top_k: false,
+        reasoning_effort: false,
+        min_p: false
+      }
+    }),
+    createChatCompletion: async (_messages, options) => {
+      receivedOptions = { ...options };
+      return { text: 'Provider defaults used.', finish_reason: 'stop', usage: null };
+    }
+  };
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    temperature: 0.9,
+    top_p: 0.8,
+    top_k: 40,
+    provider_params: { min_p: 0.05 },
+    output_config: { effort: 'high' },
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  for (const field of ['temperature', 'top_p', 'top_k', 'reasoning_effort', 'provider_params']) {
+    assert.equal(Object.hasOwn(receivedOptions, field), false, field + ' must be omitted when sampling is disabled');
+  }
+  assert.equal(receivedOptions.max_tokens, 256);
+});
+
+test('uses profile generation defaults while explicit Messages settings take precedence', async () => {
+  const observed = [];
+  const provider = {
+    getModelCapabilities: async () => null,
+    createChatCompletion: async (_messages, options) => {
+      observed.push({ ...options });
+      return { text: 'Profile settings applied.', finish_reason: 'stop', usage: null };
+    }
+  };
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  await handleMessages(body({
+    model: 'claude-opus-5-5',
+    temperature: 0.9,
+    output_config: { effort: 'low' },
+    tools: [],
+    tool_choice: 'none'
+  }), { provider });
+
+  assert.equal(observed[0].temperature, 0.4);
+  assert.equal(observed[0].reasoning_effort, 'medium');
+  assert.equal(observed[1].temperature, 0.9);
+  assert.equal(observed[1].reasoning_effort, 'low');
+});
+
 test('detects repeated identical tool calls in conversation history', () => {
   const messages = [1, 2, 3].flatMap((index) => [
     {
@@ -1037,4 +1135,101 @@ test('uses the upstream provider response ID as the Anthropic message ID when av
   });
   assert.equal(result.id, 'chatcmpl-office-provider-id');
   assert.equal(result.stop_reason, 'end_turn');
+});
+
+test('falls back to DSML once when an upstream rejects the initial native-tools request with HTTP 400', async () => {
+  let calls = 0;
+  const diagnostics = [];
+  let fallbackMessages;
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (messages, options) => {
+        calls++;
+        if (calls === 1) {
+          assert.equal(options.nativeToolCalling, true);
+          assert.equal(options.tools.length, 1);
+          assert.equal(options.tool_choice, 'auto');
+          throw Object.assign(new Error('OpenAI-compatible provider rejected native function tools.'), {
+            statusCode: 502,
+            code: 'UPSTREAM_HTTP_400'
+          });
+        }
+
+        assert.equal(options.nativeToolCalling, false);
+        assert.deepEqual(options.tools, []);
+        assert.equal(options.tool_choice, 'none');
+        fallbackMessages = messages;
+        return { text: dsml, finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.match(fallbackMessages[0].content, /DSML TOOL CALL PROTOCOL/);
+  assert.match(fallbackMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(diagnostics.filter((entry) =>
+    entry.event === 'provider.native_tools.fallback_to_dsml' &&
+    entry.fallback_transport === 'dsml'
+  ).length, 1);
+  const providerStarts = diagnostics.filter((entry) => entry.event === 'provider.request.started');
+  assert.equal(providerStarts.length, 2);
+  assert.equal(providerStarts[0].tool_count, 1);
+  assert.equal(providerStarts[1].tool_count, 0);
+});
+
+test('falls back to DSML when a streaming native-tools request returns a structured provider rejection before text', async () => {
+  let calls = 0;
+  const streamed = [];
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
+  const result = await handleMessages(body({ stream: true, tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
+    onStreamEvent: async (event) => streamed.push(event),
+    provider: {
+      getModelCapabilities: async () => null,
+      streamChatCompletionEvents: async function* (_messages, options) {
+        calls++;
+        if (calls === 1) {
+          assert.equal(options.nativeToolCalling, true);
+          assert.equal(options.tools.length, 1);
+          throw Object.assign(new Error(
+            'The model rejected this request. It may not support the input you sent or a parameter is invalid.'
+          ), {
+            statusCode: 502,
+            code: 'PROVIDER_STREAM_ERROR'
+          });
+        }
+        assert.equal(options.nativeToolCalling, false);
+        assert.deepEqual(options.tools, []);
+        yield { type: 'text_delta', text: dsml };
+        yield {
+          type: 'completion',
+          completion: { text: dsml, finish_reason: 'stop', usage: null }
+        };
+      }
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(streamed.filter((event) => event.type === 'text_delta').length, 1);
 });

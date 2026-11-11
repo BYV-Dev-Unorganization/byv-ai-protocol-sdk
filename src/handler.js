@@ -9,10 +9,11 @@ const {
   COMPACTION_MAX_OUTPUT_TOKENS,
   DSML_TOOL_CALL,
   PROVIDER_MODEL,
+  PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML,
   uuid
 } = require('./config');
 const { buildProviderMessages, buildCompactionProviderMessages, buildRecoveryMessage } = require('./prompts');
-const { createChatCompletion, createStreamingChatCompletion } = require('./provider/openai-compatible');
+const { createChatCompletion, createStreamingChatCompletion, streamChatCompletionEvents } = require('./provider/openai-compatible');
 const { parseBYVOutput } = require('./protocol/parser');
 const { convertDsmlToBYV } = require('./protocol/dsml-adapter');
 const { validateToolCalls } = require('./tools/validator');
@@ -20,6 +21,8 @@ const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require(
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls, createProviderToolNameMap, restoreProviderToolCallNames } = require('./provider/tool-calls');
 const { maskMarkdownCode } = require('./protocol/markdown-code');
+const { modelProfileGeneration } = require('./model-profiles');
+const { getSamplingCapabilities, filterSamplingOptions } = require('./provider/sampling-capabilities');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
 
@@ -210,12 +213,19 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
 
   const nativeToolCalling = diagnostic.nativeToolCalling === true;
   const gatewayToolChoiceNone = body.tool_choice === 'none';
+  const profileGeneration = modelProfileGeneration(body.model) || {};
+  const profileProviderParams = profileGeneration.provider_params || {};
+  const requestProviderParams = body.provider_params || {};
   const options = {
     max_tokens: body.max_tokens,
-    temperature: body.temperature,
-    top_p: body.top_p,
+    temperature: body.temperature !== undefined ? body.temperature : profileGeneration.temperature,
+    top_p: body.top_p !== undefined ? body.top_p : profileGeneration.top_p,
+    top_k: body.top_k !== undefined ? body.top_k : profileGeneration.top_k,
+    provider_params: { ...profileProviderParams, ...requestProviderParams },
     stop_sequences: body.stop_sequences,
-    reasoning_effort: body.output_config && body.output_config.effort,
+    reasoning_effort: body.output_config && body.output_config.effort !== undefined && body.output_config.effort !== null
+      ? body.output_config.effort
+      : profileGeneration.reasoning_effort,
     nativeToolCalling,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
@@ -225,6 +235,30 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   };
 
   try {
+    const hasInjectedProvider = Boolean(
+      provider && (
+        typeof provider.createChatCompletion === 'function' ||
+        typeof provider.createStreamingChatCompletion === 'function' ||
+        typeof provider.streamChatCompletionEvents === 'function'
+      )
+    );
+    const samplingCapabilities = provider && typeof provider.getSamplingCapabilities === 'function'
+      ? await provider.getSamplingCapabilities()
+      : hasInjectedProvider ? null : await getSamplingCapabilities();
+    if (samplingCapabilities) {
+      const filtered = filterSamplingOptions(options, samplingCapabilities);
+      // Replace, rather than merge, because omitted keys must be physically
+      // removed from the original options object before building the provider payload.
+      for (const key of Object.keys(options)) delete options[key];
+      Object.assign(options, filtered.options);
+      if (filtered.omitted.length) {
+        record('provider.sampling.parameters_omitted', {
+          omitted_parameters: filtered.omitted,
+          discovery_source: samplingCapabilities.source || 'unknown',
+          discovery_status: samplingCapabilities.status || 'unknown'
+        });
+      }
+    }
     estimatedInputTokens = estimateProviderInputTokens(messages);
     enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
 
@@ -244,10 +278,34 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     upstreamStarted = true;
 
     const streamCall = provider.createStreamingChatCompletion || createStreamingChatCompletion;
+    const streamEventsCall = provider.streamChatCompletionEvents ||
+      (typeof provider.createStreamingChatCompletion === 'function' ? null : streamChatCompletionEvents);
     const normalCall = provider.createChatCompletion || createChatCompletion;
-    const result = body.stream === true
-      ? await streamCall(messages, options, signal)
-      : await normalCall(messages, options, signal);
+    let result;
+    if (body.stream === true && typeof diagnostic.onStreamEvent === 'function' && streamEventsCall) {
+      let streamedChars = 0;
+      for await (const event of streamEventsCall(messages, options, signal)) {
+        if (event.type === 'completion') {
+          result = event.completion;
+          continue;
+        }
+        if (event.type === 'text_delta' && typeof event.text === 'string') {
+          streamedChars += event.text.length;
+        } else if (event.type === 'tool_call_delta') {
+          streamedChars += JSON.stringify(event.deltas || []).length;
+        }
+        if (streamedChars > MAX_OUTPUT_CHARS) {
+          throw Object.assign(new Error('Provider output exceeded the configured maximum size.'), {
+            statusCode: 502, type: 'api_error', code: 'PROVIDER_OUTPUT_TOO_LARGE'
+          });
+        }
+        await diagnostic.onStreamEvent(event);
+      }
+    } else {
+      result = body.stream === true
+        ? await streamCall(messages, options, signal)
+        : await normalCall(messages, options, signal);
+    }
     if (!result || typeof result.text !== 'string') {
       throw Object.assign(new Error('Provider completion did not contain text output.'), {
         statusCode: 502, type: 'api_error', code: 'PROVIDER_INVALID_RESPONSE'
@@ -509,7 +567,7 @@ async function handleMessages(body, options = {}) {
     : DSML_TOOL_CALL;
   // DSML mode is text-only at the provider boundary. Native mode uses the
   // provider's structured tool_calls and never parses DSML/legacy tool markup.
-  const nativeToolCalling = noToolExperiment
+  let nativeToolCalling = noToolExperiment
     ? false
     : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
   const model = body.model;
@@ -522,7 +580,7 @@ async function handleMessages(body, options = {}) {
   const force = compactionRequest || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
-  const providerToolNameMap = nativeToolCalling && force.mode !== 'none'
+  let providerToolNameMap = nativeToolCalling && force.mode !== 'none'
     ? createProviderToolNameMap(tools)
     : null;
   const baseRequestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
@@ -536,7 +594,7 @@ async function handleMessages(body, options = {}) {
   const requestBody = compactionBudgets
     ? { ...baseRequestBody, max_tokens: compactionBudgets.maxOutputTokens }
     : baseRequestBody;
-  const providerMessages = compactionRequest
+  let providerMessages = compactionRequest
     ? buildCompactionProviderMessages(requestBody, {
         maxInputTokens: compactionBudgets.maxInputTokens
       })
@@ -546,11 +604,17 @@ async function handleMessages(body, options = {}) {
         experimentVariant
       });
   let providerAttempt = 0;
+  // The server has already committed the Anthropic SSE lifecycle (message_start).
+  // A retry would therefore replay a request inside an already-open client stream.
+  let streamOutputStarted = body.stream === true && typeof options.onStreamEvent === 'function';
+  let streamContentSent = false;
+  let nativeToolFallbackAttempted = false;
   const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
     let retry = 0;
+    let requestMessages = messages;
     while (true) {
       try {
-        return await requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
+        return await requestCompletion(requestMessages, requestBody, signal, provider, providerCapabilities, {
           logEvent: options.diagnostics,
           requestId: options.requestId,
           attempt: ++providerAttempt,
@@ -561,11 +625,59 @@ async function handleMessages(body, options = {}) {
           requestIntent: options.requestIntent || (compactionRequest ? 'claude_code_compaction' : 'normal'),
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
           compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
-          anthropicVersion: options.anthropicVersion
+          anthropicVersion: options.anthropicVersion,
+          onStreamEvent: phase === 'initial' &&
+            typeof options.onStreamEvent === 'function' &&
+            force.mode !== 'any' && force.mode !== 'tool' && force.mode !== 'required'
+            ? async (event) => {
+                if (event.type === 'text_delta') {
+                  streamOutputStarted = true;
+                  streamContentSent = true;
+                }
+                await options.onStreamEvent(event);
+              }
+            : null
         });
       } catch (error) {
         const code = String(error && error.code || '');
-        const retryable = !signal?.aborted &&
+        const errorMessage = String(error && error.message || '');
+        const nativeToolRequestRejected = code === 'UPSTREAM_HTTP_400' ||
+          (code === 'PROVIDER_STREAM_ERROR' &&
+            /model rejected this request|invalid request|unsupported (?:native )?(?:tools?|functions?|tool schema)|(?:tools?|functions?|tool schema).{0,60}(?:unsupported|invalid|not supported)/i.test(errorMessage));
+        const canFallbackToDsml = PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML &&
+          !nativeToolFallbackAttempted &&
+          phase === 'initial' &&
+          nativeToolCalling &&
+          tools.length > 0 &&
+          force.mode !== 'none' &&
+          nativeToolRequestRejected &&
+          !signal?.aborted &&
+          !streamContentSent;
+        if (canFallbackToDsml) {
+          nativeToolFallbackAttempted = true;
+          nativeToolCalling = false;
+          providerToolNameMap = null;
+          providerMessages = buildProviderMessages(requestBody, {
+            nativeToolCalling: false,
+            noToolExperiment,
+            experimentVariant
+          });
+          requestMessages = providerMessages;
+          retry = 0;
+          if (typeof options.diagnostics === 'function') {
+            try {
+              options.diagnostics('provider.native_tools.fallback_to_dsml', {
+                level: 'warn',
+                request_id: options.requestId || null,
+                phase,
+                previous_error_code: code,
+                fallback_transport: 'dsml'
+              });
+            } catch {}
+          }
+          continue;
+        }
+        const retryable = !signal?.aborted && !streamOutputStarted &&
           code !== 'CLIENT_DISCONNECTED' &&
           code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' &&
           code !== 'PROVIDER_MAX_OUTPUT_EXCEEDED' &&

@@ -11,9 +11,11 @@ const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages, resolveCompactionBudgets } = require('./handler');
 const { buildProviderMessages, buildCompactionProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
+const { getSamplingCapabilities } = require('./provider/sampling-capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
-const { sendAnthropicMessageStart, sendAnthropicStream, sendEvent } = require('./sse-sink');
+const { writeEventAsync, createAnthropicStreamWriter } = require('./sse-sink');
+const { DsmlStreamGuard } = require('./protocol/dsml-stream-guard');
 const { isClaudeCodeCompactionRequest, isWordAddinThinkingHighlightRequest } = require('./request-intent');
 const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = require('./http-utils');
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
@@ -45,6 +47,7 @@ function isClaudeDesktopConnectionProbe(body) {
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
+  const readSamplingCapabilities = options.getSamplingCapabilities || getSamplingCapabilities;
   // DSML_TOOL_CALL is the single transport switch: true keeps the textual
   // DSML protocol, false enables provider-native function calling.
   const noToolExperiment = typeof options.noToolExperiment === 'boolean'
@@ -155,7 +158,8 @@ function createServer(options = {}) {
     }
 
     if (req.method === 'GET' && route === '/v1/models') {
-      const models = listModels();
+      const sampling = await readSamplingCapabilities();
+      const models = listModels(sampling);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         data: models,
@@ -166,11 +170,13 @@ function createServer(options = {}) {
     }
 
     if (req.method === 'GET' && route === '/v1/provider/capabilities') {
-      const capabilities = await readProviderCapabilities({
-        forceRefresh: requestUrl.searchParams.get('refresh') === '1'
-      });
+      const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
+      const [capabilities, sampling] = await Promise.all([
+        readProviderCapabilities({ forceRefresh }),
+        readSamplingCapabilities({ forceRefresh })
+      ]);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify(capabilities));
+      return res.end(JSON.stringify({ ...capabilities, sampling }));
     }
 
     if (req.method !== 'POST' ||
@@ -328,6 +334,10 @@ function createServer(options = {}) {
     const controller = new AbortController();
     const startedAt = Date.now();
     let pingTimer = null;
+    let pingPending = false;
+    let streamWriter = null;
+    let streamGuard = null;
+    let streamedText = '';
     const onClose = () => {
       if (!res.writableEnded && !controller.signal.aborted) {
         controller.abort(new Error('Client disconnected.'));
@@ -347,20 +357,30 @@ function createServer(options = {}) {
 
     try {
       if (isStream) {
-        const streamPrompt = buildProviderMessages(inferenceBody, { noToolExperiment, experimentVariant });
+        const streamPrompt = buildProviderMessages(inferenceBody, {
+          noToolExperiment,
+          experimentVariant,
+          nativeToolCalling: !noToolExperiment
+        });
         const estimatedInputTokens = estimateProviderInputTokens(streamPrompt);
         res.setHeader('X-Token-Usage-Estimated', 'true');
         res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
+          'Content-Type': 'text/event-stream; charset=utf-8',
           'Cache-Control': 'no-cache, no-transform',
           Connection: 'keep-alive',
           'X-Accel-Buffering': 'no'
         });
         if (typeof res.flushHeaders === 'function') res.flushHeaders();
-        const messageId = sendAnthropicMessageStart(res, body.model, estimatedInputTokens);
-        if (!messageId || !sendEvent(res, 'ping', { type: 'ping' })) return;
+        streamWriter = createAnthropicStreamWriter(res, body.model, estimatedInputTokens, controller.signal);
+        streamGuard = new DsmlStreamGuard();
+        await streamWriter.start();
+        await streamWriter.ping();
         pingTimer = setInterval(() => {
-          if (!sendEvent(res, 'ping', { type: 'ping' })) clearInterval(pingTimer);
+          if (!streamWriter || pingPending || controller.signal.aborted) return;
+          pingPending = true;
+          streamWriter.ping()
+            .catch(() => { if (pingTimer) clearInterval(pingTimer); })
+            .finally(() => { pingPending = false; });
         }, streamPingIntervalMs);
         if (typeof pingTimer.unref === 'function') pingTimer.unref();
       }
@@ -375,7 +395,16 @@ function createServer(options = {}) {
           nativeToolCalling: !noToolExperiment,
           experimentVariant,
           requestIntent,
-          anthropicVersion: req.headers['anthropic-version']
+          anthropicVersion: req.headers['anthropic-version'],
+          provider: options.provider,
+          onStreamEvent: isStream ? async (event) => {
+            if (!event || event.type !== 'text_delta' || typeof event.text !== 'string') return;
+            const safeChunks = streamGuard.push(event.text);
+            for (const chunk of safeChunks) {
+              await streamWriter.writeTextDelta(chunk);
+              streamedText += chunk;
+            }
+          } : undefined
         });
       } catch (error) {
         if (!thinkingHighlightAuxRequest ||
@@ -422,7 +451,31 @@ function createServer(options = {}) {
           clearInterval(pingTimer);
           pingTimer = null;
         }
-        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, { messageStarted: true });
+        const safeTail = streamGuard.finish();
+        for (const chunk of safeTail) {
+          await streamWriter.writeTextDelta(chunk);
+          streamedText += chunk;
+        }
+        const finalText = typeof result.text === 'string' ? result.text : '';
+        const streamedPrefixes = [
+          streamedText,
+          streamedText.trimStart(),
+          streamedText.trim()
+        ].filter(Boolean);
+        const matchingPrefix = streamedPrefixes.find((prefix) => finalText.startsWith(prefix));
+        const finalRemainder = streamedText.length === 0
+          ? finalText
+          : matchingPrefix
+            ? finalText.slice(matchingPrefix.length)
+            : '';
+        // A DSML/BYV/legacy tool-call envelope is protocol data, never user-visible text.
+        // If recovery changed the already-streamed prefix, do not duplicate or corrupt the stream.
+        if (finalRemainder && !streamGuard.containsProtocol(finalRemainder)) {
+          await streamWriter.writeTextDelta(finalRemainder);
+          streamedText += finalRemainder;
+        }
+        await streamWriter.writeToolCalls(result.toolCalls || []);
+        await streamWriter.finish(result);
         res.end();
       } else {
         const payload = {
@@ -485,15 +538,23 @@ function createServer(options = {}) {
       console.error(JSON.stringify(failureLog));
       recordDiagnostic('request.failed', failureLog);
       if (isStream && res.headersSent) {
-        sendEvent(res, 'error', {
-          type: 'error',
-          error: {
-            type: error.type || 'api_error',
-            message: error.message || 'Gateway request failed.',
-            code: error.code || 'GATEWAY_ERROR'
+        try {
+          if (streamWriter) {
+            await streamWriter.error(error);
+          } else {
+            await writeEventAsync(res, 'error', {
+              type: 'error',
+              error: {
+                type: error.type || 'api_error',
+                message: error.message || 'Gateway request failed.',
+                code: error.code || 'GATEWAY_ERROR'
+              }
+            }, controller.signal);
           }
-        });
-        res.end();
+        } catch {
+          // The client may already be gone; do not turn a disconnected stream into another failure.
+        }
+        if (!res.destroyed && !res.writableEnded) res.end();
       } else {
         jsonError(res, error.statusCode || 500, error.type || 'api_error',
           error.message || 'Gateway request failed.', error.code || 'GATEWAY_ERROR');
@@ -506,12 +567,19 @@ function createServer(options = {}) {
   });
 }
 
-function start() {
+async function start() {
+  // Complete best-effort provider sampling discovery before exposing the gateway.
+  // Unknown or unsupported optional settings are omitted from subsequent requests.
+  console.log('[sampling] Discovering capabilities for the configured provider/model before listening...');
+  const samplingCapabilities = await getSamplingCapabilities({ forceRefresh: true });
   const server = createServer();
   server.listen(PORT, HOST, () => {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
+    console.log('Sampling discovery: ' + samplingCapabilities.source + ' (' + samplingCapabilities.status + ')');
+    console.log('Sampling parameters enabled: ' + (samplingCapabilities.supported_parameters.join(', ') || '[none detected]'));
+    console.log('Sampling parameters omitted: ' + ([...samplingCapabilities.unsupported_parameters, ...samplingCapabilities.unknown_parameters].join(', ') || '[none]'));
     console.log('Tool transport: ' + (DSML_TOOL_CALL
       ? 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'
       : 'provider-native function calling'));
