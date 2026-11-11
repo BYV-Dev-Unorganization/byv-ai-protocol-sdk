@@ -465,6 +465,16 @@ The current version is a compatibility layer, not a complete reimplementation of
 
 Clients can set temperature, top_p, and top_k per request. For provider-specific OpenAI-compatible sampling extensions, send a provider_params object. BYV validates the keys and value ranges, then maps each accepted entry to a top-level field in the upstream Chat Completions JSON payload; it does not send a nested provider_params object upstream.
 
+Sampling overrides are controlled by `PROVIDER_SAMPLING_AUTO_PROBE`:
+
+- `false` (default): BYV does not send client-provided `temperature`, `top_p`, `top_k`, or `provider_params`. The upstream provider/model uses its own sampling defaults.
+- `true`: BYV probes the configured upstream model at startup using a one-token completion. If the combined parameter request is rejected, it isolates the fields with individual one-token probes. BYV forwards only fields accepted by the provider and omits rejected or unknown fields.
+- If the probe cannot complete because of authentication, networking, rate limits, or another non-validation error, unknown fields are omitted. The gateway continues to start and use the provider/model defaults for those fields.
+
+The probe is opt-in because the upstream API does not provide a standardized sampling-capability endpoint. A successful response proves that the endpoint accepted a field in the probe request; it cannot prove that a model applies the field semantically rather than silently ignoring it. Probing may consume provider quota: one request when all fields are accepted together, or up to one combined request plus one request per candidate field when individual checks are needed.
+
+The setting is independent of `PROVIDER_NATIVE_REASONING_EFFORT`, which separately controls the optional native `reasoning_effort` extension.
+
 Example request body:
 
 ~~~json
@@ -543,6 +553,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_BASE_URL | unset | OpenAI-compatible API base URL or full Chat Completions URL |
 | PROVIDER_API_KEY | unset | Upstream provider key; sent as Bearer auth |
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
+| PROVIDER_SAMPLING_AUTO_PROBE | false | Detect accepted sampling parameters at startup; when false, omit sampling overrides and use upstream model defaults |
 | DSML_TOOL_CALL | true | `true`/`on` = DSML text transport; `false`/`off` = provider-native function calling |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
 | PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
