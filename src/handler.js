@@ -246,6 +246,9 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
       : hasInjectedProvider ? null : await getSamplingCapabilities();
     if (samplingCapabilities) {
       const filtered = filterSamplingOptions(options, samplingCapabilities);
+      // Replace, rather than merge, because omitted keys must be physically
+      // removed from the original options object before building the provider payload.
+      for (const key of Object.keys(options)) delete options[key];
       Object.assign(options, filtered.options);
       if (filtered.omitted.length) {
         record('provider.sampling.parameters_omitted', {
