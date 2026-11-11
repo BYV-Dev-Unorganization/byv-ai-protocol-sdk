@@ -195,7 +195,7 @@ test('filters unsupported top-level and provider-specific sampling fields before
 test('forwards only the exact reasoning effort levels confirmed by discovery', () => {
   const sampling = require('../src/provider/sampling-capabilities');
   const capabilities = {
-    parameters: { reasoning_effort: true },
+    parameters: { temperature: true, reasoning_effort: true },
     reasoning_effort_levels: ['low', 'high']
   };
   const accepted = sampling.filterSamplingOptions(
