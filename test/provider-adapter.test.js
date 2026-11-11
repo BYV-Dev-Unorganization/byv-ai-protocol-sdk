@@ -8,6 +8,7 @@ const ENV_KEYS = [
   'PROVIDER_BASE_URL',
   'PROVIDER_API_KEY',
   'PROVIDER_MODEL',
+  'PROVIDER_SAMPLING_AUTO_PROBE',
   'PROVIDER_NATIVE_REASONING_EFFORT',
   'PROVIDER_TIMEOUT_MS',
   'PROVIDER_MAX_REQUESTS_PER_MINUTE',
@@ -22,6 +23,7 @@ function loadProvider(t, overrides = {}) {
     PROVIDER_BASE_URL: 'https://provider.example/v1',
     PROVIDER_API_KEY: 'provider-test-secret',
     PROVIDER_MODEL: model,
+    PROVIDER_SAMPLING_AUTO_PROBE: 'false',
     PROVIDER_NATIVE_REASONING_EFFORT: 'true',
     PROVIDER_TIMEOUT_MS: '300000',
     PROVIDER_MAX_REQUESTS_PER_MINUTE: '0',
@@ -32,6 +34,8 @@ function loadProvider(t, overrides = {}) {
 
   const configPath = require.resolve('../src/config');
   const providerPath = require.resolve('../src/provider/openai-compatible');
+  const samplingCapabilitiesPath = require.resolve('../src/provider/sampling-capabilities');
+  delete require.cache[samplingCapabilitiesPath];
   delete require.cache[providerPath];
   delete require.cache[configPath];
   const provider = require(providerPath);
@@ -43,6 +47,7 @@ function loadProvider(t, overrides = {}) {
       else process.env[key] = previousEnv[key];
     }
     delete require.cache[providerPath];
+    delete require.cache[samplingCapabilitiesPath];
     delete require.cache[configPath];
   });
   return { provider, model };
@@ -62,7 +67,7 @@ function response({ status = 200, payload = {}, raw, jsonError } = {}) {
   };
 }
 
-test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and normalizes output', async (t) => {
+test('uses upstream sampling defaults when auto-probe is disabled and normalizes output', async (t) => {
   const { provider, model } = loadProvider(t);
   let captured;
   global.fetch = async (url, init) => {
@@ -84,12 +89,23 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
 
   const result = await provider.createChatCompletion(
     [{ role: 'system', content: 'stable prompt' }, { role: 'user', content: 'Hi' }],
-    { max_tokens: 128, temperature: 0.2, top_p: 0.9, stop_sequences: ['END'] }
+    {
+      max_tokens: 128,
+      temperature: 0.2,
+      top_p: 0.9,
+      top_k: 40,
+      provider_params: { min_p: 0.05 },
+      stop_sequences: ['END']
+    }
   );
 
   assert.equal(captured.url, 'https://provider.example/v1/chat/completions');
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.headers.Authorization, 'Bearer provider-test-secret');
+  assert.equal(Object.hasOwn(captured.payload, 'temperature'), false);
+  assert.equal(Object.hasOwn(captured.payload, 'top_p'), false);
+  assert.equal(Object.hasOwn(captured.payload, 'top_k'), false);
+  assert.equal(Object.hasOwn(captured.payload, 'min_p'), false);
   assert.deepEqual(captured.payload, {
     model,
     messages: [
@@ -98,8 +114,6 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
     ],
     max_tokens: 128,
     stream: false,
-    temperature: 0.2,
-    top_p: 0.9,
     stop: ['END'],
     tool_choice: 'none'
   });
@@ -115,7 +129,7 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
 });
 
 test('forwards top_k and allowlisted provider sampling parameters in regular and streaming payloads', (t) => {
-  const { provider } = loadProvider(t);
+  const { provider } = loadProvider(t, { PROVIDER_SAMPLING_AUTO_PROBE: 'true' });
   const messages = [{ role: 'user', content: 'Tune sampling.' }];
   const providerParams = {
     min_p: 0.05,
@@ -137,7 +151,10 @@ test('forwards top_k and allowlisted provider sampling parameters in regular and
       max_tokens: 128,
       stream,
       top_k: 40,
-      provider_params: providerParams
+      provider_params: providerParams,
+      samplingCapabilities: {
+        accepted_parameters: ['top_k', ...Object.keys(providerParams)]
+      }
     }).payload;
 
     assert.equal(payload.top_k, 40);
@@ -156,6 +173,70 @@ test('forwards top_k and allowlisted provider sampling parameters in regular and
     assert.equal(Object.hasOwn(payload, 'provider_params'), false);
     assert.equal(payload.stream, stream);
   }
+});
+
+test('auto-probes provider sampling support and omits fields the provider rejects', async (t) => {
+  const { provider, model } = loadProvider(t, {
+    PROVIDER_SAMPLING_AUTO_PROBE: 'true'
+  });
+  const parameterNames = [
+    'temperature', 'top_p', 'top_k', 'min_p', 'frequency_penalty',
+    'presence_penalty', 'repetition_penalty', 'typical_p', 'top_a',
+    'tfs_z', 'seed', 'logit_bias', 'mirostat', 'mirostat_tau', 'mirostat_eta'
+  ];
+  let probeRequests = 0;
+  let actualPayload = null;
+
+  global.fetch = async (_url, init) => {
+    const payload = JSON.parse(init.body);
+    const isProbe = payload.messages &&
+      payload.messages[0] &&
+      payload.messages[0].content === 'Reply with OK.';
+
+    if (isProbe) {
+      probeRequests++;
+      const present = parameterNames.filter((name) => Object.hasOwn(payload, name));
+      if (present.length > 1) {
+        return response({
+          status: 400,
+          raw: JSON.stringify({ error: { message: 'Unsupported parameter: top_k' } })
+        });
+      }
+      if (present[0] === 'top_k') {
+        return response({
+          status: 400,
+          raw: JSON.stringify({ error: { message: 'Unsupported parameter: top_k' } })
+        });
+      }
+      return response({ payload: {} });
+    }
+
+    actualPayload = payload;
+    return response({
+      payload: {
+        model,
+        choices: [{ finish_reason: 'stop', message: { content: 'Sampling filtered.' } }]
+      }
+    });
+  };
+
+  await provider.createChatCompletion(
+    [{ role: 'user', content: 'Tune these parameters.' }],
+    {
+      max_tokens: 64,
+      temperature: 0.2,
+      top_p: 0.85,
+      top_k: 20,
+      provider_params: { min_p: 0.05, mirostat: 2 }
+    }
+  );
+
+  assert.equal(probeRequests, 1 + parameterNames.length);
+  assert.equal(actualPayload.temperature, 0.2);
+  assert.equal(actualPayload.top_p, 0.85);
+  assert.equal(Object.hasOwn(actualPayload, 'top_k'), false);
+  assert.equal(actualPayload.min_p, 0.05);
+  assert.equal(actualPayload.mirostat, 2);
 });
 
 test('rejects unrecognized provider sampling parameters at the adapter boundary', (t) => {
