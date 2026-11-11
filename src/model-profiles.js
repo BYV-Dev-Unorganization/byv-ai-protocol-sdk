@@ -4,6 +4,12 @@ const MODEL_PROFILES = Object.freeze({
   'byv-flash-v1': {
     display_name: 'BYV Flash V1',
     line: null,
+    generation: Object.freeze({
+      temperature: 0.7,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: default assistant for everyday work, and the fallback for unrecognized models. Aim for a correct answer on the first pass at low latency.',
       'Planning: write none. Act directly, and ask only when a missing fact blocks progress.',
@@ -15,6 +21,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-opus-5-5': {
     display_name: 'Opus 5.5',
     line: 'opus',
+    generation: Object.freeze({
+      temperature: 0.4,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: complex, high-impact, or long-running work where a wrong result is costly. Answer routine requests directly in a few lines.',
       'Complexity: treat work as complex when it touches more than one module, cannot be undone, or involves security or data.',
@@ -38,6 +50,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-sonnet-5-5': {
     display_name: 'Sonnet 5.5',
     line: 'sonnet',
+    generation: Object.freeze({
+      temperature: 0.3,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: default executor for well-scoped work. Act on clear intent without asking for confirmation.',
       'Planning: for work spanning several files or steps, state a plan of at most three lines, then execute. Skip the plan for single-step work.',
@@ -57,6 +75,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-haiku-5-5': {
     display_name: 'Haiku 5.5',
     line: 'haiku',
+    generation: Object.freeze({
+      temperature: 0.2,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: high-volume, low-latency work: classification, extraction, routing, summarization, and structured output.',
       'Format: the output matches the requested schema or format exactly. Add no extra fields, commentary, or wrapper text around structured output.',
@@ -74,6 +98,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-mythos-5-1': {
     display_name: 'Mythos 5.1',
     line: 'mythos',
+    generation: Object.freeze({
+      temperature: 0.1,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: security review and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -93,6 +123,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-fable-5.1': {
     display_name: 'Fable 5.1',
     line: 'fable',
+    generation: Object.freeze({
+      temperature: 0.45,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: demanding multi-step work where the user needs a complete, usable deliverable: deep synthesis, long-horizon coding, and multi-step research.',
       'Deliver the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -118,6 +154,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-fable-5-2': {
     display_name: 'Fable 5.2',
     line: 'fable',
+    generation: Object.freeze({
+      temperature: 0.35,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: the most demanding open-ended technical work where the user needs a finished, usable result: long-horizon agent sessions, multi-step deep research, hard engineering, math and science, and analysis carried through to a complete document, spreadsheet, deck, or other deliverable. Answer routine requests directly in a few lines.',
       'Deliverable: produce the complete artifact in one pass, not general advice. Ask a question only when ambiguity blocks the deliverable.',
@@ -136,6 +178,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-mythos-5-2': {
     display_name: 'Mythos 5.2',
     line: 'mythos',
+    generation: Object.freeze({
+      temperature: 0.1,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: security engineering review, vulnerability analysis, and threat analysis. This profile changes response habits only, not native model capability.',
       'Scope: apply the security lens only to code or infrastructure review and to security questions. For any other task, work normally and add no unrequested threat modeling.',
@@ -152,6 +200,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-opus-5': {
     display_name: 'Opus 5',
     line: 'opus',
+    generation: Object.freeze({
+      temperature: 0.25,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: complex agentic coding, long-running multi-step work, and enterprise knowledge work where a wrong result is costly. Answer routine requests directly in a few lines.',
       'Initiative: act on clear intent without asking for confirmation and take the obvious next step inside the request’s scope. When you notice an adjacent issue, report it instead of fixing it unasked.',
@@ -170,6 +224,12 @@ const MODEL_PROFILES = Object.freeze({
   'claude-opus-4-8': {
     display_name: 'Opus 4.8',
     line: 'opus',
+    generation: Object.freeze({
+      temperature: 0.2,
+      top_p: null,
+      top_k: null,
+      provider_params: Object.freeze({})
+    }),
     instructions: [
       'Role: coding, reasoning, and agentic work where honest status reporting matters. Answer routine requests directly in a few lines.',
       'Honesty: report results as they are. Flag uncertainty, say what you did not verify, and make no claim that rests on evidence you did not see. Never present partial or failing work as done.',
@@ -220,6 +280,12 @@ function canonicalModelId(model) {
 function isSupportedModel(model) {
   const canonical = canonicalModelId(model);
   return Object.prototype.hasOwnProperty.call(MODEL_PROFILES, canonical);
+}
+
+function modelProfileGeneration(model) {
+  const canonical = canonicalModelId(model);
+  const profile = MODEL_PROFILES[canonical] || MODEL_PROFILES['byv-flash-v1'];
+  return profile.generation || MODEL_PROFILES['byv-flash-v1'].generation;
 }
 
 function modelProfilePrompt(model) {
@@ -292,4 +358,4 @@ function listModels() {
     };
   });
 }
-module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, MODEL_LIST_ORDER, canonicalModelId, isSupportedModel, modelProfilePrompt, listModels };
+module.exports = { MODEL_PROFILES, MODEL_PROFILE_ALIASES, MODEL_LIST_ORDER, canonicalModelId, isSupportedModel, modelProfileGeneration, modelProfilePrompt, listModels };
