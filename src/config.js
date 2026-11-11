@@ -44,6 +44,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PROVIDER_BASE_URL = (process.env.PROVIDER_BASE_URL || '').trim();
 const PROVIDER_API_KEY = (process.env.PROVIDER_API_KEY || '').trim();
 const PROVIDER_MODEL = (process.env.PROVIDER_MODEL || '').trim();
+const PROVIDER_SAMPLING_AUTO_PROBE = booleanFlag('PROVIDER_SAMPLING_AUTO_PROBE', false);
 const DSML_TOOL_CALL = booleanFlag('DSML_TOOL_CALL', true);
 const rawNoToolExperimentVariant = String(process.env.NO_TOOL_EXPERIMENT_VARIANT || 'A').trim().toUpperCase();
 const NO_TOOL_EXPERIMENT_VARIANT = ['A', 'B'].includes(rawNoToolExperimentVariant)
@@ -111,6 +112,7 @@ module.exports = {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
+  PROVIDER_SAMPLING_AUTO_PROBE,
   DSML_TOOL_CALL,
   NO_TOOL_EXPERIMENT_VARIANT,
   PROVIDER_NATIVE_REASONING_EFFORT,
