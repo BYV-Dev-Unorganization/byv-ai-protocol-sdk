@@ -222,7 +222,9 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     top_k: body.top_k !== undefined ? body.top_k : profileGeneration.top_k,
     provider_params: { ...profileProviderParams, ...requestProviderParams },
     stop_sequences: body.stop_sequences,
-    reasoning_effort: body.output_config && body.output_config.effort,
+    reasoning_effort: body.output_config && body.output_config.effort !== undefined && body.output_config.effort !== null
+      ? body.output_config.effort
+      : profileGeneration.reasoning_effort,
     nativeToolCalling,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
