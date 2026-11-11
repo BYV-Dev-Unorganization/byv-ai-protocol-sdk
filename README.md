@@ -69,6 +69,8 @@ The `claude-*` values are compatibility profile identifiers only. They do not co
 
 The model profile is selected from the request model field. The upstream request always uses PROVIDER_MODEL.
 
+Each profile also has a separate generation preset in `src/model-profiles.js`. The preset currently supplies a task-tuned `temperature`; `top_p`, `top_k`, and provider extensions remain unset unless explicitly configured. These are BYV recommendations, not official settings for the profile names or a claim that the upstream model is an Anthropic model. The client's explicit parameter wins over the profile default.
+
 ## Requirements
 
 - Node.js 18 or later.
@@ -139,7 +141,7 @@ All application API routes require the gateway key using either Authorization: B
 | HEAD | /api/hello | Unauthenticated connection-warming probe for Claude Code |
 | GET | /health | Authenticated health and provider-configuration status |
 | GET | /v1/models | Discover available BYV response profiles |
-| GET | /v1/provider/capabilities | Inspect detected upstream context/input/output/cache capabilities |
+| GET | /v1/provider/capabilities | Inspect detected context/input/output/cache and sampling-parameter capabilities |
 | POST | /v1/messages | Anthropic Messages-compatible request |
 | POST | /v1/messages/count_tokens | Local input-size estimate |
 
@@ -493,16 +495,16 @@ Example request body:
 }
 ~~~
 
-The current allowlist accepts min_p, frequency_penalty, presence_penalty, repetition_penalty, typical_p, top_a, tfs_z, seed, logit_bias, mirostat, mirostat_tau, and mirostat_eta. Unknown keys are rejected instead of being forwarded blindly. Parameter availability and exact semantics vary across OpenAI-compatible providers and models: only send values supported by the configured upstream. If an upstream rejects a supported BYV parameter, BYV returns the upstream error; it does not silently remove or rewrite the parameter. Omit parameters to leave provider/model defaults unchanged.
+The current allowlist accepts min_p, frequency_penalty, presence_penalty, repetition_penalty, typical_p, top_a, tfs_z, seed, logit_bias, mirostat, mirostat_tau, and mirostat_eta. Unknown keys are rejected instead of being forwarded blindly. At startup, BYV first checks provider model metadata for `supported_parameters`; if unavailable, it can issue tiny isolated Chat Completions probes. Unsupported and unknown fields are removed independently before forwarding, while supported sibling fields remain. The result is cached and exposed through `GET /v1/provider/capabilities`. A successful probe proves request acceptance, not that the provider actually applied the setting. See [Provider sampling capability discovery](docs/SAMPLING-CAPABILITIES.md) for precedence, probe behavior, environment controls, and limitations.
 
 
 ### Native reasoning effort
 
-When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards Anthropic `output_config.effort` as the top-level provider `reasoning_effort` parameter. This non-standard extension is disabled by default for compatibility. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Enable `PROVIDER_NATIVE_REASONING_EFFORT` only when the configured provider supports this parameter. Providers may clamp levels that their configured model does not support. For example, NaraRouter documents clamping unsupported levels, and Meta does not support `max` on `muse-spark-1.3-contributor` (the router may therefore reduce it to the model's highest supported level). Native effort behavior and available levels remain provider/model-specific.
+When `PROVIDER_NATIVE_REASONING_EFFORT=true`, BYV forwards Anthropic `output_config.effort` as the top-level provider `reasoning_effort` parameter only when capability discovery accepts that field. This non-standard extension is enabled by default but can be disabled explicitly. Effort is request metadata, not system-prompt text; requests that omit it leave the provider's model default unchanged. Providers may clamp levels that their configured model does not support, so supported field names do not guarantee identical effort semantics across providers.
 
 ### Provider capabilities and context budgeting
 
-BYV performs best-effort model metadata discovery using the configured provider's OpenAI-compatible model endpoints: GET /models/{model}, then GET /models when the detail endpoint does not expose limits. It recognizes reported context-window, maximum-input, and maximum-output token fields. Model capability metadata is cached for PROVIDER_CAPABILITIES_CACHE_MS and can be refreshed with GET /v1/provider/capabilities?refresh=1. The endpoint reports the actual configured provider model and the source of each detected limit.
+BYV performs best-effort model metadata discovery using the configured provider's OpenAI-compatible model endpoints: GET /models/{model}, then GET /models when the detail endpoint does not expose limits. It recognizes reported context-window, maximum-input, and maximum-output token fields. Model capability metadata is cached for PROVIDER_CAPABILITIES_CACHE_MS and can be refreshed with GET /v1/provider/capabilities?refresh=1. The endpoint reports the actual configured provider model and the source of each detected limit. Sampling capability discovery uses the same model metadata endpoints, looking for `supported_parameters`. When that list is unavailable, BYV can run small per-parameter probes at startup. Unsupported or unknown optional parameters are omitted rather than sent speculatively. See [Sampling capability discovery](docs/SAMPLING-CAPABILITIES.md).
 
 OpenAI-compatible APIs do not standardize context-window metadata. When the provider does not publish a limit in its model metadata, set PROVIDER_CONTEXT_WINDOW_TOKENS, PROVIDER_MAX_INPUT_TOKENS, and/or PROVIDER_MAX_OUTPUT_TOKENS explicitly. Explicit environment values override discovered values. BYV never infers a context window from the model name. An unknown limit remains unknown rather than being guessed.
 
@@ -545,7 +547,7 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MODEL | unset | The one actual model ID used by every profile |
 | DSML_TOOL_CALL | true | `true`/`on` = DSML text transport; `false`/`off` = provider-native function calling |
 | NO_TOOL_EXPERIMENT_VARIANT | A | `A` hides tool metadata; `B` lists tool names/descriptions as reference-only |
-| PROVIDER_NATIVE_REASONING_EFFORT | false | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
+| PROVIDER_NATIVE_REASONING_EFFORT | true | Optional provider extension for forwarding Anthropic output_config.effort as native reasoning_effort |
 | PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS | false | Send reasoning_effort=none for required/named native tools when the provider explicitly requires it |
 | COMPACTION_MAX_INPUT_TOKENS | 32768 | Generic maximum input-token budget for autocompaction, reduced by detected provider limits |
 | COMPACTION_MAX_OUTPUT_TOKENS | 8192 | Generic maximum output-token budget for autocompaction, reduced by detected provider limits |
@@ -563,6 +565,9 @@ Do not bind this development gateway to a public interface without adding deploy
 | PROVIDER_MAX_OUTPUT_TOKENS | unset | Optional exact model output-token limit override |
 | PROVIDER_MODEL_METADATA_TIMEOUT_MS | 5000 | Timeout for optional provider model-metadata discovery |
 | PROVIDER_CAPABILITIES_CACHE_MS | 300000 | How long detected model capabilities are cached |
+| PROVIDER_SAMPLING_AUTO_PROBE | true | Probe optional Chat Completions parameters when metadata does not publish support | 
+| PROVIDER_SAMPLING_PROBE_TIMEOUT_MS | 15000 | Timeout for each minimal sampling capability probe |
+| PROVIDER_SUPPORTED_SAMPLING_PARAMETERS | empty | Optional authoritative comma-separated allowlist; unlisted fields are disabled |
 | CONTEXT_WINDOW_SAFETY_TOKENS | 1024 | Context tokens reserved for formatting and estimation variance |
 | MAX_BODY_BYTES | 134217728 | Maximum inbound JSON request body (128 MiB, matching Anthropic Messages API) |
 | MAX_OUTPUT_CHARS | 2097152 | Maximum provider response size |
