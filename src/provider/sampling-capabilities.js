@@ -3,7 +3,7 @@
 const SAMPLING_PROBE_PARAMETERS = Object.freeze({
   temperature: 0.7,
   top_p: 0.9,
-  top_k: 40,
+  top_k: 1,
   min_p: 0.05,
   frequency_penalty: 0,
   presence_penalty: 0,
@@ -12,7 +12,7 @@ const SAMPLING_PROBE_PARAMETERS = Object.freeze({
   top_a: 0.1,
   tfs_z: 0.9,
   seed: 1,
-  logit_bias: Object.freeze({ '0': 0 }),
+  logit_bias: Object.freeze({}),
   mirostat: 0,
   mirostat_tau: 5,
   mirostat_eta: 0.1
