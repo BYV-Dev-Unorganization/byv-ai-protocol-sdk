@@ -10,7 +10,7 @@ At server startup, BYV resolves sampling support in this order:
 
 1. **Explicit environment allowlist.** When `PROVIDER_SUPPORTED_SAMPLING_PARAMETERS` is non-empty, it is authoritative. Only listed fields are enabled.
 2. **Provider model metadata.** BYV requests the exact model metadata resource and then the model catalog, looking for a `supported_parameters` array. A metadata list is treated as authoritative for listed and unlisted fields.
-3. **Active request probes.** When metadata does not publish parameter support and `PROVIDER_SAMPLING_AUTO_PROBE=true`, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using `max_tokens: 1` and `stream: false`. When metadata confirms the `reasoning_effort` field but omits its supported values, BYV probes the supported effort levels individually.
+3. **Active request probes.** When metadata does not publish parameter support and `PROVIDER_SAMPLING_AUTO_PROBE=true`, BYV first sends a minimal baseline Chat Completions request. If the baseline succeeds, it tests optional fields individually using a small `max_tokens: 16` budget and `stream: false`. When metadata confirms the `reasoning_effort` field but omits its supported values, BYV probes the supported effort levels individually.
 4. **Unknown / fail closed.** If support cannot be determined, BYV does not add that optional field to provider requests.
 
 The active probe checks `temperature`, `top_p`, `top_k`, `min_p`, `frequency_penalty`, `presence_penalty`, `repetition_penalty`, `typical_p`, `top_a`, `tfs_z`, `seed`, `mirostat`, `mirostat_tau`, and `mirostat_eta` individually. `reasoning_effort` is treated separately: BYV probes each level (`low`, `medium`, `high`, `xhigh`, and `max`) and only sends a level that was accepted or explicitly listed in model metadata. `logit_bias` is not actively probed because token IDs are tokenizer-specific; enable it only through authoritative metadata or the explicit environment allowlist.
@@ -19,7 +19,7 @@ A 2xx probe result means the endpoint accepted the request containing that field
 
 An isolated HTTP 400 or 422 after a successful baseline marks that one field unsupported for the configured endpoint/model. Authentication, quota, rate-limit, timeout, network, and server errors are inconclusive. BYV records those fields as unknown and omits them. If the baseline cannot be completed, no field is guessed as supported.
 
-Active probes may consume a small amount of provider quota. They are run at startup only when a usable `supported_parameters` metadata list and manual allowlist are not available. Probes use a one-token output budget; they do not stream, call tools, or include user conversation data.
+Active probes may consume a small amount of provider quota. They are run at startup only when a usable `supported_parameters` metadata list and manual allowlist are not available. Probes use a small 16-token output budget and ask for a short `OK` reply; they do not stream, call tools, or include user conversation data.
 
 ## Per-profile generation defaults
 
