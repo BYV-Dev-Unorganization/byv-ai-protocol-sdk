@@ -1136,3 +1136,56 @@ test('uses the upstream provider response ID as the Anthropic message ID when av
   assert.equal(result.id, 'chatcmpl-office-provider-id');
   assert.equal(result.stop_reason, 'end_turn');
 });
+
+test('falls back to DSML once when an upstream rejects the initial native-tools request with HTTP 400', async () => {
+  let calls = 0;
+  const diagnostics = [];
+  let fallbackMessages;
+  const dsml = '<｜DSML｜ calls><｜DSML｜ invoke name="Read">' +
+    '<｜DSML｜ parameter name="file_path" string="true">README.md</｜DSML｜ parameter>' +
+    '</｜DSML｜ invoke></｜DSML｜ calls>';
+
+  const result = await handleMessages(body({ tool_choice: 'auto' }), {
+    noToolExperiment: false,
+    nativeToolCalling: true,
+    diagnostics: (event, fields) => diagnostics.push({ event, ...fields }),
+    provider: {
+      getModelCapabilities: async () => null,
+      createChatCompletion: async (messages, options) => {
+        calls++;
+        if (calls === 1) {
+          assert.equal(options.nativeToolCalling, true);
+          assert.equal(options.tools.length, 1);
+          assert.equal(options.tool_choice, 'auto');
+          throw Object.assign(new Error('OpenAI-compatible provider rejected native function tools.'), {
+            statusCode: 502,
+            code: 'UPSTREAM_HTTP_400'
+          });
+        }
+
+        assert.equal(options.nativeToolCalling, false);
+        assert.deepEqual(options.tools, []);
+        assert.equal(options.tool_choice, 'none');
+        fallbackMessages = messages;
+        return { text: dsml, finish_reason: 'stop', usage: null };
+      }
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.match(fallbackMessages[0].content, /DSML TOOL CALL PROTOCOL/);
+  assert.match(fallbackMessages[0].content, /AUTHORITATIVE TOOL INPUT SCHEMAS/);
+  assert.equal(result.stop_reason, 'tool_use');
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0].name, 'Read');
+  assert.deepEqual(result.toolCalls[0].input, { file_path: 'README.md' });
+  assert.equal(result.content[0].type, 'tool_use');
+  assert.equal(diagnostics.filter((entry) =>
+    entry.event === 'provider.native_tools.fallback_to_dsml' &&
+    entry.fallback_transport === 'dsml'
+  ).length, 1);
+  const providerStarts = diagnostics.filter((entry) => entry.event === 'provider.request.started');
+  assert.equal(providerStarts.length, 2);
+  assert.equal(providerStarts[0].tool_count, 1);
+  assert.equal(providerStarts[1].tool_count, 0);
+});
