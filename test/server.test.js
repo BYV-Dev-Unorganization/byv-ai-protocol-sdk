@@ -334,6 +334,7 @@ test('count_tokens accepts the canonical BYV Flash V1 model ID without invoking 
 
 test('exposes provider context and token limits through an authenticated capability endpoint', async (t) => {
   let forceRefresh = false;
+  let samplingForceRefresh = false;
   const base = await withServer(t, {
     getProviderCapabilities: async (options) => {
       forceRefresh = options.forceRefresh === true;
@@ -344,6 +345,16 @@ test('exposes provider context and token limits through an authenticated capabil
         max_input_tokens: 900000,
         max_output_tokens: 64000,
         supports_prompt_caching: true
+      };
+    },
+    getSamplingCapabilities: async (options) => {
+      samplingForceRefresh = options.forceRefresh === true;
+      return {
+        source: 'provider_metadata',
+        status: 'available',
+        supported_parameters: ['temperature'],
+        unsupported_parameters: ['top_k'],
+        unknown_parameters: []
       };
     }
   });
@@ -361,7 +372,10 @@ test('exposes provider context and token limits through an authenticated capabil
   assert.equal(result.max_input_tokens, 900000);
   assert.equal(result.max_output_tokens, 64000);
   assert.equal(result.supports_prompt_caching, true);
+  assert.deepEqual(result.sampling.supported_parameters, ['temperature']);
+  assert.deepEqual(result.sampling.unsupported_parameters, ['top_k']);
   assert.equal(forceRefresh, true);
+  assert.equal(samplingForceRefresh, true);
 });
 
 
