@@ -124,7 +124,7 @@ async function discoverSupportedParametersFromMetadata() {
 
 function chatCompletionsUrl(baseUrl) {
   const root = apiRootUrl(baseUrl);
-  root.pathname = root.pathname.replace(/\\/+$/, '') + '/chat/completions';
+  root.pathname = root.pathname.replace(/\/+$/, '') + '/chat/completions';
   return root.toString();
 }
 
