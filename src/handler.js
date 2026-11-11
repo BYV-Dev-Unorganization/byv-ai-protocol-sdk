@@ -9,6 +9,7 @@ const {
   COMPACTION_MAX_OUTPUT_TOKENS,
   DSML_TOOL_CALL,
   PROVIDER_MODEL,
+  PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML,
   uuid
 } = require('./config');
 const { buildProviderMessages, buildCompactionProviderMessages, buildRecoveryMessage } = require('./prompts');
@@ -566,7 +567,7 @@ async function handleMessages(body, options = {}) {
     : DSML_TOOL_CALL;
   // DSML mode is text-only at the provider boundary. Native mode uses the
   // provider's structured tool_calls and never parses DSML/legacy tool markup.
-  const nativeToolCalling = noToolExperiment
+  let nativeToolCalling = noToolExperiment
     ? false
     : (typeof options.nativeToolCalling === 'boolean' ? options.nativeToolCalling : true);
   const model = body.model;
@@ -579,7 +580,7 @@ async function handleMessages(body, options = {}) {
   const force = compactionRequest || repeatedToolLoop || tools.length === 0
     ? { mode: 'none' }
     : parseToolChoice(body.tool_choice);
-  const providerToolNameMap = nativeToolCalling && force.mode !== 'none'
+  let providerToolNameMap = nativeToolCalling && force.mode !== 'none'
     ? createProviderToolNameMap(tools)
     : null;
   const baseRequestBody = force.mode === 'none' ? { ...body, tool_choice: 'none' } : body;
@@ -593,7 +594,7 @@ async function handleMessages(body, options = {}) {
   const requestBody = compactionBudgets
     ? { ...baseRequestBody, max_tokens: compactionBudgets.maxOutputTokens }
     : baseRequestBody;
-  const providerMessages = compactionRequest
+  let providerMessages = compactionRequest
     ? buildCompactionProviderMessages(requestBody, {
         maxInputTokens: compactionBudgets.maxInputTokens
       })
@@ -606,11 +607,14 @@ async function handleMessages(body, options = {}) {
   // The server has already committed the Anthropic SSE lifecycle (message_start).
   // A retry would therefore replay a request inside an already-open client stream.
   let streamOutputStarted = body.stream === true && typeof options.onStreamEvent === 'function';
+  let streamContentSent = false;
+  let nativeToolFallbackAttempted = false;
   const complete = async (messages, phase = 'initial', recoveryAttempt = null) => {
     let retry = 0;
+    let requestMessages = messages;
     while (true) {
       try {
-        return await requestCompletion(messages, requestBody, signal, provider, providerCapabilities, {
+        return await requestCompletion(requestMessages, requestBody, signal, provider, providerCapabilities, {
           logEvent: options.diagnostics,
           requestId: options.requestId,
           attempt: ++providerAttempt,
@@ -626,13 +630,49 @@ async function handleMessages(body, options = {}) {
             typeof options.onStreamEvent === 'function' &&
             force.mode !== 'any' && force.mode !== 'tool' && force.mode !== 'required'
             ? async (event) => {
-                if (event.type === 'text_delta') streamOutputStarted = true;
+                if (event.type === 'text_delta') {
+                  streamOutputStarted = true;
+                  streamContentSent = true;
+                }
                 await options.onStreamEvent(event);
               }
             : null
         });
       } catch (error) {
         const code = String(error && error.code || '');
+        const canFallbackToDsml = PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML &&
+          !nativeToolFallbackAttempted &&
+          phase === 'initial' &&
+          nativeToolCalling &&
+          tools.length > 0 &&
+          force.mode !== 'none' &&
+          code === 'UPSTREAM_HTTP_400' &&
+          !signal?.aborted &&
+          !streamContentSent;
+        if (canFallbackToDsml) {
+          nativeToolFallbackAttempted = true;
+          nativeToolCalling = false;
+          providerToolNameMap = null;
+          providerMessages = buildProviderMessages(requestBody, {
+            nativeToolCalling: false,
+            noToolExperiment,
+            experimentVariant
+          });
+          requestMessages = providerMessages;
+          retry = 0;
+          if (typeof options.diagnostics === 'function') {
+            try {
+              options.diagnostics('provider.native_tools.fallback_to_dsml', {
+                level: 'warn',
+                request_id: options.requestId || null,
+                phase,
+                previous_error_code: code,
+                fallback_transport: 'dsml'
+              });
+            } catch {}
+          }
+          continue;
+        }
         const retryable = !signal?.aborted && !streamOutputStarted &&
           code !== 'CLIENT_DISCONNECTED' &&
           code !== 'PROVIDER_CONTEXT_WINDOW_EXCEEDED' &&
