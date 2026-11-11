@@ -87,6 +87,9 @@ function buildPayload(messages, options = {}) {
     throw new ProviderError(providerParamsError, 400, 'INVALID_PROVIDER_PARAMS');
   }
   if (options.provider_params) Object.assign(payload, options.provider_params);
+  if (options.provider && typeof options.provider === 'object' && !Array.isArray(options.provider)) {
+    payload.provider = options.provider;
+  }
   if (Array.isArray(options.stop_sequences) && options.stop_sequences.length) {
     payload.stop = options.stop_sequences;
   }
