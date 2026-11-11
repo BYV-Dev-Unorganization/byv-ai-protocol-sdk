@@ -20,6 +20,8 @@ const { blocksOf, estimateProviderInputTokens, estimateOutputTokens } = require(
 const { getModelCapabilities } = require('./provider/capabilities');
 const { normalizeProviderToolCalls, createProviderToolNameMap, restoreProviderToolCallNames } = require('./provider/tool-calls');
 const { maskMarkdownCode } = require('./protocol/markdown-code');
+const { modelProfileGeneration } = require('./model-profiles');
+const { getSamplingCapabilities, filterSamplingOptions } = require('./provider/sampling-capabilities');
 const { isClaudeCodeCompactionRequest } = require('./request-intent');
 const TEXT_ONLY_TOOL_CALL_MARKER = /(?:<\|(?:BYV|DSML)\||<｜DSML｜|<\/?TOOL_CALL\b|["'](?:tool_calls|function_call)["']\s*:)/i;
 
@@ -210,12 +212,15 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
 
   const nativeToolCalling = diagnostic.nativeToolCalling === true;
   const gatewayToolChoiceNone = body.tool_choice === 'none';
+  const profileGeneration = modelProfileGeneration(body.model) || {};
+  const profileProviderParams = profileGeneration.provider_params || {};
+  const requestProviderParams = body.provider_params || {};
   const options = {
     max_tokens: body.max_tokens,
-    temperature: body.temperature,
-    top_p: body.top_p,
-    top_k: body.top_k,
-    provider_params: body.provider_params,
+    temperature: body.temperature !== undefined ? body.temperature : profileGeneration.temperature,
+    top_p: body.top_p !== undefined ? body.top_p : profileGeneration.top_p,
+    top_k: body.top_k !== undefined ? body.top_k : profileGeneration.top_k,
+    provider_params: { ...profileProviderParams, ...requestProviderParams },
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
     nativeToolCalling,
@@ -227,6 +232,27 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
   };
 
   try {
+    const hasInjectedProvider = Boolean(
+      provider && (
+        typeof provider.createChatCompletion === 'function' ||
+        typeof provider.createStreamingChatCompletion === 'function' ||
+        typeof provider.streamChatCompletionEvents === 'function'
+      )
+    );
+    const samplingCapabilities = provider && typeof provider.getSamplingCapabilities === 'function'
+      ? await provider.getSamplingCapabilities()
+      : hasInjectedProvider ? null : await getSamplingCapabilities();
+    if (samplingCapabilities) {
+      const filtered = filterSamplingOptions(options, samplingCapabilities);
+      Object.assign(options, filtered.options);
+      if (filtered.omitted.length) {
+        record('provider.sampling.parameters_omitted', {
+          omitted_parameters: filtered.omitted,
+          discovery_source: samplingCapabilities.source || 'unknown',
+          discovery_status: samplingCapabilities.status || 'unknown'
+        });
+      }
+    }
     estimatedInputTokens = estimateProviderInputTokens(messages);
     enforceProviderBudget(capabilities, estimatedInputTokens, body.max_tokens);
 
