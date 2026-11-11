@@ -640,13 +640,17 @@ async function handleMessages(body, options = {}) {
         });
       } catch (error) {
         const code = String(error && error.code || '');
+        const errorMessage = String(error && error.message || '');
+        const nativeToolRequestRejected = code === 'UPSTREAM_HTTP_400' ||
+          (code === 'PROVIDER_STREAM_ERROR' &&
+            /model rejected this request|invalid request|unsupported (?:native )?(?:tools?|functions?|tool schema)|(?:tools?|functions?|tool schema).{0,60}(?:unsupported|invalid|not supported)/i.test(errorMessage));
         const canFallbackToDsml = PROVIDER_NATIVE_TOOL_FALLBACK_TO_DSML &&
           !nativeToolFallbackAttempted &&
           phase === 'initial' &&
           nativeToolCalling &&
           tools.length > 0 &&
           force.mode !== 'none' &&
-          code === 'UPSTREAM_HTTP_400' &&
+          nativeToolRequestRejected &&
           !signal?.aborted &&
           !streamContentSent;
         if (canFallbackToDsml) {
