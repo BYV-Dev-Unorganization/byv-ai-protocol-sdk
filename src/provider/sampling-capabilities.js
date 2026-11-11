@@ -186,7 +186,10 @@ async function probeRequest(extraFields = {}) {
         messages: [{ role: 'user', content: 'Reply with OK.' }],
         max_tokens: 1,
         stream: false,
-        ...extraFields
+        ...extraFields,
+        ...(new URL(PROVIDER_BASE_URL).hostname === 'openrouter.ai'
+          ? { provider: { require_parameters: true } }
+          : {})
       })
     });
 
