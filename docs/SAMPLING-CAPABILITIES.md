@@ -80,6 +80,17 @@ Use `?refresh=1` to refresh provider metadata and sampling discovery. The JSON r
 
 Set `PROVIDER_SAMPLING_AUTO_PROBE=false` to avoid inference probes. If there is no metadata list or explicit allowlist, optional parameters remain unknown and are omitted. Use the environment allowlist only when the provider documentation or a controlled test confirms those fields are accepted.
 
+## Official provider documentation
+
+The discovery design follows the differences visible in current provider documentation:
+
+- [OpenAI List models](https://developers.openai.com/api/reference/resources/models/methods/list) documents basic model metadata such as model ID, creation time, and owner. It does not define a per-model Chat Completions sampling-parameter capability field.
+- [OpenRouter List models and their properties](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties) includes a `supported_parameters` array in model metadata.
+- [OpenRouter List endpoints for a model](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model) exposes serving-endpoint details. OpenRouter's model-level parameter list can represent multiple endpoints, so BYV uses `provider.require_parameters=true` when routing based on the detected list.
+- [vLLM OpenAI-compatible server](https://docs.vllm.ai/en/stable/serving/online_serving/openai_compatible_server/) documents provider-specific extra request fields such as `top_k`, `min_p`, and `repetition_penalty`. These are examples of why a generic OpenAI-compatible endpoint can support more or fewer fields than another implementation.
+
+These references demonstrate provider-specific behavior; they do not establish a universal discovery protocol shared by all OpenAI-compatible servers.
+
 ## Scope and limitations
 
 - Detection is bound to `PROVIDER_BASE_URL` and `PROVIDER_MODEL` at process startup. A provider route that changes its underlying model or serving endpoint can change capabilities; refresh or restart after changing provider configuration.
