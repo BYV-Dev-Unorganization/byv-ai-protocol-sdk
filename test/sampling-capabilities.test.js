@@ -68,7 +68,8 @@ test('uses model metadata supported_parameters before active probing', async (t)
     if (url.endsWith('/models/test-model')) {
       return jsonResponse({
         id: 'test-model',
-        supported_parameters: ['temperature', 'top_p', 'min_p', 'reasoning_effort']
+        supported_parameters: ['temperature', 'top_p', 'min_p', 'reasoning_effort'],
+        supported_reasoning_efforts: ['low', 'high']
       });
     }
     throw new Error('catalog should not be requested when detail metadata is complete');
@@ -86,6 +87,7 @@ test('uses model metadata supported_parameters before active probing', async (t)
   assert.equal(result.parameters.temperature, true);
   assert.equal(result.parameters.top_k, false);
   assert.equal(result.parameters.frequency_penalty, false);
+  assert.deepEqual(result.reasoning_effort_levels, ['low', 'high']);
   assert.deepEqual(requested, ['https://provider.example/v1/models/test-model']);
 });
 
@@ -159,6 +161,7 @@ test('filters unsupported top-level and provider-specific sampling fields before
     temperature: 0.4,
     top_p: 0.9,
     top_k: 40,
+    reasoning_effort: 'xhigh',
     provider_params: {
       min_p: 0.05,
       frequency_penalty: 0.2,
@@ -170,6 +173,7 @@ test('filters unsupported top-level and provider-specific sampling fields before
       temperature: true,
       top_p: false,
       top_k: false,
+      reasoning_effort: true,
       min_p: true,
       frequency_penalty: false,
       repetition_penalty: true
@@ -179,12 +183,32 @@ test('filters unsupported top-level and provider-specific sampling fields before
   assert.equal(filtered.options.temperature, 0.4);
   assert.equal(Object.hasOwn(filtered.options, 'top_p'), false);
   assert.equal(Object.hasOwn(filtered.options, 'top_k'), false);
+  assert.equal(Object.hasOwn(filtered.options, 'reasoning_effort'), false);
   assert.deepEqual(filtered.options.provider_params, {
     min_p: 0.05,
     repetition_penalty: 1.1
   });
   assert.equal(filtered.options.max_tokens, 256);
-  assert.deepEqual(filtered.omitted, ['top_p', 'top_k', 'frequency_penalty']);
+  assert.deepEqual(filtered.omitted, ['top_p', 'top_k', 'reasoning_effort', 'frequency_penalty']);
+});
+
+test('forwards only the exact reasoning effort levels confirmed by discovery', () => {
+  const sampling = require('../src/provider/sampling-capabilities');
+  const capabilities = {
+    parameters: { reasoning_effort: true },
+    reasoning_effort_levels: ['low', 'high']
+  };
+  const accepted = sampling.filterSamplingOptions(
+    { reasoning_effort: 'high', temperature: 0.3 },
+    capabilities
+  );
+  const rejected = sampling.filterSamplingOptions(
+    { reasoning_effort: 'max', temperature: 0.3 },
+    capabilities
+  );
+  assert.equal(accepted.options.reasoning_effort, 'high');
+  assert.equal(rejected.options.reasoning_effort, undefined);
+  assert.deepEqual(rejected.omitted, ['reasoning_effort']);
 });
 
 test('adds OpenRouter require_parameters only when model metadata is from OpenRouter', () => {
