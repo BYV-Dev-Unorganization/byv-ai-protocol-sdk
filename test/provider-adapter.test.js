@@ -114,6 +114,61 @@ test('builds the exact OpenAI-compatible request payload from PROVIDER_MODEL and
   });
 });
 
+test('forwards top_k and allowlisted provider sampling parameters in regular and streaming payloads', (t) => {
+  const { provider } = loadProvider(t);
+  const messages = [{ role: 'user', content: 'Tune sampling.' }];
+  const providerParams = {
+    min_p: 0.05,
+    frequency_penalty: 0.2,
+    presence_penalty: -0.1,
+    repetition_penalty: 1.1,
+    typical_p: 0.95,
+    top_a: 0.2,
+    tfs_z: 0.9,
+    seed: 42,
+    logit_bias: { '123': -2.5 },
+    mirostat: 2,
+    mirostat_tau: 5,
+    mirostat_eta: 0.1
+  };
+
+  for (const stream of [false, true]) {
+    const payload = provider.buildPayload(messages, {
+      max_tokens: 128,
+      stream,
+      top_k: 40,
+      provider_params: providerParams
+    }).payload;
+
+    assert.equal(payload.top_k, 40);
+    assert.equal(payload.min_p, 0.05);
+    assert.equal(payload.frequency_penalty, 0.2);
+    assert.equal(payload.presence_penalty, -0.1);
+    assert.equal(payload.repetition_penalty, 1.1);
+    assert.equal(payload.typical_p, 0.95);
+    assert.equal(payload.top_a, 0.2);
+    assert.equal(payload.tfs_z, 0.9);
+    assert.equal(payload.seed, 42);
+    assert.deepEqual(payload.logit_bias, { '123': -2.5 });
+    assert.equal(payload.mirostat, 2);
+    assert.equal(payload.mirostat_tau, 5);
+    assert.equal(payload.mirostat_eta, 0.1);
+    assert.equal(Object.hasOwn(payload, 'provider_params'), false);
+    assert.equal(payload.stream, stream);
+  }
+});
+
+test('rejects unrecognized provider sampling parameters at the adapter boundary', (t) => {
+  const { provider } = loadProvider(t);
+  assert.throws(
+    () => provider.buildPayload([{ role: 'user', content: 'Hello' }], {
+      max_tokens: 32,
+      provider_params: { unsupported_sampling_flag: true }
+    }),
+    (error) => error.statusCode === 400 && error.code === 'INVALID_PROVIDER_PARAMS'
+  );
+});
+
 test('forwards multimodal image_url parts unchanged in regular and streaming provider payloads', async (t) => {
   const { provider, model } = loadProvider(t);
   const messages = [{
