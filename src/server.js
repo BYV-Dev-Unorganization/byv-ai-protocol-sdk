@@ -11,6 +11,7 @@ const { listModels, isSupportedModel } = require('./model-profiles');
 const { handleMessages, resolveCompactionBudgets } = require('./handler');
 const { buildProviderMessages, buildCompactionProviderMessages } = require('./prompts');
 const { getModelCapabilities } = require('./provider/capabilities');
+const { getSamplingCapabilities } = require('./provider/sampling-capabilities');
 const { validateMessagesRequest, normalizeAnthropicMessagesRequest } = require('./anthropic-contract');
 const { estimateProviderInputTokens } = require('./content');
 const { writeEventAsync, createAnthropicStreamWriter } = require('./sse-sink');
@@ -46,6 +47,7 @@ function isClaudeDesktopConnectionProbe(body) {
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
+  const readSamplingCapabilities = options.getSamplingCapabilities || getSamplingCapabilities;
   // DSML_TOOL_CALL is the single transport switch: true keeps the textual
   // DSML protocol, false enables provider-native function calling.
   const noToolExperiment = typeof options.noToolExperiment === 'boolean'
@@ -167,11 +169,13 @@ function createServer(options = {}) {
     }
 
     if (req.method === 'GET' && route === '/v1/provider/capabilities') {
-      const capabilities = await readProviderCapabilities({
-        forceRefresh: requestUrl.searchParams.get('refresh') === '1'
-      });
+      const forceRefresh = requestUrl.searchParams.get('refresh') === '1';
+      const [capabilities, sampling] = await Promise.all([
+        readProviderCapabilities({ forceRefresh }),
+        readSamplingCapabilities({ forceRefresh })
+      ]);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify(capabilities));
+      return res.end(JSON.stringify({ ...capabilities, sampling }));
     }
 
     if (req.method !== 'POST' ||
@@ -562,12 +566,18 @@ function createServer(options = {}) {
   });
 }
 
-function start() {
+async function start() {
+  // Complete best-effort provider sampling discovery before exposing the gateway.
+  // Unknown or unsupported optional settings are omitted from subsequent requests.
+  const samplingCapabilities = await getSamplingCapabilities({ forceRefresh: true });
   const server = createServer();
   server.listen(PORT, HOST, () => {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
+    console.log('Sampling discovery: ' + samplingCapabilities.source + ' (' + samplingCapabilities.status + ')');
+    console.log('Sampling parameters enabled: ' + (samplingCapabilities.supported_parameters.join(', ') || '[none detected]'));
+    console.log('Sampling parameters omitted: ' + ([...samplingCapabilities.unsupported_parameters, ...samplingCapabilities.unknown_parameters].join(', ') || '[none]'));
     console.log('Tool transport: ' + (DSML_TOOL_CALL
       ? 'DeepSeek DSML text output (provider tool_choice=none; gateway adapter enabled)'
       : 'provider-native function calling'));
