@@ -26,8 +26,7 @@ const PROBE_VALUES = Object.freeze({
   seed: 42,
   mirostat: 1,
   mirostat_tau: 5,
-  mirostat_eta: 0.1,
-  reasoning_effort: 'high'
+  mirostat_eta: 0.1
 });
 
 const PROBE_PARAMETER_NAMES = Object.freeze(Object.keys(PROBE_VALUES));
@@ -48,6 +47,42 @@ function uniqueStrings(value) {
   }
   return result;
 }
+
+function extractReasoningEffortLevels(payload, model) {
+  const record = findModelRecord(payload, model);
+  if (!record) return null;
+  const candidates = [
+    record,
+    record.capabilities,
+    record.reasoning,
+    record.top_provider,
+    record.topProvider
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    for (const key of [
+      'supported_reasoning_efforts',
+      'reasoning_efforts',
+      'supported_effort_levels'
+    ]) {
+      const values = uniqueStrings(candidate[key]);
+      if (values !== null) {
+        return values.filter((value) =>
+          ['low', 'medium', 'high', 'xhigh', 'max'].includes(value)
+        );
+      }
+    }
+  }
+  return null;
+}
+
+const REASONING_EFFORT_LEVELS = Object.freeze([
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
+]);
 
 function extractSupportedParameters(payload, model) {
   const record = findModelRecord(payload, model);
@@ -97,14 +132,14 @@ async function fetchJson(url, timeoutMs = PROVIDER_MODEL_METADATA_TIMEOUT_MS) {
 
 async function discoverSupportedParametersFromMetadata() {
   if (!PROVIDER_BASE_URL || !PROVIDER_MODEL) {
-    return { supportedParameters: null, status: 'not_configured' };
+    return { supportedParameters: null, reasoningEffortLevels: null, status: 'not_configured' };
   }
 
   let urls;
   try {
     urls = samplingMetadataUrls(PROVIDER_BASE_URL, PROVIDER_MODEL);
   } catch {
-    return { supportedParameters: null, status: 'unavailable' };
+    return { supportedParameters: null, reasoningEffortLevels: null, status: 'unavailable' };
   }
 
   // Prefer the exact model-detail resource, then inspect the model catalog.
@@ -115,7 +150,11 @@ async function discoverSupportedParametersFromMetadata() {
     if (!response.ok) continue;
     const supportedParameters = extractSupportedParameters(response.payload, PROVIDER_MODEL);
     if (supportedParameters !== null) {
-      return { supportedParameters, status: 'available' };
+      return {
+        supportedParameters,
+        reasoningEffortLevels: extractReasoningEffortLevels(response.payload, PROVIDER_MODEL),
+        status: 'available'
+      };
     }
   }
 
@@ -174,10 +213,24 @@ async function probeRequest(extraFields = {}) {
   }
 }
 
+async function probeReasoningEffortLevels() {
+  const levels = [];
+  const unknown = [];
+  for (const effort of REASONING_EFFORT_LEVELS) {
+    const result = await probeRequest({ reasoning_effort: effort });
+    if (result.supported === true) levels.push(effort);
+    else if (result.supported === null) {
+      unknown.push(effort);
+      break;
+    }
+  }
+  return { levels, unknown };
+}
+
 function mapMetadataParameters(supportedParameters) {
   const reported = new Set(supportedParameters);
   const parameters = {};
-  for (const name of [...PROBE_PARAMETER_NAMES, 'logit_bias']) {
+  for (const name of [...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias']) {
     parameters[name] = reported.has(name);
   }
   return parameters;
@@ -206,6 +259,8 @@ function buildSnapshot(parameters, source, status, extras = {}) {
     supported_parameters: supported,
     unsupported_parameters: unsupported,
     unknown_parameters: unknown,
+    reasoning_effort_levels: extras.reasoning_effort_levels === undefined ? null : extras.reasoning_effort_levels,
+    unknown_reasoning_effort_levels: extras.unknown_reasoning_effort_levels || [],
     checked_at: new Date().toISOString(),
     ...extras
   };
@@ -231,18 +286,29 @@ async function probeSamplingParameters() {
     });
   }
 
+  let inconclusive = false;
   for (const [name, value] of Object.entries(PROBE_VALUES)) {
     const result = await probeRequest({ [name]: value });
     parameters[name] = result.supported;
     if (result.supported === null) {
       // Authentication, quota, rate-limit, server, and network failures make
       // the remaining fields unknown. Fail closed rather than guessing.
+      inconclusive = true;
       break;
     }
   }
 
+  const effortResult = inconclusive
+    ? { levels: [], unknown: REASONING_EFFORT_LEVELS.slice() }
+    : await probeReasoningEffortLevels();
+  parameters.reasoning_effort = effortResult.levels.length > 0
+    ? true
+    : effortResult.unknown.length > 0 ? null : false;
+
   return buildSnapshot(parameters, 'active_probe', 'available', {
     baseline_status: baseline.status,
+    reasoning_effort_levels: effortResult.levels,
+    unknown_reasoning_effort_levels: effortResult.unknown,
     probe_timeout_ms: PROVIDER_SAMPLING_PROBE_TIMEOUT_MS
   });
 }
@@ -250,7 +316,7 @@ async function probeSamplingParameters() {
 async function discoverSamplingCapabilities() {
   if (!PROVIDER_BASE_URL || !PROVIDER_MODEL) {
     return buildSnapshot(
-      Object.fromEntries([...PROBE_PARAMETER_NAMES, 'logit_bias'].map((name) => [name, null])),
+      Object.fromEntries([...PROBE_PARAMETER_NAMES, 'reasoning_effort', 'logit_bias'].map((name) => [name, null])),
       'unknown',
       'not_configured'
     );
@@ -266,17 +332,42 @@ async function discoverSamplingCapabilities() {
     );
   }
   if (manual) {
+    const parameters = mapMetadataParameters(manual.values);
+    let effortLevels = null;
+    let unknownEffortLevels = [];
+    if (parameters.reasoning_effort === true && PROVIDER_SAMPLING_AUTO_PROBE) {
+      const effortResult = await probeReasoningEffortLevels();
+      effortLevels = effortResult.levels;
+      unknownEffortLevels = effortResult.unknown;
+      parameters.reasoning_effort = effortLevels.length > 0
+        ? true
+        : unknownEffortLevels.length > 0 ? null : false;
+    }
     return buildSnapshot(
-      mapMetadataParameters(manual.values),
+      parameters,
       'environment',
       'available',
-      { note: 'Explicit allowlist; fields not listed are disabled.' }
+      {
+        note: 'Explicit allowlist; fields not listed are disabled.',
+        reasoning_effort_levels: effortLevels,
+        unknown_reasoning_effort_levels: unknownEffortLevels
+      }
     );
   }
 
   const metadata = await discoverSupportedParametersFromMetadata();
   if (metadata.supportedParameters !== null) {
     const parameters = mapMetadataParameters(metadata.supportedParameters);
+    let effortLevels = metadata.reasoningEffortLevels;
+    let unknownEffortLevels = [];
+    if (parameters.reasoning_effort === true && effortLevels === null && PROVIDER_SAMPLING_AUTO_PROBE) {
+      const effortResult = await probeReasoningEffortLevels();
+      effortLevels = effortResult.levels;
+      unknownEffortLevels = effortResult.unknown;
+      parameters.reasoning_effort = effortLevels.length > 0
+        ? true
+        : unknownEffortLevels.length > 0 ? null : false;
+    }
     const isOpenRouter = (() => {
       try { return new URL(PROVIDER_BASE_URL).hostname === 'openrouter.ai'; } catch { return false; }
     })();
@@ -285,7 +376,9 @@ async function discoverSamplingCapabilities() {
       // OpenRouter's model-level list is the union of its serving endpoints.
       // This request hint makes its router choose an endpoint that honors
       // every optional field BYV sends.
-      provider_require_parameters: isOpenRouter
+      provider_require_parameters: isOpenRouter,
+      reasoning_effort_levels: effortLevels,
+      unknown_reasoning_effort_levels: unknownEffortLevels
     });
   }
 
@@ -329,6 +422,14 @@ function filterSamplingOptions(options = {}, capabilities = {}) {
     if (parameters[field] !== true) {
       delete filtered[field];
       omitted.push(field);
+      continue;
+    }
+    if (field === 'reasoning_effort') {
+      const levels = capabilities.reasoning_effort_levels;
+      if (!Array.isArray(levels) || !levels.includes(filtered[field])) {
+        delete filtered[field];
+        omitted.push(field);
+      }
     }
   }
 
@@ -355,7 +456,9 @@ function filterSamplingOptions(options = {}, capabilities = {}) {
 module.exports = {
   PROBE_VALUES,
   PROBE_PARAMETER_NAMES,
+  REASONING_EFFORT_LEVELS,
   extractSupportedParameters,
+  extractReasoningEffortLevels,
   samplingMetadataUrls,
   discoverSupportedParametersFromMetadata,
   parseManualSupportedParameters,
