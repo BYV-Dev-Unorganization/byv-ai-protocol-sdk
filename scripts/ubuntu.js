@@ -323,7 +323,8 @@ function status() {
   const savedServerPid = readPid(SERVER_PID);
   const activeServerPid = savedServerPid && isManagedProcess(savedServerPid, 'server')
     ? savedServerPid
-    : listenerPid && isManagedProcess(listenerPid, 'server') ? listenerPid : null;
+    : listenerPid && (isManagedProcess(listenerPid, 'server') || isSystemdManagedServer(listenerPid))
+      ? listenerPid : null;
   log('Status: ' + JSON.stringify({
     ...data,
     server_pid: activeServerPid || data.server_pid || null,
