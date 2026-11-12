@@ -24,15 +24,45 @@ function alive(pid) {
   if (!pid) return false;
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
+function processArgs(pid) {
+  return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').split('\0').filter(Boolean);
+}
 function isManagedProcess(pid, kind) {
   if (!alive(pid) || process.platform !== 'linux') return false;
   try {
-    const command = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ');
+    const args = processArgs(pid);
     if (kind === 'server') {
-      return fs.realpathSync('/proc/' + pid + '/cwd') === ROOT && /(?:^|\s)src\/index\.js(?:\s|$)/.test(command);
+      const cwd = fs.realpathSync('/proc/' + pid + '/cwd');
+      const entry = path.join(ROOT, 'src', 'index.js');
+      const isNode = /^(node|nodejs)$/.test(path.basename(args[0] || '').replace(/\.exe$/i, ''));
+      return cwd === ROOT && isNode && args.slice(1).some((arg) => path.resolve(cwd, arg) === entry);
     }
-    return /cloudflared/.test(command) && /\btunnel\b/.test(command) && command.includes('--url') && command.includes('--http-host-header');
+    const executable = path.basename(args[0] || '').toLowerCase();
+    return executable === 'cloudflared' && args.includes('tunnel') &&
+      args.includes('--url') && args.includes('--http-host-header');
   } catch { return false; }
+}
+function findListenerPid(port) {
+  if (process.platform !== 'linux') return null;
+  const ss = spawnSync('ss', ['-H', '-ltnp'], { encoding: 'utf8' });
+  if (ss.status === 0) {
+    for (const line of String(ss.stdout || '').split('\n')) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 5 || !columns[3].endsWith(':' + port)) continue;
+      const match = line.match(/pid=(\d+)/);
+      if (match) return Number(match[1]);
+    }
+  }
+  const lsof = spawnSync('lsof', ['-nP', '-iTCP:' + port, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+  if (lsof.status === 0) {
+    const pid = Number(String(lsof.stdout || '').trim().split(/\s+/)[0]);
+    if (Number.isSafeInteger(pid) && pid > 1) return pid;
+  }
+  return null;
+}
+function processDescription(pid) {
+  try { return processArgs(pid).join(' ').slice(0, 240); }
+  catch { return 'PID ' + pid; }
 }
 function savePid(file, pid) { fs.writeFileSync(file, String(pid) + '\n', { mode: 0o600 }); }
 function writeStatus(extra) {
@@ -112,16 +142,36 @@ function spawnBackground(command, args, logFile, pidFile) {
   savePid(pidFile, child.pid);
   return child.pid;
 }
-async function waitForServer(url) {
-  const deadline = Date.now() + 30000;
+async function probeServer(baseUrl) {
+  const result = { dashboard_status: null, gateway_probe_status: null };
+  try {
+    const response = await fetch(baseUrl + '/dashboard', { signal: AbortSignal.timeout(2500) });
+    result.dashboard_status = response.status;
+  } catch (error) { result.dashboard_error = error.message; }
+  try {
+    // /api/hello is the gateway's unauthenticated HEAD liveness probe.
+    const response = await fetch(baseUrl + '/api/hello', {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(2500)
+    });
+    result.gateway_probe_status = response.status;
+  } catch (error) { result.gateway_probe_error = error.message; }
+  result.ready = result.dashboard_status === 200 && result.gateway_probe_status === 204;
+  return result;
+}
+async function waitForServer(baseUrl, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = {};
   while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
-      if (response.ok) return true;
-    } catch {}
+    last = await probeServer(baseUrl);
+    if (last.ready) return last;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  return false;
+  return last;
+}
+function recentLog(file, maxLines = 35) {
+  try { return fs.readFileSync(file, 'utf8').trim().split('\n').slice(-maxLines).join('\n'); }
+  catch { return ''; }
 }
 async function waitForTunnel() {
   const deadline = Date.now() + 90000;
@@ -143,17 +193,34 @@ async function start() {
   const dashboardUrl = localUrl + '/dashboard';
 
   let serverPid = readPid(SERVER_PID);
-  const serverReady = await waitForServer(dashboardUrl);
-  if (!serverReady) {
-    if (serverPid && isManagedProcess(serverPid, 'server')) fail('Server PID ' + serverPid + ' masih hidup tetapi dashboard tidak merespons. Periksa ' + SERVER_LOG);
-    if (serverPid) { try { fs.unlinkSync(SERVER_PID); } catch {} serverPid = null; }
+  const listenerPid = findListenerPid(port);
+  if (listenerPid) {
+    if (!isManagedProcess(listenerPid, 'server')) {
+      fail('Port ' + port + ' sudah digunakan PID ' + listenerPid + ', tetapi proses itu bukan BYV dari direktori repo ini. Tidak ada proses yang dihentikan. Proses: ' + processDescription(listenerPid));
+    }
+    serverPid = listenerPid;
+    savePid(SERVER_PID, serverPid);
+    const readiness = await waitForServer(localUrl, 5000);
+    if (!readiness.ready) {
+      fail('BYV PID ' + serverPid + ' sudah listen pada port ' + port +
+        ' tetapi pemeriksaan dashboard gagal: ' + JSON.stringify(readiness) +
+        '. Tidak membuat instance kedua. Periksa versi kode yang sedang berjalan dan log ' + SERVER_LOG);
+    }
+    log('BYV yang sudah berjalan berhasil dideteksi dan diadopsi (PID ' + serverPid + ').');
+  } else {
+    if (serverPid && !isManagedProcess(serverPid, 'server')) {
+      try { fs.unlinkSync(SERVER_PID); } catch {}
+      serverPid = null;
+    }
     log('Menjalankan BYV gateway di background pada ' + localUrl + ' ...');
     serverPid = spawnBackground(process.execPath, ['src/index.js'], SERVER_LOG, SERVER_PID);
-    if (!await waitForServer(dashboardUrl)) fail('BYV tidak siap dalam 30 detik. Periksa ' + SERVER_LOG);
-  } else {
-    log('BYV sudah aktif di ' + localUrl + '; menggunakan proses yang berjalan.');
-    if (serverPid && !isManagedProcess(serverPid, 'server')) { try { fs.unlinkSync(SERVER_PID); } catch {} serverPid = null; }
-    if (!serverPid) writeStatus({ local_url: localUrl, dashboard_url: dashboardUrl, server_managed: false });
+    const readiness = await waitForServer(localUrl, 30000);
+    if (!readiness.ready) {
+      const details = recentLog(SERVER_LOG);
+      fail('BYV tidak siap. Pemeriksaan: ' + JSON.stringify(readiness) +
+        (details ? '\\nLog terakhir:\\n' + details : '\\nLog belum tersedia.') +
+        '. Tidak akan mencoba membuat instance kedua.');
+    }
   }
 
   ensureCloudflared();
@@ -200,9 +267,15 @@ function status() {
   try { data = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8')); } catch {}
   const url = (() => { try { return fs.readFileSync(URL_FILE, 'utf8').trim(); } catch { return ''; } })();
   log('Public URL: ' + (url ? url + '/dashboard' : 'belum tersedia'));
+  const listenerPid = data.local_url ? findListenerPid(Number(new URL(data.local_url).port || 8787)) : null;
+  const savedServerPid = readPid(SERVER_PID);
+  const activeServerPid = savedServerPid && isManagedProcess(savedServerPid, 'server')
+    ? savedServerPid
+    : listenerPid && isManagedProcess(listenerPid, 'server') ? listenerPid : null;
   log('Status: ' + JSON.stringify({
     ...data,
-    server_running: isManagedProcess(readPid(SERVER_PID), 'server'),
+    server_pid: activeServerPid || data.server_pid || null,
+    server_running: Boolean(activeServerPid),
     tunnel_running: isManagedProcess(readPid(TUNNEL_PID), 'tunnel')
   }, null, 2));
 }
