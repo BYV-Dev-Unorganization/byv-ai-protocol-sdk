@@ -17,13 +17,13 @@ function createChatStore(options = {}) {
   db.pragma('busy_timeout = 5000');
   db.exec(
     'CREATE TABLE IF NOT EXISTS chat_sessions (' +
-    'id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT 'New conversation', ' +
-    'model TEXT NOT NULL, effort TEXT, summary TEXT NOT NULL DEFAULT '', ' +
+    'id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT \'New conversation\', ' +
+    'model TEXT NOT NULL, effort TEXT, summary TEXT NOT NULL DEFAULT \'\', ' +
     'compacted_through_message_id INTEGER NOT NULL DEFAULT 0, ' +
     'created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)' +
     '; CREATE TABLE IF NOT EXISTS chat_messages (' +
     'id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ' +
-    'role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, ' +
+    'role TEXT NOT NULL CHECK(role IN (\'user\',\'assistant\')), content TEXT NOT NULL, ' +
     'model TEXT, input_tokens INTEGER, output_tokens INTEGER, created_at INTEGER NOT NULL, ' +
     'FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE)' +
     '; CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id, id);' +
