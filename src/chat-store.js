@@ -39,6 +39,10 @@ function createChatStore(options = {}) {
     'SELECT id, role, content, model, input_tokens, output_tokens, created_at ' +
     'FROM chat_messages WHERE session_id = ? ORDER BY id ASC'
   );
+  const selectMessage = db.prepare(
+    'SELECT id, role, content, model, input_tokens, output_tokens, created_at ' +
+    'FROM chat_messages WHERE id = ?'
+  );
   const list = db.prepare(
     'SELECT s.id, s.title, s.model, s.effort, s.created_at, s.updated_at, ' +
     '(SELECT content FROM chat_messages m WHERE m.session_id=s.id ORDER BY m.id DESC LIMIT 1) AS preview ' +
@@ -91,7 +95,7 @@ function createChatStore(options = {}) {
     } else {
       touchSession.run(now, id);
     }
-    return selectMessages.get(result.lastInsertRowid);
+    return selectMessage.get(result.lastInsertRowid);
   }
 
   function saveSummary(id, summary, throughMessageId) {
