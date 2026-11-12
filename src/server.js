@@ -19,6 +19,7 @@ const { jsonError, readBody, checkAuth, isAllowedHost, isAllowedOrigin } = requi
 const { createRateLimiter, clientAddress, setRateLimitHeaders } = require('./rate-limiter');
 const { uuid } = require('./config');
 const { createDiagnostics } = require('./diagnostics');
+const { createDashboardHandler } = require('./dashboard');
 
 const CLAUDE_DESKTOP_PROBE_MAX_TOKENS = 512;
 const WORD_ADDIN_THINKING_HIGHLIGHT_MAX_TOKENS = 256;
@@ -44,6 +45,7 @@ function isClaudeDesktopConnectionProbe(body) {
 
 function createServer(options = {}) {
   const runHandler = options.handleMessages || handleMessages;
+  const dashboardHandler = options.dashboardHandler || createDashboardHandler();
   const readProviderCapabilities = options.getProviderCapabilities || getModelCapabilities;
   // DSML_TOOL_CALL is the single transport switch: true keeps the textual
   // DSML protocol, false enables provider-native function calling.
@@ -120,6 +122,8 @@ function createServer(options = {}) {
       return res.end();
     }
 
+    if (req.method === 'GET' && (route === '/dashboard' || route === '/dashboard/' || route === '/dashboard/chat')) return dashboardHandler(req, res);
+
     // Claude Code sends this unauthenticated connection-warming probe.
     if (req.method === 'HEAD' && route === '/api/hello') {
       res.writeHead(204, {
@@ -144,6 +148,8 @@ function createServer(options = {}) {
         'RATE_LIMITED'
       );
     }
+
+    if (route.startsWith('/dashboard/') || route === '/chat/sessionid') { const handled = await dashboardHandler(req, res); if (handled) return; }
 
     if (req.method === 'GET' && route === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -328,6 +334,7 @@ function createServer(options = {}) {
     const controller = new AbortController();
     const startedAt = Date.now();
     let pingTimer = null;
+    let streamTextBlockStarted = false;
     const onClose = () => {
       if (!res.writableEnded && !controller.signal.aborted) {
         controller.abort(new Error('Client disconnected.'));
@@ -375,7 +382,21 @@ function createServer(options = {}) {
           nativeToolCalling: !noToolExperiment,
           experimentVariant,
           requestIntent,
-          anthropicVersion: req.headers['anthropic-version']
+          anthropicVersion: req.headers['anthropic-version'],
+          onTextDelta: isStream ? (delta) => {
+            if (!delta || controller.signal.aborted || res.writableEnded) return;
+            if (!streamTextBlockStarted) {
+              streamTextBlockStarted = true;
+              sendEvent(res, 'content_block_start', {
+                type: 'content_block_start', index: 0,
+                content_block: { type: 'text', text: '' }
+              });
+            }
+            sendEvent(res, 'content_block_delta', {
+              type: 'content_block_delta', index: 0,
+              delta: { type: 'text_delta', text: delta }
+            });
+          } : undefined
         });
       } catch (error) {
         if (!thinkingHighlightAuxRequest ||
@@ -422,7 +443,10 @@ function createServer(options = {}) {
           clearInterval(pingTimer);
           pingTimer = null;
         }
-        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, { messageStarted: true });
+        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, {
+          messageStarted: true,
+          textAlreadyStreamed: streamTextBlockStarted
+        });
         res.end();
       } else {
         const payload = {
@@ -510,6 +534,7 @@ function start() {
   const server = createServer();
   server.listen(PORT, HOST, () => {
     console.log('BYV AI Protocol SDK gateway listening at http://' + HOST + ':' + PORT);
+    console.log('Dashboard: http://' + HOST + ':' + PORT + '/dashboard');
     console.log('Provider base URL: ' + (PROVIDER_BASE_URL || '[not configured]'));
     console.log('Provider model: ' + (PROVIDER_MODEL || '[not configured]'));
     console.log('Tool transport: ' + (DSML_TOOL_CALL

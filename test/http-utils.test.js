@@ -96,3 +96,12 @@ test('allows only exact reverse-proxy Host values configured by the operator', (
     else process.env.GATEWAY_ALLOWED_HOSTS = previous;
   }
 });
+
+
+test('allows only HTTPS Cloudflare Quick Tunnel origins', () => {
+  assert.equal(isAllowedOrigin('https://demo-123.trycloudflare.com', 8787), true);
+  assert.equal(isAllowedOrigin('http://demo-123.trycloudflare.com', 8787), false);
+  assert.equal(isAllowedOrigin('https://trycloudflare.com', 8787), false);
+  assert.equal(isAllowedOrigin('https://demo.trycloudflare.com.attacker.example', 8787), false);
+  assert.equal(isAllowedOrigin('https://demo.trycloudflare.com:8443', 8787), false);
+});
