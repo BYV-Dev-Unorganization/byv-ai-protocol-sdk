@@ -79,6 +79,11 @@ function isAllowedOrigin(origin, localPort) {
   if (configured.includes(origin)) return true;
   let url;
   try { url = new URL(origin); } catch { return false; }
+  // Cloudflare Quick Tunnels use a temporary HTTPS *.trycloudflare.com origin.
+  // The tunnel runner rewrites Host to the loopback listener; API routes still
+  // require the gateway key, and CORS reflects only this exact validated origin.
+  if (url.protocol === 'https:' && url.port === '' &&
+      /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.trycloudflare\.com$/i.test(url.hostname)) return true;
   if (url.protocol !== 'http:') return false;
   if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname.toLowerCase())) return false;
   return Number(url.port || 80) === Number(localPort);
