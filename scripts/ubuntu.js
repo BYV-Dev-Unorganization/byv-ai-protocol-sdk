@@ -27,11 +27,11 @@ function alive(pid) {
 function isManagedProcess(pid, kind) {
   if (!alive(pid) || process.platform !== 'linux') return false;
   try {
-    const command = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\\0/g, ' ');
+    const command = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\0/g, ' ');
     if (kind === 'server') {
-      return fs.realpathSync('/proc/' + pid + '/cwd') === ROOT && /(?:^|\\s)src\\/index\\.js(?:\\s|$)/.test(command);
+      return fs.realpathSync('/proc/' + pid + '/cwd') === ROOT && /(?:^|\s)src\/index\.js(?:\s|$)/.test(command);
     }
-    return /cloudflared/.test(command) && /\\btunnel\\b/.test(command) && command.includes('--url') && command.includes('--http-host-header');
+    return /cloudflared/.test(command) && /\btunnel\b/.test(command) && command.includes('--url') && command.includes('--http-host-header');
   } catch { return false; }
 }
 function savePid(file, pid) { fs.writeFileSync(file, String(pid) + '\n', { mode: 0o600 }); }
