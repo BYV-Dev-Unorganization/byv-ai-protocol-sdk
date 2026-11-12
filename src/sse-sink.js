@@ -37,7 +37,10 @@ function sendAnthropicStream(res, result, model, inputTokens, options = {}) {
   if (!options.messageStarted) sendAnthropicMessageStart(res, model, inputTokens, result.usage || {});
 
   let index = 0;
-  if (result.text) {
+  if (options.textAlreadyStreamed) {
+    sendEvent(res, 'content_block_stop', { type: 'content_block_stop', index: 0 });
+    index = 1;
+  } else if (result.text) {
     sendEvent(res, 'content_block_start', {
       type: 'content_block_start',
       index,

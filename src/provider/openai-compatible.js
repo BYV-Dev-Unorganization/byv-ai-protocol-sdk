@@ -369,8 +369,12 @@ async function createStreamingChatCompletion(messages, options = {}, signal) {
       const choice = data.choices && data.choices[0];
       if (!choice) return;
       const delta = choice.delta || {};
-      if (typeof delta.content === 'string') text += delta.content;
-      else if (Array.isArray(delta.content)) text += normalizeMessageContent(delta.content);
+      const textDelta = typeof delta.content === 'string' ? delta.content
+        : Array.isArray(delta.content) ? normalizeMessageContent(delta.content) : '';
+      if (textDelta) {
+        text += textDelta;
+        if (typeof options.onTextDelta === 'function') options.onTextDelta(textDelta);
+      }
       if (typeof delta.reasoning_content === 'string') reasoning += delta.reasoning_content;
       mergeProviderToolCallDelta(toolCallDeltas, delta.tool_calls);
       if (choice.finish_reason) finishReason = choice.finish_reason;

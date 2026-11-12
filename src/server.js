@@ -122,7 +122,7 @@ function createServer(options = {}) {
       return res.end();
     }
 
-    if (req.method === 'GET' && (route === '/dashboard' || route === '/dashboard/')) return dashboardHandler(req, res);
+    if (req.method === 'GET' && (route === '/dashboard' || route === '/dashboard/' || route === '/dashboard/chat')) return dashboardHandler(req, res);
 
     // Claude Code sends this unauthenticated connection-warming probe.
     if (req.method === 'HEAD' && route === '/api/hello') {
@@ -149,7 +149,7 @@ function createServer(options = {}) {
       );
     }
 
-    if (route.startsWith('/dashboard/')) { const handled = await dashboardHandler(req, res); if (handled) return; }
+    if (route.startsWith('/dashboard/') || route === '/chat/sessionid') { const handled = await dashboardHandler(req, res); if (handled) return; }
 
     if (req.method === 'GET' && route === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -334,6 +334,7 @@ function createServer(options = {}) {
     const controller = new AbortController();
     const startedAt = Date.now();
     let pingTimer = null;
+    let streamTextBlockStarted = false;
     const onClose = () => {
       if (!res.writableEnded && !controller.signal.aborted) {
         controller.abort(new Error('Client disconnected.'));
@@ -381,7 +382,21 @@ function createServer(options = {}) {
           nativeToolCalling: !noToolExperiment,
           experimentVariant,
           requestIntent,
-          anthropicVersion: req.headers['anthropic-version']
+          anthropicVersion: req.headers['anthropic-version'],
+          onTextDelta: isStream ? (delta) => {
+            if (!delta || controller.signal.aborted || res.writableEnded) return;
+            if (!streamTextBlockStarted) {
+              streamTextBlockStarted = true;
+              sendEvent(res, 'content_block_start', {
+                type: 'content_block_start', index: 0,
+                content_block: { type: 'text', text: '' }
+              });
+            }
+            sendEvent(res, 'content_block_delta', {
+              type: 'content_block_delta', index: 0,
+              delta: { type: 'text_delta', text: delta }
+            });
+          } : undefined
         });
       } catch (error) {
         if (!thinkingHighlightAuxRequest ||
@@ -428,7 +443,10 @@ function createServer(options = {}) {
           clearInterval(pingTimer);
           pingTimer = null;
         }
-        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, { messageStarted: true });
+        sendAnthropicStream(res, result, body.model, result.usage.input_tokens, {
+          messageStarted: true,
+          textAlreadyStreamed: streamTextBlockStarted
+        });
         res.end();
       } else {
         const payload = {
