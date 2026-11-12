@@ -1,9 +1,8 @@
 'use strict';
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync, execFileSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const dotenv = require('dotenv');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -24,6 +23,16 @@ function readPid(file) {
 function alive(pid) {
   if (!pid) return false;
   try { process.kill(pid, 0); return true; } catch { return false; }
+}
+function isManagedProcess(pid, kind) {
+  if (!alive(pid) || process.platform !== 'linux') return false;
+  try {
+    const command = fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').replace(/\\0/g, ' ');
+    if (kind === 'server') {
+      return fs.realpathSync('/proc/' + pid + '/cwd') === ROOT && /(?:^|\\s)src\\/index\\.js(?:\\s|$)/.test(command);
+    }
+    return /cloudflared/.test(command) && /\\btunnel\\b/.test(command) && command.includes('--url') && command.includes('--http-host-header');
+  } catch { return false; }
 }
 function savePid(file, pid) { fs.writeFileSync(file, String(pid) + '\n', { mode: 0o600 }); }
 function writeStatus(extra) {
@@ -67,7 +76,13 @@ function ensureCloudflared() {
     fail('Auto-install cloudflared hanya mendukung Ubuntu/Debian.');
   }
   if (spawnSync('apt-get', ['--version'], { stdio: 'ignore' }).status !== 0) fail('apt-get tidak ditemukan.');
-  const sudo = process.getuid && process.getuid() === 0 ? '' : 'sudo ';
+  const isRoot = process.getuid && process.getuid() === 0;
+  const sudo = isRoot ? '' : 'sudo ';
+  if (!isRoot && spawnSync('sudo', ['--version'], { stdio: 'ignore' }).status !== 0) fail('sudo diperlukan untuk memasang cloudflared.');
+  if (spawnSync('curl', ['--version'], { stdio: 'ignore' }).status !== 0) {
+    log('curl belum ada; memasang curl dan ca-certificates...');
+    run('bash', ['-lc', sudo + 'apt-get update && ' + sudo + 'apt-get install -y curl ca-certificates']);
+  }
   log('cloudflared belum ada. Memasang dari repository resmi Cloudflare...');
   const command = [
     sudo + 'install -d -m 0755 /usr/share/keyrings',
@@ -130,26 +145,27 @@ async function start() {
   let serverPid = readPid(SERVER_PID);
   const serverReady = await waitForServer(dashboardUrl);
   if (!serverReady) {
-    if (serverPid && alive(serverPid)) fail('Server PID ' + serverPid + ' masih hidup tetapi dashboard tidak merespons. Periksa ' + SERVER_LOG);
+    if (serverPid && isManagedProcess(serverPid, 'server')) fail('Server PID ' + serverPid + ' masih hidup tetapi dashboard tidak merespons. Periksa ' + SERVER_LOG);
+    if (serverPid) { try { fs.unlinkSync(SERVER_PID); } catch {} serverPid = null; }
     log('Menjalankan BYV gateway di background pada ' + localUrl + ' ...');
     serverPid = spawnBackground(process.execPath, ['src/index.js'], SERVER_LOG, SERVER_PID);
     if (!await waitForServer(dashboardUrl)) fail('BYV tidak siap dalam 30 detik. Periksa ' + SERVER_LOG);
   } else {
     log('BYV sudah aktif di ' + localUrl + '; menggunakan proses yang berjalan.');
-    if (!serverPid) {
-      writeStatus({ local_url: localUrl, dashboard_url: dashboardUrl, server_managed: false });
-    }
+    if (serverPid && !isManagedProcess(serverPid, 'server')) { try { fs.unlinkSync(SERVER_PID); } catch {} serverPid = null; }
+    if (!serverPid) writeStatus({ local_url: localUrl, dashboard_url: dashboardUrl, server_managed: false });
   }
 
   ensureCloudflared();
   let tunnelPid = readPid(TUNNEL_PID);
   let publicUrl = tailUrl();
-  if (tunnelPid && alive(tunnelPid) && publicUrl) {
+  if (tunnelPid && isManagedProcess(tunnelPid, 'tunnel') && publicUrl) {
     log('Cloudflare Tunnel sudah berjalan.');
   } else {
-    if (tunnelPid && alive(tunnelPid)) {
+    if (tunnelPid && isManagedProcess(tunnelPid, 'tunnel')) {
       try { process.kill(tunnelPid, 'SIGTERM'); } catch {}
     }
+    if (tunnelPid && !isManagedProcess(tunnelPid, 'tunnel')) { try { fs.unlinkSync(TUNNEL_PID); } catch {} }
     fs.writeFileSync(TUNNEL_LOG, '', { mode: 0o600 });
     log('Membuat Quick Tunnel dan menjalankannya di background...');
     tunnelPid = spawnBackground('cloudflared', [
@@ -186,14 +202,15 @@ function status() {
   log('Public URL: ' + (url ? url + '/dashboard' : 'belum tersedia'));
   log('Status: ' + JSON.stringify({
     ...data,
-    server_running: alive(readPid(SERVER_PID)),
-    tunnel_running: alive(readPid(TUNNEL_PID))
+    server_running: isManagedProcess(readPid(SERVER_PID), 'server'),
+    tunnel_running: isManagedProcess(readPid(TUNNEL_PID), 'tunnel')
   }, null, 2));
 }
 function stop() {
   for (const [name, file] of [['Cloudflare Tunnel', TUNNEL_PID], ['BYV server', SERVER_PID]]) {
     const pid = readPid(file);
-    if (pid && alive(pid)) {
+    const kind = file === TUNNEL_PID ? 'tunnel' : 'server';
+    if (pid && isManagedProcess(pid, kind)) {
       try { process.kill(pid, 'SIGTERM'); log(name + ' dihentikan (PID ' + pid + ').'); }
       catch (error) { log('Tidak dapat menghentikan ' + name + ': ' + error.message); }
     } else log(name + ' tidak berjalan.');
