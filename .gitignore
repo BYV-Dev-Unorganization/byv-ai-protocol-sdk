@@ -6,3 +6,4 @@ coverage/
 .DS_Store
 logs/
 \n.byv-files/\n
+.byv-ubuntu/
