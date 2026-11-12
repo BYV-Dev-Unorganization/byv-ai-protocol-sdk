@@ -169,6 +169,24 @@ async function waitForServer(baseUrl, timeoutMs = 30000) {
   }
   return last;
 }
+function findTunnelPid(localUrl, hostHeader) {
+  if (process.platform !== 'linux') return null;
+  let entries;
+  try { entries = fs.readdirSync('/proc'); } catch { return null; }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (!isManagedProcess(pid, 'tunnel')) continue;
+    try {
+      const args = processArgs(pid);
+      const urlIndex = args.indexOf('--url');
+      const hostIndex = args.indexOf('--http-host-header');
+      if (urlIndex >= 0 && args[urlIndex + 1] === localUrl &&
+          hostIndex >= 0 && args[hostIndex + 1] === hostHeader) return pid;
+    } catch {}
+  }
+  return null;
+}
 function recentLog(file, maxLines = 35) {
   try { return fs.readFileSync(file, 'utf8').trim().split('\n').slice(-maxLines).join('\n'); }
   catch { return ''; }
@@ -224,20 +242,26 @@ async function start() {
   }
 
   ensureCloudflared();
+  const hostHeader = host.includes(':') ? '[' + host + ']:' + port : host + ':' + port;
   let tunnelPid = readPid(TUNNEL_PID);
   let publicUrl = tailUrl();
+  if (!(tunnelPid && isManagedProcess(tunnelPid, 'tunnel'))) {
+    tunnelPid = findTunnelPid(localUrl, hostHeader);
+    if (tunnelPid) savePid(TUNNEL_PID, tunnelPid);
+  }
   if (tunnelPid && isManagedProcess(tunnelPid, 'tunnel') && publicUrl) {
-    log('Cloudflare Tunnel sudah berjalan.');
+    log('Cloudflare Tunnel sudah berjalan (PID ' + tunnelPid + ').');
+  } else if (tunnelPid && isManagedProcess(tunnelPid, 'tunnel')) {
+    log('Cloudflare Tunnel ditemukan (PID ' + tunnelPid + '); menunggu URL publik...');
+    publicUrl = await waitForTunnel();
+    if (!publicUrl) fail('Tunnel hidup tetapi URL belum terdeteksi. Periksa ' + TUNNEL_LOG);
   } else {
-    if (tunnelPid && isManagedProcess(tunnelPid, 'tunnel')) {
-      try { process.kill(tunnelPid, 'SIGTERM'); } catch {}
-    }
-    if (tunnelPid && !isManagedProcess(tunnelPid, 'tunnel')) { try { fs.unlinkSync(TUNNEL_PID); } catch {} }
+    if (tunnelPid) { try { fs.unlinkSync(TUNNEL_PID); } catch {} }
     fs.writeFileSync(TUNNEL_LOG, '', { mode: 0o600 });
     log('Membuat Quick Tunnel dan menjalankannya di background...');
     tunnelPid = spawnBackground('cloudflared', [
       'tunnel', '--no-autoupdate', '--url', localUrl,
-      '--http-host-header', host.includes(':') ? '[' + host + ']:' + port : host + ':' + port
+      '--http-host-header', hostHeader
     ], TUNNEL_LOG, TUNNEL_PID);
     publicUrl = await waitForTunnel();
     if (!publicUrl) fail('URL Cloudflare belum terdeteksi. Periksa ' + TUNNEL_LOG);
@@ -267,7 +291,7 @@ function status() {
   try { data = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8')); } catch {}
   const url = (() => { try { return fs.readFileSync(URL_FILE, 'utf8').trim(); } catch { return ''; } })();
   log('Public URL: ' + (url ? url + '/dashboard' : 'belum tersedia'));
-  const listenerPid = data.local_url ? findListenerPid(Number(new URL(data.local_url).port || 8787)) : null;
+  const listenerPid = findListenerPid(localConfig().port);
   const savedServerPid = readPid(SERVER_PID);
   const activeServerPid = savedServerPid && isManagedProcess(savedServerPid, 'server')
     ? savedServerPid
@@ -292,8 +316,12 @@ function stop() {
   try { fs.unlinkSync(URL_FILE); } catch {}
   try { fs.unlinkSync(STATUS_FILE); } catch {}
 }
-const action = process.argv[2] || 'start';
-if (action === 'status') status();
-else if (action === 'stop') stop();
-else if (action === 'start') start().catch((error) => fail(error.stack || error.message));
-else fail('Aksi tidak dikenal. Gunakan start, status, atau stop.');
+if (require.main === module) {
+  const action = process.argv[2] || 'start';
+  if (action === 'status') status();
+  else if (action === 'stop') stop();
+  else if (action === 'start') start().catch((error) => fail(error.stack || error.message));
+  else fail('Aksi tidak dikenal. Gunakan start, status, atau stop.');
+}
+
+module.exports = { probeServer, waitForServer, isManagedProcess, findListenerPid, findTunnelPid };
