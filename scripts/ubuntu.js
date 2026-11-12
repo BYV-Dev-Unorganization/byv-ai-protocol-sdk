@@ -42,6 +42,32 @@ function isManagedProcess(pid, kind) {
       args.includes('--url') && args.includes('--http-host-header');
   } catch { return false; }
 }
+function isSystemdManagedServer(pid) {
+  if (process.platform !== 'linux' || !pid) return false;
+  const service = process.env.BYV_SYSTEMD_SERVICE || 'byv-ai-protocol-sdk.service';
+  const result = spawnSync('systemctl', [
+    'show', service,
+    '--property=LoadState',
+    '--property=ActiveState',
+    '--property=MainPID',
+    '--property=ExecStart',
+    '--property=WorkingDirectory',
+    '--no-pager'
+  ], { encoding: 'utf8' });
+  if (result.status !== 0) return false;
+  const values = Object.fromEntries(String(result.stdout || '').trim().split('\n')
+    .map((line) => {
+      const index = line.indexOf('=');
+      return index < 0 ? ['', ''] : [line.slice(0, index), line.slice(index + 1)];
+    }));
+  if (values.LoadState !== 'loaded' || values.ActiveState !== 'active' ||
+      Number(values.MainPID) !== pid) return false;
+  const workingDirectory = values.WorkingDirectory || '';
+  const execStart = values.ExecStart || '';
+  return /byv-ai-protocol-sdk/.test(workingDirectory) &&
+    /(?:^|\s|\/)(?:node|nodejs)(?:\s|$)/.test(execStart) &&
+    /src\/index\.js/.test(execStart);
+}
 function findListenerPid(port) {
   if (process.platform !== 'linux') return null;
   const ss = spawnSync('ss', ['-H', '-ltnp'], { encoding: 'utf8' });
@@ -213,18 +239,20 @@ async function start() {
   let serverPid = readPid(SERVER_PID);
   const listenerPid = findListenerPid(port);
   if (listenerPid) {
-    if (!isManagedProcess(listenerPid, 'server')) {
-      fail('Port ' + port + ' sudah digunakan PID ' + listenerPid + ', tetapi proses itu bukan BYV dari direktori repo ini. Tidak ada proses yang dihentikan. Proses: ' + processDescription(listenerPid));
+    const managedByRepo = isManagedProcess(listenerPid, 'server');
+    const managedBySystemd = isSystemdManagedServer(listenerPid);
+    if (!managedByRepo && !managedBySystemd) {
+      fail('Port ' + port + ' sudah digunakan PID ' + listenerPid + ', tetapi bukan proses BYV yang dikenali (repo atau systemd). Tidak ada proses yang dihentikan. Proses: ' + processDescription(listenerPid));
     }
     serverPid = listenerPid;
-    savePid(SERVER_PID, serverPid);
+    if (managedByRepo) savePid(SERVER_PID, serverPid);
     const readiness = await waitForServer(localUrl, 5000);
     if (!readiness.ready) {
       fail('BYV PID ' + serverPid + ' sudah listen pada port ' + port +
         ' tetapi pemeriksaan dashboard gagal: ' + JSON.stringify(readiness) +
         '. Tidak membuat instance kedua. Periksa versi kode yang sedang berjalan dan log ' + SERVER_LOG);
     }
-    log('BYV yang sudah berjalan berhasil dideteksi dan diadopsi (PID ' + serverPid + ').');
+    log('BYV gateway yang sudah berjalan berhasil dideteksi' + (managedBySystemd ? ' melalui systemd' : '') + ' (PID ' + serverPid + ').');
   } else {
     if (serverPid && !isManagedProcess(serverPid, 'server')) {
       try { fs.unlinkSync(SERVER_PID); } catch {}
@@ -304,15 +332,21 @@ function status() {
   }, null, 2));
 }
 function stop() {
-  for (const [name, file] of [['Cloudflare Tunnel', TUNNEL_PID], ['BYV server', SERVER_PID]]) {
-    const pid = readPid(file);
-    const kind = file === TUNNEL_PID ? 'tunnel' : 'server';
-    if (pid && isManagedProcess(pid, kind)) {
-      try { process.kill(pid, 'SIGTERM'); log(name + ' dihentikan (PID ' + pid + ').'); }
-      catch (error) { log('Tidak dapat menghentikan ' + name + ': ' + error.message); }
-    } else log(name + ' tidak berjalan.');
-    try { fs.unlinkSync(file); } catch {}
+  const pid = readPid(TUNNEL_PID);
+  if (pid && isManagedProcess(pid, 'tunnel')) {
+    try { process.kill(pid, 'SIGTERM'); log('Cloudflare Tunnel dihentikan (PID ' + pid + ').'); }
+    catch (error) { log('Tidak dapat menghentikan Cloudflare Tunnel: ' + error.message); }
+  } else log('Cloudflare Tunnel tidak berjalan.');
+  try { fs.unlinkSync(TUNNEL_PID); } catch {}
+  // The gateway may be managed by systemd; this command intentionally never stops it.
+  const serverPid = readPid(SERVER_PID);
+  if (serverPid && isManagedProcess(serverPid, 'server')) {
+    try { process.kill(serverPid, 'SIGTERM'); log('BYV server background dihentikan (PID ' + serverPid + ').'); }
+    catch (error) { log('Tidak dapat menghentikan BYV server: ' + error.message); }
+  } else {
+    log('Gateway systemd/local yang bukan milik launcher dibiarkan tetap berjalan.');
   }
+  try { fs.unlinkSync(SERVER_PID); } catch {}
   try { fs.unlinkSync(URL_FILE); } catch {}
   try { fs.unlinkSync(STATUS_FILE); } catch {}
 }
