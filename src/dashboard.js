@@ -12,11 +12,13 @@ function createDashboardHandler(o={}){
  const root=path.resolve(o.rootDir||path.join(__dirname,'..'));
  const csp={"Content-Security-Policy":"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';"};
  function html(res,file){const body=fs.readFileSync(path.join(root,'public',file),'utf8');res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store',...csp,'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(body);return true}
+ function css(res,file){const body=fs.readFileSync(path.join(root,'public',file),'utf8');res.writeHead(200,{'Content-Type':'text/css; charset=utf-8','Cache-Control':'no-store',...csp,'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(body);return true}
  function fail(res,error){send(res,error.statusCode||400,{ok:false,error:String(error.message||error).slice(0,300)});return true}
  return async(req,res)=>{
   const route=new URL(req.url||'/','http://localhost').pathname;
   if(req.method==='GET'&&['/dashboard','/dashboard/'].includes(route))return html(res,'dashboard.html');
   if(req.method==='GET'&&route==='/dashboard/chat')return html(res,'chat.html');
+  if(req.method==='GET'&&route==='/dashboard/ui.css')return css(res,'ui.css');
   if(route==='/chat/sessionid'&&req.method==='POST'){
    try{return send(res,201,{ok:true,session:chat.createSession(await read(req))})}catch(e){return fail(res,e)}
   }
@@ -30,7 +32,7 @@ function createDashboardHandler(o={}){
    if(req.method==='POST'){try{send(res,201,{ok:true,session:chat.createSession(await read(req))})}catch(e){fail(res,e)}return true}
    return false;
   }
-  const match=route.match(/^\/dashboard\/api\/sessions\/([A-Za-z0-9_-]+)(?:\/(messages|summary))?$/);
+  const match=route.match(/^\/dashboard\/api\/sessions\/([A-Za-z0-9_-]+)(?:\/(messages|summary|truncate))?$/);
   if(!match)return false;
   const id=match[1],sub=match[2]||'';
   if(!sub&&req.method==='GET'){
@@ -47,6 +49,10 @@ function createDashboardHandler(o={}){
   }
   if(sub==='messages'&&req.method==='POST'){
    try{const message=chat.addMessage(id,await read(req,262144));if(!message){send(res,404,{error:'Session not found.'});return true}send(res,201,{ok:true,message});}
+   catch(e){fail(res,e)}return true;
+  }
+  if(sub==='truncate'&&req.method==='POST'){
+   try{const body=await read(req);const session=chat.truncateMessages(id,body.from_message_id);if(!session){send(res,404,{error:'Session or message not found.'});return true}send(res,200,{ok:true,session});}
    catch(e){fail(res,e)}return true;
   }
   if(sub==='summary'&&req.method==='POST'){

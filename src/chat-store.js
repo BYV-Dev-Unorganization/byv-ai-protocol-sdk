@@ -98,6 +98,34 @@ function createChatStore(options = {}) {
     return selectMessage.get(result.lastInsertRowid);
   }
 
+  function truncateMessages(id, fromMessageId) {
+    const session = selectSession.get(id);
+    if (!session) return null;
+    if (!Number.isSafeInteger(fromMessageId) || fromMessageId <= 0) {
+      throw new Error('from_message_id must be a positive integer.');
+    }
+    const target = db.prepare(
+      'SELECT id FROM chat_messages WHERE id = ? AND session_id = ?'
+    ).get(fromMessageId, id);
+    if (!target) return null;
+    const now = Date.now();
+    const remove = db.prepare('DELETE FROM chat_messages WHERE session_id = ? AND id >= ?');
+    db.transaction(() => {
+      remove.run(id, fromMessageId);
+      if (session.compacted_through_message_id >= fromMessageId) {
+        db.prepare('UPDATE chat_sessions SET summary = \'\', compacted_through_message_id = 0, updated_at = ? WHERE id = ?')
+          .run(now, id);
+      } else {
+        db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(now, id);
+      }
+      const remaining = db.prepare('SELECT COUNT(*) AS n FROM chat_messages WHERE session_id = ?').get(id).n;
+      if (remaining === 0) {
+        db.prepare('UPDATE chat_sessions SET title = \'New conversation\' WHERE id = ?').run(id);
+      }
+    })();
+    return getSession(id);
+  }
+
   function saveSummary(id, summary, throughMessageId) {
     const session = selectSession.get(id);
     if (!session) return null;
@@ -134,6 +162,7 @@ function createChatStore(options = {}) {
     createSession,
     getSession,
     addMessage,
+    truncateMessages,
     saveSummary,
     updateSession,
     deleteSession,
