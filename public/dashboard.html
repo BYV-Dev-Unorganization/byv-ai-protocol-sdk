@@ -1,13 +1,288 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BYV Gateway Settings</title>
-<style>:root{color-scheme:dark;--bg:#0b0e14;--panel:#151b27;--line:#2b3547;--text:#eef2fa;--muted:#9ba8bc;--accent:#a394ff}*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% 0%,#282344,transparent 42%),var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}main{max-width:1050px;margin:auto;padding:30px 18px 60px}.head{display:flex;align-items:center;gap:14px;margin-bottom:24px}.logo{width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#b6aaff,#6755d8);display:grid;place-items:center;color:#10101a;font-size:22px;font-weight:900}.eyebrow{font-size:10px;letter-spacing:.17em;color:var(--accent);font-weight:800}.title{font-size:25px;font-weight:800}.muted{color:var(--muted)}.login,.panel,.nav{background:#151b27ed;border:1px solid var(--line);border-radius:15px}.login{max-width:430px;margin:13vh auto;padding:24px}.login input{width:100%;margin:12px 0;padding:12px}.layout{display:grid;grid-template-columns:190px 1fr;gap:18px}.nav{padding:9px;height:max-content;position:sticky;top:15px}.nav button{display:block;width:100%;text-align:left;background:none;color:var(--muted);border:0;padding:10px;border-radius:8px;cursor:pointer}.nav button.active,.nav button:hover{background:#252c3b;color:white}.panel{padding:20px;margin-bottom:15px}.panel h2{font-size:16px;margin:0}.hint{font-size:12px;color:var(--muted);margin:3px 0 17px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field.full{grid-column:1/-1}.field label{display:block;font-size:12px;color:#cbd3e1;margin-bottom:5px}.field input,.field select,.login input{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:8px;background:#0b111b;color:var(--text)}.field small{display:block;color:var(--muted);font-size:11px;margin-top:4px}.notice{background:#24203b;border:1px solid #51477b;padding:12px 14px;border-radius:10px;margin-bottom:16px;color:#ded8ff;font-size:12px}.actions{position:sticky;bottom:10px;background:#101621ed;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center}.primary{background:var(--accent);color:#11101a;border:0;border-radius:8px;padding:11px 16px;font-weight:800;cursor:pointer}.secondary{background:#252c3b;color:white;border:1px solid var(--line);border-radius:8px;padding:10px 14px;cursor:pointer}.msg{font-size:12px;color:var(--muted)}.hidden{display:none!important}@media(max-width:680px){.layout{grid-template-columns:1fr}.nav{position:static;display:flex;overflow:auto}.nav button{white-space:nowrap;width:auto}.fields{grid-template-columns:1fr}.field.full{grid-column:auto}}</style></head><body>
-<section id="login" class="login"><div class="head"><div class="logo">✦</div><div><div class="eyebrow">BYV AI PROTOCOL SDK</div><div class="title">Gateway Settings</div><a href="/dashboard/chat" style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none;margin-left:8px">Open chat →</a></div></div><p class="muted">Enter your BYV gateway API key. It stays in this browser tab and is never saved by this page.</p><input id="gatewayKey" type="password" placeholder="Gateway API key"><button id="connect" class="primary">Connect dashboard</button><p id="loginMsg" class="msg"></p></section>
-<main id="app" class="hidden"><header class="head"><div class="logo">✦</div><div><div class="eyebrow">BYV AI PROTOCOL SDK</div><div class="title">Gateway Settings</div><a href="/dashboard/chat" style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none;margin-left:8px">Open chat →</a><div class="muted">Provider, protocol and runtime configuration</div></div></header><div class="notice">Changes are written to <b>.env</b> with restricted permissions. Restart BYV after saving. Provider API keys are never returned to the browser.</div><div class="layout"><nav class="nav"><button class="active" data-go="provider">Provider</button><button data-go="protocol">Protocol</button><button data-go="capabilities">Capabilities</button><button data-go="server">Server</button><button data-go="limits">Limits</button><button data-go="compaction">Compaction</button><button data-go="logs">Diagnostics</button></nav><div><form id="form">
-<section class="panel" id="provider"><h2>Upstream provider</h2><p class="hint">OpenAI-compatible Chat Completions API.</p><div class="fields"><div class="field full"><label>Provider base URL</label><input id="PROVIDER_BASE_URL" placeholder="https://provider.example/v1"></div><div class="field"><label>Provider model ID</label><input id="PROVIDER_MODEL"></div><div class="field"><label>Provider API key</label><input id="PROVIDER_API_KEY" type="password" placeholder="Blank keeps existing key"><small id="keyState"></small></div></div></section>
-<section class="panel" id="protocol"><h2>Tool protocol</h2><p class="hint">Select DSML text transport or provider-native function calling.</p><div class="fields"><div class="field"><label>DSML_TOOL_CALL</label><select id="DSML_TOOL_CALL"><option value="false">false — native tool calling</option><option value="true">true — DSML text</option></select></div><div class="field"><label>DSML prompt variant</label><select id="NO_TOOL_EXPERIMENT_VARIANT"><option>A</option><option>B</option></select></div><div class="field"><label>Native reasoning effort</label><select id="PROVIDER_NATIVE_REASONING_EFFORT"><option value="false">Off</option><option value="true">On</option></select></div><div class="field"><label>Disable reasoning for required tools</label><select id="PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS"><option value="false">Off</option><option value="true">On</option></select></div></div></section>
-<section class="panel" id="capabilities"><h2>Model capabilities</h2><p class="hint">Blank token limits use provider metadata discovery.</p><div class="fields"><div class="field"><label>Context window tokens</label><input id="PROVIDER_CONTEXT_WINDOW_TOKENS" type="number"></div><div class="field"><label>Maximum input tokens</label><input id="PROVIDER_MAX_INPUT_TOKENS" type="number"></div><div class="field"><label>Maximum output tokens</label><input id="PROVIDER_MAX_OUTPUT_TOKENS" type="number"></div><div class="field"><label>Context safety reserve</label><input id="CONTEXT_WINDOW_SAFETY_TOKENS" type="number"></div><div class="field"><label>Metadata timeout (ms)</label><input id="PROVIDER_MODEL_METADATA_TIMEOUT_MS" type="number"></div><div class="field"><label>Capabilities cache (ms)</label><input id="PROVIDER_CAPABILITIES_CACHE_MS" type="number"></div></div></section>
-<section class="panel" id="server"><h2>Server & network</h2><p class="hint">Loopback binding is recommended for local administration.</p><div class="fields"><div class="field"><label>Bind host</label><input id="HOST" placeholder="127.0.0.1"></div><div class="field"><label>Port</label><input id="PORT" type="number"></div><div class="field full"><label>Additional allowed Host values</label><input id="GATEWAY_ALLOWED_HOSTS"></div><div class="field full"><label>CORS allowed origins</label><input id="CORS_ALLOWED_ORIGINS"></div></div></section>
-<section class="panel" id="limits"><h2>Request & provider limits</h2><div class="fields"><div class="field"><label>Provider requests/minute</label><input id="PROVIDER_MAX_REQUESTS_PER_MINUTE" type="number"></div><div class="field"><label>Provider concurrency</label><input id="PROVIDER_MAX_CONCURRENT_REQUESTS" type="number"></div><div class="field"><label>Provider timeout (ms)</label><input id="PROVIDER_TIMEOUT_MS" type="number"></div><div class="field"><label>Provider retries</label><input id="MAX_PROVIDER_RETRIES" type="number"></div><div class="field"><label>SSE ping interval (ms)</label><input id="STREAM_PING_INTERVAL_MS" type="number"></div><div class="field"><label>Maximum pending requests</label><input id="MAX_PENDING_REQUESTS" type="number"></div><div class="field"><label>Maximum body bytes</label><input id="MAX_BODY_BYTES" type="number"></div><div class="field"><label>Maximum output chars</label><input id="MAX_OUTPUT_CHARS" type="number"></div><div class="field full"><label>Maximum prompt chars</label><input id="MAX_PROMPT_CHARS" type="number"></div></div></section>
-<section class="panel" id="compaction"><h2>Compaction & recovery</h2><div class="fields"><div class="field"><label>Compaction max input tokens</label><input id="COMPACTION_MAX_INPUT_TOKENS" type="number"></div><div class="field"><label>Compaction max output tokens</label><input id="COMPACTION_MAX_OUTPUT_TOKENS" type="number"></div><div class="field"><label>Compaction max system chars</label><input id="COMPACTION_MAX_SYSTEM_CHARS" type="number"></div><div class="field"><label>Maximum recovery attempts</label><input id="MAX_RECOVERY_ATTEMPTS" type="number"></div></div></section>
-<section class="panel" id="logs"><h2>Diagnostics</h2><p class="hint">Content capture may include prompts and sensitive data. Keep it off normally.</p><div class="fields"><div class="field"><label>Capture request/response content</label><select id="LOG_CAPTURE_CONTENT"><option value="false">Off (recommended)</option><option value="true">On (debug only)</option></select></div><div class="field"><label>Maximum log file bytes</label><input id="LOG_MAX_FILE_BYTES" type="number"></div><div class="field"><label>Log rotation files</label><input id="LOG_ROTATION_FILES" type="number"></div></div></section>
-<div class="actions"><button class="primary" type="submit">Save configuration</button><button class="secondary" id="reload" type="button">Reload</button><span id="message" class="msg"></span></div></form></div></div></main>
-<script>(()=>{const $=id=>document.getElementById(id),store="byv-dashboard-key";let cfg;const headers=json=>({Authorization:"Bearer "+(sessionStorage.getItem(store)||""),...(json?{"Content-Type":"application/json"}:{})});async function api(method="GET",data){const r=await fetch("/dashboard/api/config",{method,headers:headers(Boolean(data)),body:data?JSON.stringify(data):undefined}),x=await r.json().catch(()=>({}));if(!r.ok)throw Error(x.error||"Request failed");return x}function fill(x){cfg=x;for(const[k,v]of Object.entries(x.values||{}))if($(k))$(k).value=v;$("PROVIDER_API_KEY").value="";$("keyState").textContent=x.provider_api_key_configured?"Key configured; enter a replacement only if needed.":"No provider key configured."}async function load(){fill(await api());$("login").classList.add("hidden");$("app").classList.remove("hidden");$("message").textContent="Configuration loaded."}$("connect").onclick=async()=>{sessionStorage.setItem(store,$("gatewayKey").value.trim());try{await load()}catch(e){sessionStorage.removeItem(store);$("loginMsg").textContent=e.message}};$("gatewayKey").onkeydown=e=>{if(e.key==="Enter")$("connect").click()};$("form").onsubmit=async e=>{e.preventDefault();const data={};for(const k of Object.keys(cfg.values))if($(k))data[k]=$(k).value;if($("PROVIDER_API_KEY").value)data.PROVIDER_API_KEY=$("PROVIDER_API_KEY").value;try{const r=await api("POST",data);$("message").textContent="Saved "+r.updated_keys.length+" settings. Restart BYV to apply.";$("PROVIDER_API_KEY").value="";fill(await api())}catch(err){$("message").textContent=err.message}};$("reload").onclick=()=>load().catch(e=>$("message").textContent=e.message);document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-go]").forEach(x=>x.classList.toggle("active",x===b));$(b.dataset.go).scrollIntoView({behavior:"smooth"})});if(sessionStorage.getItem(store))load().catch(()=>{sessionStorage.removeItem(store);$("login").classList.remove("hidden")})})();</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>BYV Gateway Settings</title>
+<script>try{var t=localStorage.getItem('byv-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;else document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch(e){}</script>
+<link rel="stylesheet" href="/dashboard/ui.css">
+<style>
+/* Settings page composition. Tokens, buttons, fields and login live in ui.css. */
+
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:20px clamp(16px,4vw,32px);border-bottom:1px solid var(--line);background:var(--bg)}
+.page-head-actions{display:flex;align-items:center;gap:8px}
+.page-head .brand-name{font-size:14px}
+.page-title{margin-top:14px;font-size:22px;letter-spacing:-.02em}
+.page-sub{margin-top:4px;font-size:13px;color:var(--muted);max-width:60ch}
+
+.layout{width:min(1120px,100%);margin:0 auto;padding:20px clamp(16px,4vw,32px) 0;display:grid;grid-template-columns:200px minmax(0,1fr);gap:clamp(18px,3vw,32px);align-items:start}
+.side-nav{position:sticky;top:16px}
+
+.settings{display:grid;gap:16px;min-width:0;padding-bottom:16px}
+.settings .panel{scroll-margin-top:16px}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.field--full{grid-column:1/-1}
+.field code{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+
+.actions-bar{
+  position:sticky;bottom:0;z-index:5;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin-top:4px;padding:12px 14px;
+  border:1px solid var(--line-strong);border-radius:var(--radius-l);
+  background:var(--surface);box-shadow:var(--shadow-elevated);
+}
+.actions-bar .status{flex:1;min-width:180px;min-height:0}
+.actions-bar .btn{flex:none}
+
+@media(max-width:900px){
+  .page-head{padding:16px}
+  .page-head-actions{width:100%}
+  .page-head-actions .btn--secondary:first-child{flex:1}
+  .layout{grid-template-columns:minmax(0,1fr);padding:0 16px}
+  .side-nav{
+    position:sticky;top:0;z-index:6;
+    display:flex;gap:2px;overflow-x:auto;
+    margin:0 -16px;padding:6px 12px;
+    border-radius:0;border-width:0 0 1px;
+    background:var(--surface);
+    scrollbar-width:none;
+  }
+  .side-nav::-webkit-scrollbar{display:none}
+  .side-nav a{flex:none;white-space:nowrap;padding:0 12px;min-height:44px}
+  .fields{grid-template-columns:minmax(0,1fr)}
+  .field--full{grid-column:auto}
+  .settings .panel{padding:16px;scroll-margin-top:64px}
+  .page-title{font-size:20px}
+  /* The save bar stays reachable down to the home indicator on a phone. */
+  .actions-bar{
+    flex-wrap:wrap;gap:8px;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
+  }
+  .actions-bar .status{order:3;flex-basis:100%}
+  .actions-bar .btn{flex:1}
+  .settings{padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login-screen">
+ <section class="login-card" aria-labelledby="loginTitle">
+  <div class="brand"><div class="mark" aria-hidden="true">B</div><div class="brand-copy"><div class="brand-name">BYV Protocol</div><div class="brand-sub">Private gateway</div></div></div>
+  <h1 id="loginTitle" class="login-title">Gateway settings</h1>
+  <p class="login-lede">Enter your gateway key to manage the provider, protocol, and runtime configuration. It stays in this browser tab.</p>
+  <form id="loginForm">
+   <div class="field">
+    <label for="gatewayKey">Gateway API key</label>
+    <input id="gatewayKey" class="input" type="password" autocomplete="current-password" placeholder="Paste your key">
+   </div>
+   <button id="connect" class="btn btn--primary" type="submit">Open settings</button>
+   <p id="loginMsg" class="status status--error" role="status"></p>
+  </form>
+  <p class="login-alt">Looking for the chat? <a href="/dashboard/chat">Open chat</a></p>
+ </section>
+</div>
+
+<main id="app" class="hidden">
+ <a class="skip-link" href="#form">Skip to settings</a>
+ <header class="page-head">
+  <div>
+   <div class="brand"><div class="mark" aria-hidden="true">B</div><div class="brand-copy"><div class="brand-name">BYV Protocol</div><div class="brand-sub">Private gateway</div></div></div>
+   <h1 class="page-title">Gateway settings</h1>
+   <p class="page-sub">Provider, protocol, and runtime configuration for this gateway.</p>
+  </div>
+  <div class="page-head-actions">
+   <a class="btn btn--secondary" href="/dashboard/chat">Open chat</a>
+   <button id="themeToggle" class="btn btn--secondary btn--icon" type="button" aria-label="Switch to dark theme"></button>
+  </div>
+ </header>
+
+ <div class="layout">
+  <nav class="side-nav" aria-label="Settings sections">
+   <a href="#provider">Provider</a>
+   <a href="#protocol">Protocol</a>
+   <a href="#capabilities">Capabilities</a>
+   <a href="#server">Server</a>
+   <a href="#limits">Limits</a>
+   <a href="#compaction">Compaction</a>
+   <a href="#logs">Diagnostics</a>
+  </nav>
+
+  <form id="form" class="settings" tabindex="-1">
+   <div class="notice" role="note">Changes are written to <code>.env</code> with owner-only permissions. Restart BYV after saving. Provider API keys are never returned to the browser.</div>
+
+   <section class="panel" id="provider" aria-labelledby="providerH">
+    <h2 id="providerH">Upstream provider</h2>
+    <p class="hint">OpenAI-compatible Chat Completions endpoint.</p>
+    <div class="fields">
+     <div class="field field--full"><label for="PROVIDER_BASE_URL">Provider base URL</label><input id="PROVIDER_BASE_URL" class="input" placeholder="https://provider.example/v1"></div>
+     <div class="field"><label for="PROVIDER_MODEL">Provider model ID</label><input id="PROVIDER_MODEL" class="input"></div>
+     <div class="field"><label for="PROVIDER_API_KEY">Provider API key</label><input id="PROVIDER_API_KEY" class="input" type="password" placeholder="Blank keeps the existing key" autocomplete="off"><small id="keyState" class="hint"></small></div>
+    </div>
+   </section>
+
+   <section class="panel" id="protocol" aria-labelledby="protocolH">
+    <h2 id="protocolH">Tool protocol</h2>
+    <p class="hint">Choose DSML text transport or provider-native function calling.</p>
+    <div class="fields">
+     <div class="field"><label for="DSML_TOOL_CALL">Tool calling</label><select id="DSML_TOOL_CALL" class="input"><option value="false">Native function calling</option><option value="true">DSML text</option></select></div>
+     <div class="field"><label for="NO_TOOL_EXPERIMENT_VARIANT">DSML prompt variant</label><select id="NO_TOOL_EXPERIMENT_VARIANT" class="input"><option>A</option><option>B</option></select></div>
+     <div class="field"><label for="PROVIDER_NATIVE_REASONING_EFFORT">Native reasoning effort</label><select id="PROVIDER_NATIVE_REASONING_EFFORT" class="input"><option value="false">Off</option><option value="true">On</option></select></div>
+     <div class="field"><label for="PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS">Disable reasoning for required tools</label><select id="PROVIDER_DISABLE_REASONING_FOR_REQUIRED_TOOLS" class="input"><option value="false">Off</option><option value="true">On</option></select></div>
+    </div>
+   </section>
+
+   <section class="panel" id="capabilities" aria-labelledby="capabilitiesH">
+    <h2 id="capabilitiesH">Model capabilities</h2>
+    <p class="hint">Blank token limits fall back to provider metadata discovery.</p>
+    <div class="fields">
+     <div class="field"><label for="PROVIDER_CONTEXT_WINDOW_TOKENS">Context window tokens</label><input id="PROVIDER_CONTEXT_WINDOW_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_MAX_INPUT_TOKENS">Maximum input tokens</label><input id="PROVIDER_MAX_INPUT_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_MAX_OUTPUT_TOKENS">Maximum output tokens</label><input id="PROVIDER_MAX_OUTPUT_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="CONTEXT_WINDOW_SAFETY_TOKENS">Context safety reserve</label><input id="CONTEXT_WINDOW_SAFETY_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_MODEL_METADATA_TIMEOUT_MS">Metadata timeout (ms)</label><input id="PROVIDER_MODEL_METADATA_TIMEOUT_MS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_CAPABILITIES_CACHE_MS">Capabilities cache (ms)</label><input id="PROVIDER_CAPABILITIES_CACHE_MS" class="input" type="number" inputmode="numeric"></div>
+    </div>
+   </section>
+
+   <section class="panel" id="server" aria-labelledby="serverH">
+    <h2 id="serverH">Server and network</h2>
+    <p class="hint">Loopback binding is recommended for local administration.</p>
+    <div class="fields">
+     <div class="field"><label for="HOST">Bind host</label><input id="HOST" class="input" placeholder="127.0.0.1" autocapitalize="none" spellcheck="false"></div>
+     <div class="field"><label for="PORT">Port</label><input id="PORT" class="input" type="number" inputmode="numeric"></div>
+     <div class="field field--full"><label for="GATEWAY_ALLOWED_HOSTS">Additional allowed Host values</label><input id="GATEWAY_ALLOWED_HOSTS" class="input" autocapitalize="none" spellcheck="false"></div>
+     <div class="field field--full"><label for="CORS_ALLOWED_ORIGINS">CORS allowed origins</label><input id="CORS_ALLOWED_ORIGINS" class="input" autocapitalize="none" spellcheck="false"></div>
+    </div>
+   </section>
+
+   <section class="panel" id="limits" aria-labelledby="limitsH">
+    <h2 id="limitsH">Request and provider limits</h2>
+    <p class="hint">Rate, concurrency, timeout, and payload ceilings enforced by the gateway.</p>
+    <div class="fields">
+     <div class="field"><label for="PROVIDER_MAX_REQUESTS_PER_MINUTE">Provider requests per minute</label><input id="PROVIDER_MAX_REQUESTS_PER_MINUTE" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_MAX_CONCURRENT_REQUESTS">Provider concurrency</label><input id="PROVIDER_MAX_CONCURRENT_REQUESTS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="PROVIDER_TIMEOUT_MS">Provider timeout (ms)</label><input id="PROVIDER_TIMEOUT_MS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="MAX_PROVIDER_RETRIES">Provider retries</label><input id="MAX_PROVIDER_RETRIES" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="STREAM_PING_INTERVAL_MS">SSE ping interval (ms)</label><input id="STREAM_PING_INTERVAL_MS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="MAX_PENDING_REQUESTS">Maximum pending requests</label><input id="MAX_PENDING_REQUESTS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="MAX_BODY_BYTES">Maximum body bytes</label><input id="MAX_BODY_BYTES" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="MAX_OUTPUT_CHARS">Maximum output characters</label><input id="MAX_OUTPUT_CHARS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field field--full"><label for="MAX_PROMPT_CHARS">Maximum prompt characters</label><input id="MAX_PROMPT_CHARS" class="input" type="number" inputmode="numeric"></div>
+    </div>
+   </section>
+
+   <section class="panel" id="compaction" aria-labelledby="compactionH">
+    <h2 id="compactionH">Compaction and recovery</h2>
+    <p class="hint">Budgets for summarizing long conversations and retrying failed turns.</p>
+    <div class="fields">
+     <div class="field"><label for="COMPACTION_MAX_INPUT_TOKENS">Compaction max input tokens</label><input id="COMPACTION_MAX_INPUT_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="COMPACTION_MAX_OUTPUT_TOKENS">Compaction max output tokens</label><input id="COMPACTION_MAX_OUTPUT_TOKENS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="COMPACTION_MAX_SYSTEM_CHARS">Compaction max system characters</label><input id="COMPACTION_MAX_SYSTEM_CHARS" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="MAX_RECOVERY_ATTEMPTS">Maximum recovery attempts</label><input id="MAX_RECOVERY_ATTEMPTS" class="input" type="number" inputmode="numeric"></div>
+    </div>
+   </section>
+
+   <section class="panel" id="logs" aria-labelledby="logsH">
+    <h2 id="logsH">Diagnostics</h2>
+    <p class="hint">Content capture can include prompts and sensitive data. Leave it off unless you are debugging.</p>
+    <div class="fields">
+     <div class="field"><label for="LOG_CAPTURE_CONTENT">Capture request and response content</label><select id="LOG_CAPTURE_CONTENT" class="input"><option value="false">Off (recommended)</option><option value="true">On (debug only)</option></select></div>
+     <div class="field"><label for="LOG_MAX_FILE_BYTES">Maximum log file bytes</label><input id="LOG_MAX_FILE_BYTES" class="input" type="number" inputmode="numeric"></div>
+     <div class="field"><label for="LOG_ROTATION_FILES">Log rotation files</label><input id="LOG_ROTATION_FILES" class="input" type="number" inputmode="numeric"></div>
+    </div>
+   </section>
+
+   <div class="actions-bar">
+    <button class="btn btn--primary" type="submit">Save configuration</button>
+    <button class="btn btn--secondary" id="reload" type="button">Reload</button>
+    <span id="message" class="status" role="status"></span>
+   </div>
+  </form>
+ </div>
+</main>
+
+<script>
+(()=>{
+ 'use strict';
+ const $=id=>document.getElementById(id),store='byv-dashboard-key',themeName='byv-theme';
+ const SUN='<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.1"/><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1"/></svg>';
+ const MOON='<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13.4 9.7A5.7 5.7 0 0 1 6.3 2.6a5.8 5.8 0 1 0 7.1 7.1z"/></svg>';
+ let cfg=null;
+ const headers=json=>({Authorization:'Bearer '+(sessionStorage.getItem(store)||''),...(json?{'Content-Type':'application/json'}:{})});
+ function setMessage(text,kind){const node=$('message');node.textContent=text||'';node.classList.toggle('status--error',kind==='error');node.classList.toggle('status--ok',kind==='ok')}
+ function renderTheme(){const dark=document.documentElement.dataset.theme==='dark',button=$('themeToggle');button.innerHTML=dark?SUN:MOON;const label=dark?'Switch to light theme':'Switch to dark theme';button.title=label;button.setAttribute('aria-label',label)}
+ function initTheme(){
+  renderTheme();
+  $('themeToggle').addEventListener('click',()=>{
+   const next=document.documentElement.dataset.theme==='dark'?'light':'dark';
+   document.documentElement.dataset.theme=next;
+   try{localStorage.setItem(themeName,next)}catch(e){}
+   renderTheme();
+  });
+ }
+ async function api(method='GET',data){
+  const r=await fetch('/dashboard/api/config',{method,headers:headers(Boolean(data)),body:data?JSON.stringify(data):undefined});
+  const x=await r.json().catch(()=>({}));
+  if(!r.ok)throw Error(x.error||'Request failed ('+r.status+')');
+  return x;
+ }
+ function fill(x){
+  cfg=x;
+  for(const[k,v]of Object.entries(x.values||{}))if($(k))$(k).value=v;
+  $('PROVIDER_API_KEY').value='';
+  $('keyState').textContent=x.provider_api_key_configured?'A provider key is configured. Enter a value only to replace it.':'No provider key configured yet.';
+ }
+ async function load(){
+  setMessage('Loading configuration...');
+  fill(await api());
+  $('login').classList.add('hidden');$('app').classList.remove('hidden');
+  setMessage('Configuration loaded.','ok');
+ }
+ function currentSection(){
+  const links=[...document.querySelectorAll('.side-nav a')];
+  const top=document.querySelector('.side-nav').getBoundingClientRect().bottom+8;
+  let current=links[0];
+  for(const link of links){const target=document.querySelector(link.getAttribute('href'));if(target&&target.getBoundingClientRect().top<=top+1)current=link}
+  for(const link of links)link.setAttribute('aria-current',link===current?'true':'false');
+ }
+ $('loginForm').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const key=$('gatewayKey').value.trim();
+  if(!key){$('loginMsg').textContent='Enter your gateway API key.';return}
+  sessionStorage.setItem(store,key);
+  $('loginMsg').textContent='';
+  try{await load()}
+  catch(e){sessionStorage.removeItem(store);$('loginMsg').textContent=e.message}
+ });
+ $('form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const data={};
+  for(const k of Object.keys(cfg.values))if($(k))data[k]=$(k).value;
+  if($('PROVIDER_API_KEY').value)data.PROVIDER_API_KEY=$('PROVIDER_API_KEY').value;
+  setMessage('Saving...');
+  try{
+   const r=await api('POST',data);
+   setMessage('Saved '+r.updated_keys.length+' setting'+(r.updated_keys.length===1?'':'s')+'. Restart BYV to apply.','ok');
+   fill(await api());
+  }catch(err){setMessage(err.message,'error')}
+ });
+ $('reload').addEventListener('click',()=>load().catch(e=>setMessage(e.message,'error')));
+ document.querySelector('.side-nav').addEventListener('click',event=>{
+  const link=event.target.closest('a');if(!link)return;
+  const target=document.querySelector(link.getAttribute('href'));
+  if(!target)return;
+  event.preventDefault();
+  target.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+  history.replaceState(null,'',link.getAttribute('href'));
+  for(const other of document.querySelectorAll('.side-nav a'))other.setAttribute('aria-current',other===link?'true':'false');
+ });
+ addEventListener('scroll',currentSection,{passive:true});
+ addEventListener('resize',currentSection,{passive:true});
+ initTheme();
+ if(sessionStorage.getItem(store))load().then(currentSection).catch(e=>{$('login').classList.remove('hidden');$('loginMsg').textContent=e.message;sessionStorage.removeItem(store)});
+})();
+</script>
+</body>
+</html>
