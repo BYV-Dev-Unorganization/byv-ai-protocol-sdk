@@ -122,7 +122,12 @@ function createServer(options = {}) {
       return res.end();
     }
 
-    if (req.method === 'GET' && (route === '/dashboard' || route === '/dashboard/' || route === '/dashboard/chat')) return dashboardHandler(req, res);
+    // Dashboard pages and static assets are intentionally public. The API endpoints
+    // under /dashboard/api/* remain protected by the gateway auth check below.
+    if (
+      req.method === 'GET' &&
+      (route === '/dashboard' || route === '/dashboard/' || route === '/dashboard/chat' || route === '/dashboard/ui.css')
+    ) return dashboardHandler(req, res);
 
     // Claude Code sends this unauthenticated connection-warming probe.
     if (req.method === 'HEAD' && route === '/api/hello') {
