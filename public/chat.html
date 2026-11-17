@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>BYV Chat</title>
+<style>
+:root{color-scheme:light;--bg:#efeee8;--surface:#f8f7f2;--surface-2:#e8e6de;--surface-3:#dfddd4;--line:#d6d3c9;--text:#252722;--muted:#70736a;--accent:#536c5d;--accent-strong:#3e5949;--accent-soft:#e2e9e1;--danger:#a54d45;--shadow:0 18px 48px rgba(37,39,34,.08)}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#20211e;--surface:#292a26;--surface-2:#32332e;--surface-3:#3a3b35;--line:#45463f;--text:#eeede6;--muted:#aaa99e;--accent:#a4bda8;--accent-strong:#c0d2c2;--accent-soft:#37453a;--danger:#e29a91;--shadow:0 18px 48px rgba(0,0,0,.18)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#20211e;--surface:#292a26;--surface-2:#32332e;--surface-3:#3a3b35;--line:#45463f;--text:#eeede6;--muted:#aaa99e;--accent:#a4bda8;--accent-strong:#c0d2c2;--accent-soft:#37453a;--danger:#e29a91;--shadow:0 18px 48px rgba(0,0,0,.18)}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.hidden{display:none!important}
+.shell{min-height:100dvh;display:grid;grid-template-columns:264px minmax(0,1fr)}.sidebar{background:var(--surface);border-right:1px solid var(--line);padding:22px 16px;display:flex;flex-direction:column;gap:20px;min-height:100dvh}.brand{display:flex;align-items:center;gap:11px;padding:0 5px}.mark{width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--surface);display:grid;place-items:center;font-weight:800;font-size:17px}.brand-name{font-size:14px;font-weight:750;letter-spacing:.02em}.brand-sub{font-size:10px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase}.new-chat{width:100%;border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:10px;padding:11px 12px;text-align:left;font-weight:650;display:flex;align-items:center;gap:10px}.new-chat:hover{background:var(--surface-3)}.side-label{font-size:10px;font-weight:750;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;padding:0 8px}.session-list{display:flex;flex-direction:column;gap:4px;overflow:auto;min-height:80px}.session-item{display:flex;align-items:center;gap:5px;border-radius:9px;padding:8px 7px;color:var(--muted)}.session-item.active{background:var(--accent-soft);color:var(--text)}.session-open{border:0;background:transparent;color:inherit;text-align:left;min-width:0;flex:1;padding:2px 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.session-delete{border:0;background:transparent;color:var(--muted);opacity:0;padding:4px 6px;border-radius:6px}.session-item:hover .session-delete,.session-item.active .session-delete{opacity:1}.session-delete:hover{background:var(--surface-3);color:var(--danger)}.sidebar-bottom{margin-top:auto;border-top:1px solid var(--line);padding-top:15px;display:grid;gap:10px}.side-link{color:var(--muted);text-decoration:none;padding:8px;border-radius:8px;font-size:12px}.side-link:hover{background:var(--surface-2);color:var(--text)}.main{min-width:0;display:flex;flex-direction:column;min-height:100dvh}.topbar{height:72px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 clamp(18px,4vw,52px);background:var(--bg)}.top-title{font-size:13px;font-weight:700}.top-meta{font-size:11px;color:var(--muted);margin-top:2px}.top-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.control{border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px;max-width:220px}.control:disabled{opacity:.5}.theme-control{max-width:110px}.content{width:min(900px,100%);margin:0 auto;padding:32px 28px 18px;flex:1;display:flex;flex-direction:column}.welcome{margin:auto 0;max-width:610px;padding:50px 0}.welcome-kicker{color:var(--accent-strong);font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:800}.welcome h1{font-size:clamp(30px,4vw,43px);line-height:1.12;letter-spacing:-.045em;font-weight:650;margin:14px 0 12px}.welcome p{color:var(--muted);max-width:470px;margin:0;font-size:14px}.prompt-hints{display:flex;gap:8px;flex-wrap:wrap;margin-top:26px}.hint-chip{border:1px solid var(--line);border-radius:999px;padding:7px 11px;color:var(--muted);font-size:11px;background:var(--surface)}.messages{display:flex;flex-direction:column;gap:24px;padding:12px 0 28px}.message{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;align-items:start}.avatar{width:28px;height:28px;border-radius:9px;background:var(--surface-2);color:var(--muted);display:grid;place-items:center;font-size:11px;font-weight:750}.message.assistant .avatar{background:var(--accent-soft);color:var(--accent-strong)}.message-body{min-width:0}.message-role{font-size:11px;font-weight:750;margin:1px 0 7px}.message-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.72}.message.user .message-text{background:var(--surface-2);padding:12px 14px;border-radius:4px 12px 12px 12px;display:inline-block;max-width:100%}.message.assistant .message-text{padding:1px 0}.message-error{color:var(--danger)}.composer-wrap{position:sticky;bottom:0;padding:10px 0 20px;background:linear-gradient(180deg,transparent,var(--bg) 20%)}.composer{border:1px solid var(--line);background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:11px 12px 9px}.composer textarea{display:block;width:100%;resize:none;min-height:58px;max-height:220px;border:0;background:transparent;color:var(--text);outline:none;padding:5px 4px;font-size:13px;line-height:1.6}.composer textarea::placeholder{color:var(--muted)}.composer-foot{display:flex;align-items:center;justify-content:space-between;gap:10px}.composer-note{font-size:10px;color:var(--muted)}.send-actions{display:flex;align-items:center;gap:8px}.send-button,.stop-button{border:0;border-radius:8px;padding:8px 14px;background:var(--accent);color:#fff;font-size:12px;font-weight:750}.stop-button{background:var(--surface-3);color:var(--text)}:root[data-theme="dark"] .send-button{color:#20211e}@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .send-button{color:#20211e}}.send-button:disabled{opacity:.45;cursor:not-allowed}.status{min-height:18px;color:var(--muted);font-size:10px;padding:5px 2px}.session-id{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}.login{width:min(420px,calc(100% - 32px));margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px;box-shadow:var(--shadow)}.login h1{font-size:22px;margin:14px 0 5px}.login p{color:var(--muted);font-size:12px}.login input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--text);margin:8px 0 12px}.primary{border:0;background:var(--accent);color:#fff;padding:11px 15px;border-radius:9px;font-weight:750}.login-error{font-size:11px;color:var(--danger);min-height:18px}
+@media(max-width:760px){.shell{grid-template-columns:1fr}.sidebar{min-height:0;height:auto;padding:12px 14px;border-right:0;border-bottom:1px solid var(--line);gap:10px}.brand{display:none}.new-chat{padding:9px}.side-label{display:none}.session-list{flex-direction:row;max-height:42px;overflow:auto}.session-item{flex:0 0 auto;max-width:180px;padding:5px}.sidebar-bottom{display:none}.topbar{height:auto;min-height:68px;padding:12px 16px;align-items:flex-start}.top-controls{justify-content:flex-end}.control{max-width:135px;padding:7px 8px}.theme-control{max-width:95px}.content{padding:18px 16px 8px;min-height:58dvh}.welcome{padding:42px 0}.composer-wrap{padding-bottom:12px}.messages{gap:20px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<section id="login" class="login">
+ <div class="brand"><div class="mark">B</div><div><div class="brand-name">BYV Protocol</div><div class="brand-sub">Private gateway</div></div></div>
+ <h1>Open your workspace</h1><p>Connect with your BYV gateway key. It stays in this browser session and is not stored on the server.</p>
+ <input id="gatewayKey" type="password" autocomplete="current-password" placeholder="Gateway API key" aria-label="Gateway API key">
+ <button id="connect" class="primary">Connect</button><div id="loginError" class="login-error" role="status"></div>
+</section>
+<div id="app" class="shell hidden">
+ <aside class="sidebar">
+  <div class="brand"><div class="mark">B</div><div><div class="brand-name">BYV Protocol</div><div class="brand-sub">Chat workspace</div></div></div>
+  <button id="newChat" class="new-chat"><span aria-hidden="true">＋</span> New conversation</button>
+  <div class="side-label">Recent sessions</div>
+  <div id="sessionList" class="session-list" aria-label="Chat sessions"></div>
+  <div class="sidebar-bottom">
+   <a class="side-link" href="/dashboard">Gateway settings ↗</a>
+   <div id="sessionId" class="session-id">No session selected</div>
+  </div>
+ </aside>
+ <main class="main">
+  <header class="topbar">
+   <div><div class="top-title">Conversation</div><div class="top-meta" id="topMeta">Choose a model and start a session</div></div>
+   <div class="top-controls">
+    <select id="model" class="control" aria-label="Model" disabled><option>Loading models…</option></select>
+    <select id="effort" class="control hidden" aria-label="Reasoning effort"></select>
+    <select id="theme" class="control theme-control" aria-label="Color theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+   </div>
+  </header>
+  <section class="content">
+   <div id="welcome" class="welcome">
+    <div class="welcome-kicker">A quieter place to think</div>
+    <h1>What are we working on?</h1>
+    <p>Start a conversation with your configured BYV models. Sessions are stored locally on your gateway in SQLite.</p>
+    <div class="prompt-hints"><span class="hint-chip">Explore an idea</span><span class="hint-chip">Review some code</span><span class="hint-chip">Draft something clear</span></div>
+   </div>
+   <div id="messages" class="messages" aria-live="polite"></div>
+   <div class="composer-wrap">
+    <div class="composer">
+     <textarea id="prompt" rows="2" placeholder="Message BYV…" aria-label="Message" disabled></textarea>
+     <div class="composer-foot"><span class="composer-note">Enter to send · Shift + Enter for a new line</span><div class="send-actions"><button id="stop" class="stop-button hidden" type="button">Stop</button><button id="send" class="send-button" type="button" disabled>Send ↑</button></div></div>
+    </div>
+    <div id="status" class="status" role="status"></div>
+   </div>
+  </section>
+ </main>
+</div>
+<script>
+(()=>{
+ 'use strict';
+ const $=id=>document.getElementById(id),keyName='byv-dashboard-key',themeName='byv-chat-theme';
+ let token=sessionStorage.getItem(keyName)||'',models=[],capabilities={},active=null,controller=null,busy=false;
+ const auth=()=>({Authorization:'Bearer '+token});
+ async function request(url,method='GET',body){
+  const response=await fetch(url,{method,headers:{...auth(),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(payload.error||payload.message||(payload.error&&payload.error.message)||('Request failed ('+response.status+')'));
+  return payload;
+ }
+ function setStatus(message,isError=false){$('status').textContent=message||'';$('status').style.color=isError?'var(--danger)':'var(--muted)'}
+ function applyTheme(value){if(value==='light'||value==='dark')document.documentElement.dataset.theme=value;else document.documentElement.removeAttribute('data-theme');$('theme').value=value}
+ function initTheme(){const saved=localStorage.getItem(themeName)||'system';applyTheme(saved);$('theme').addEventListener('change',()=>{localStorage.setItem(themeName,$('theme').value);applyTheme($('theme').value)})}
+ function showApp(){ $('login').classList.add('hidden');$('app').classList.remove('hidden') }
+ function showLogin(message){$('app').classList.add('hidden');$('login').classList.remove('hidden');$('loginError').textContent=message||''}
+ function renderSessions(items){
+  const root=$('sessionList');root.replaceChildren();
+  for(const item of items){
+   const row=document.createElement('div');row.className='session-item'+(active&&active.id===item.id?' active':'');
+   const open=document.createElement('button');open.className='session-open';open.type='button';open.textContent=item.title||'New conversation';open.title=item.title||'New conversation';open.onclick=()=>loadSession(item.id);
+   const del=document.createElement('button');del.className='session-delete';del.type='button';del.textContent='×';del.title='Delete session';del.setAttribute('aria-label','Delete '+(item.title||'session'));
+   del.onclick=async()=>{if(!confirm('Delete this conversation and its saved messages?'))return;try{await request('/dashboard/api/sessions/'+encodeURIComponent(item.id),'DELETE');if(active&&active.id===item.id){active=null;renderMessages();$('sessionId').textContent='No session selected'}await refreshSessions()}catch(e){setStatus(e.message,true)}};
+   row.append(open,del);root.append(row);
+  }
+ }
+ async function refreshSessions(){const result=await request('/dashboard/api/sessions');renderSessions(result.data||[])}
+ function renderMessages(){
+  const root=$('messages');root.replaceChildren();$('welcome').classList.toggle('hidden',Boolean(active&&active.messages&&active.messages.length));
+  if(!active){$('sessionId').textContent='No session selected';return}
+  $('sessionId').textContent='ID · '+active.id;
+  for(const item of active.messages||[])appendMessage(item.role,item.content);
+  root.scrollTop=root.scrollHeight;
+ }
+ function appendMessage(role,content,extraClass){
+  $('welcome').classList.add('hidden');
+  const row=document.createElement('article');row.className='message '+role+(extraClass?' '+extraClass:'');
+  const avatar=document.createElement('div');avatar.className='avatar';avatar.textContent=role==='assistant'?'B':'Y';
+  const body=document.createElement('div');body.className='message-body';
+  const name=document.createElement('div');name.className='message-role';name.textContent=role==='assistant'?'BYV':'You';
+  const text=document.createElement('div');text.className='message-text';text.textContent=content||'';
+  body.append(name,text);row.append(avatar,body);$('messages').append(row);row.scrollIntoView({block:'end',behavior:'smooth'});
+  return text;
+ }
+ async function loadModels(){
+  const [modelData,capData]=await Promise.all([request('/v1/models'),request('/v1/provider/capabilities')]);
+  models=Array.isArray(modelData.data)?modelData.data:[];
+  capabilities=capData||{};
+  const select=$('model');select.replaceChildren();
+  for(const model of models){const option=document.createElement('option');option.value=model.id;option.textContent=model.display_name||model.id;select.append(option)}
+  select.disabled=models.length===0;
+  if(models.length)select.value=models.some(x=>x.id==='byv-flash-v1')?'byv-flash-v1':models[0].id;
+  const effort=$('effort');effort.replaceChildren();
+  if(capabilities.reasoning_effort_supported&&Array.isArray(capabilities.reasoning_effort_levels)&&capabilities.reasoning_effort_levels.length){
+   for(const level of capabilities.reasoning_effort_levels){const option=document.createElement('option');option.value=level;option.textContent=level.charAt(0).toUpperCase()+level.slice(1);effort.append(option)}
+   effort.classList.remove('hidden');
+  }else effort.classList.add('hidden');
+  $('prompt').disabled=models.length===0;$('send').disabled=models.length===0;
+  if(!models.length)throw new Error('No supported models were returned by /v1/models.');
+ }
+ async function newSession(){
+  const result=await request('/chat/sessionid','POST',{model:$('model').value,effort:$('effort').classList.contains('hidden')?null:$('effort').value});
+  active=result.session;renderMessages();await refreshSessions();$('prompt').focus();$('topMeta').textContent=active.model;
+ }
+ async function loadSession(id){
+  try{const result=await request('/dashboard/api/sessions/'+encodeURIComponent(id));active=result.session;
+   $('model').value=active.model;if(!$('effort').classList.contains('hidden')&&active.effort)$('effort').value=active.effort;
+   renderMessages();renderSessions((await request('/dashboard/api/sessions')).data||[]);$('topMeta').textContent=active.model;$('prompt').disabled=false;$('send').disabled=false;
+  }catch(e){setStatus(e.message,true)}
+ }
+ async function updateSessionSettings(){
+  if(!active)return;
+  try{const result=await request('/dashboard/api/sessions/'+encodeURIComponent(active.id),'PATCH',{model:$('model').value,effort:$('effort').classList.contains('hidden')?null:$('effort').value});active=result.session;$('topMeta').textContent=active.model;await refreshSessions()}
+  catch(e){setStatus(e.message,true)}
+ }
+ function requestMessages(){
+  const messages=(active.messages||[]).filter(m=>m.id>Number(active.compacted_through_message_id||0)).map(m=>({role:m.role,content:m.content}));
+  return messages;
+ }
+ async function countTokens(messages,system){
+  const body={model:active.model,messages};if(system)body.system=system;
+  const result=await request('/v1/messages/count_tokens','POST',body);return Number(result.input_tokens)||0;
+ }
+ async function compactIfNeeded(messages){
+  const system=active.summary?'Conversation context summary (preserve facts, decisions, preferences and unresolved tasks):\n'+active.summary:undefined;
+  let count=await countTokens(messages,system);
+  const configuredLimit=Number(capabilities.max_input_tokens)||Number(capabilities.context_window_tokens)||200000;
+  const threshold=Math.max(1024,Math.min(190000,configuredLimit-6144));
+  if(count<threshold)return{messages,system,count};
+  if(messages.length<3)throw new Error('Context is near its limit, but there is not enough earlier conversation to compact safely. Start a new session or shorten the latest message.');
+  const keep=Math.min(8,Math.max(2,Math.floor(messages.length/3)));
+  const older=messages.slice(0,messages.length-keep);
+  const olderRecords=(active.messages||[]).filter(m=>m.id>Number(active.compacted_through_message_id||0)).slice(0,older.length);
+  const transcript=older.map(m=>(m.role==='user'?'User':'Assistant')+':\n'+m.content).join('\n\n');
+  const summaryPrompt='Create a compact but detailed memory of this conversation segment for future turns. Preserve concrete facts, constraints, decisions, names, code identifiers, user preferences, unresolved questions and commitments. Remove repetition. Do not answer the conversation. Return only the memory summary.\n\n'+transcript;
+  setStatus('Compacting earlier context before the next request…');
+  const compactResponse=await request('/v1/messages','POST',{model:active.model,max_tokens:Math.min(4096,Number(capabilities.max_output_tokens)||4096),system:active.summary?'Previous context summary:\n'+active.summary:undefined,messages:[{role:'user',content:summaryPrompt}]});
+  const summary=(compactResponse.content||[]).filter(x=>x.type==='text').map(x=>x.text).join('\n').trim();
+  if(!summary)throw new Error('The model returned an empty context summary; original session history was kept.');
+  const throughId=olderRecords.length?olderRecords[olderRecords.length-1].id:Number(active.compacted_through_message_id||0);
+  const saved=await request('/dashboard/api/sessions/'+encodeURIComponent(active.id)+'/summary','POST',{summary,through_message_id:throughId});
+  active=saved.session;
+  const remaining=requestMessages();
+  const mergedSystem='Conversation context summary (preserve facts, decisions, preferences and unresolved tasks):\n'+active.summary;
+  count=await countTokens(remaining,mergedSystem);
+  if(count>=threshold)throw new Error('Conversation is still above the safe context budget after compaction. Reduce the recent messages or start a new session.');
+  setStatus('Context compacted · '+count.toLocaleString()+' estimated input tokens');
+  return{messages:remaining,system:mergedSystem,count};
+ }
+ async function streamReply(payload,assistantBubble){
+  controller=new AbortController();
+  const response=await fetch('/v1/messages',{method:'POST',headers:{...auth(),'Content-Type':'application/json','Accept':'text/event-stream'},body:JSON.stringify(payload),signal:controller.signal});
+  if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error&&error.error.message||error.message||'Chat request failed ('+response.status+')')}
+  if(!response.body)throw new Error('Streaming response body is unavailable.');
+  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',answer='',inputTokens=null,outputTokens=null,block=assistantBubble;
+  const parseEvent=raw=>{
+   const lines=raw.split(/\r?\n/),data=lines.filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trim()).join('\n');
+   if(!data)return;
+   let event;try{event=JSON.parse(data)}catch{return}
+   if(event.type==='message_start'&&event.message&&event.message.usage)inputTokens=event.message.usage.input_tokens;
+   if(event.type==='content_block_delta'&&event.delta&&event.delta.type==='text_delta'){
+    answer+=event.delta.text||'';if(block)block.textContent=answer;
+   }
+   if(event.type==='message_delta'&&event.usage)outputTokens=event.usage.output_tokens;
+   if(event.type==='error')throw new Error(event.error&&event.error.message||'Streaming response failed.');
+  };
+  try{
+   while(true){const part=await reader.read();if(part.done)break;buffer+=decoder.decode(part.value,{stream:true});let boundary;
+    while((boundary=buffer.search(/\r?\n\r?\n/))>=0){const chunk=buffer.slice(0,boundary);const sep=buffer.slice(boundary).match(/^\r?\n\r?\n/)[0];buffer=buffer.slice(boundary+sep.length);parseEvent(chunk)}
+   }
+   if(buffer.trim())parseEvent(buffer);
+  }finally{try{reader.releaseLock()}catch{}}
+  return{text:answer,input_tokens:inputTokens,output_tokens:outputTokens};
+ }
+ async function send(){
+  const text=$('prompt').value.trim();if(!text||busy)return;
+  if(!active)await newSession();
+  busy=true;$('send').disabled=true;$('stop').classList.remove('hidden');$('prompt').disabled=true;
+  $('prompt').value='';let assistantBubble=null;
+  try{
+   const saved=await request('/dashboard/api/sessions/'+encodeURIComponent(active.id)+'/messages','POST',{role:'user',content:text,model:active.model});
+   active.messages.push(saved.message);appendMessage('user',text);await refreshSessions();
+   const prepared=await compactIfNeeded(requestMessages());
+   const payload={model:active.model,max_tokens:Math.min(4096,Number(capabilities.max_output_tokens)||4096),stream:true,messages:prepared.messages};
+   if(prepared.system)payload.system=prepared.system;
+   if(!$('effort').classList.contains('hidden'))payload.output_config={effort:$('effort').value};
+   assistantBubble=appendMessage('assistant','');
+   const result=await streamReply(payload,assistantBubble);
+   if(result.text.trim()){
+    const savedAssistant=await request('/dashboard/api/sessions/'+encodeURIComponent(active.id)+'/messages','POST',{role:'assistant',content:result.text,model:active.model,input_tokens:result.input_tokens,output_tokens:result.output_tokens});
+    active.messages.push(savedAssistant.message);
+   }else if(assistantBubble)assistantBubble.textContent='The model returned an empty response.';
+   await refreshSessions();
+   setStatus('Completed'+(result.input_tokens!==null?' · '+result.input_tokens.toLocaleString()+' input tokens':''));
+  }catch(e){
+   if(e.name==='AbortError'){setStatus('Generation stopped.');if(assistantBubble&&!assistantBubble.textContent)assistantBubble.textContent='Generation stopped.'}
+   else{setStatus(e.message,true);if(assistantBubble&&!assistantBubble.textContent)assistantBubble.textContent=e.message;else if(!assistantBubble)appendMessage('assistant',e.message,'message-error')}
+  }finally{
+   controller=null;busy=false;$('send').disabled=false;$('stop').classList.add('hidden');$('prompt').disabled=false;$('prompt').focus();
+  }
+ }
+ async function connect(){
+  token=$('gatewayKey').value.trim();if(!token){$('loginError').textContent='Enter your gateway API key.';return}
+  sessionStorage.setItem(keyName,token);
+  try{await loadModels();showApp();await refreshSessions();$('prompt').disabled=false;$('send').disabled=false;setStatus('Connected to BYV gateway.')}
+  catch(e){sessionStorage.removeItem(keyName);token='';showLogin(e.message)}
+ }
+ $('connect').addEventListener('click',connect);$('gatewayKey').addEventListener('keydown',e=>{if(e.key==='Enter')connect()});
+ $('newChat').addEventListener('click',()=>newSession().catch(e=>setStatus(e.message,true)));
+ $('send').addEventListener('click',send);$('prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+ $('stop').addEventListener('click',()=>{if(controller)controller.abort()});
+ $('model').addEventListener('change',updateSessionSettings);$('effort').addEventListener('change',updateSessionSettings);
+ initTheme();
+ if(token){loadModels().then(()=>{showApp();return refreshSessions()}).then(()=>{const params=new URLSearchParams(location.search);if(params.get('session'))return loadSession(params.get('session'));$('prompt').disabled=false;$('send').disabled=false}).catch(e=>{sessionStorage.removeItem(keyName);token='';showLogin(e.message)})}
+})();
+</script>
+</body>
+</html>

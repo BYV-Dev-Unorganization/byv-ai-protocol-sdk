@@ -554,3 +554,35 @@ npm run check
 ~~~
 
 The GitHub Actions workflow runs the test suite and syntax checks on pushes and pull requests to main.
+
+
+## Environment settings dashboard
+
+Start the gateway, then open `http://127.0.0.1:8787/dashboard` in a browser on the same machine. Sign in with the BYV gateway API key (the value configured by `GATEWAY_API_KEY`, or the contents of `.byv-gateway-token`). The dashboard can edit the allowlisted provider, tool-transport, model-capability, server, request-limit, compaction, and diagnostics settings in `.env`.
+
+The dashboard API is protected by the existing gateway authentication and Host/Origin checks. Provider API keys are write-only: the UI only learns whether a key is configured, and leaving the password field blank preserves the current key. Configuration writes use an atomic file replacement and set `.env` permissions to `0600`. The dashboard does not provide arbitrary environment editing, gateway-token rotation, shell access, or remote process restart.
+
+### Ubuntu public dashboard with Cloudflare Quick Tunnel
+
+On Ubuntu 22.04/24.04 or Debian, run:
+
+```sh
+npm install
+npm run ubuntu
+```
+
+The command checks for `cloudflared` and installs it from Cloudflare's official APT repository when missing (sudo access is required). It starts BYV on the loopback address from `.env` (defaults to `127.0.0.1:8787`), then starts a Cloudflare Quick Tunnel in the background. It does not bind the gateway to a public network interface. The tunnel rewrites the upstream Host header to the local listener; the gateway accepts HTTPS origins matching the exact `*.trycloudflare.com` hostname pattern for the dashboard's same-origin API calls.
+
+After the tunnel is ready, the command prints the public dashboard URL. It also stores the current URL in `.byv-ubuntu/public-url.txt`, status in `.byv-ubuntu/status.json`, and process logs in `.byv-ubuntu/`. This runtime directory is local-only and must not be committed.
+
+Manage the background processes:
+
+```sh
+npm run ubuntu:status
+npm run ubuntu:stop
+```
+
+Quick Tunnel URLs are temporary and may change when a tunnel is restarted. They are suitable for testing and personal access, not a stable production hostname. Anyone can reach the public login page, but dashboard configuration writes and gateway API endpoints still require the BYV gateway API key. Keep that key private, use a strong key, and stop the tunnel when it is no longer needed. A named Cloudflare Tunnel with Cloudflare Access is recommended for a stable, production-grade public endpoint.
+
+
+Most runtime settings are loaded when the Node.js process starts. After saving, restart BYV to apply the changes. Keep the gateway bound to `127.0.0.1` for local use; do not expose the dashboard directly to the public internet without a separately secured reverse proxy and network policy.

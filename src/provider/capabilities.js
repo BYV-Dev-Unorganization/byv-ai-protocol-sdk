@@ -4,6 +4,7 @@ const {
   PROVIDER_BASE_URL,
   PROVIDER_API_KEY,
   PROVIDER_MODEL,
+  PROVIDER_NATIVE_REASONING_EFFORT,
   PROVIDER_CONTEXT_WINDOW_TOKENS,
   PROVIDER_MAX_INPUT_TOKENS,
   PROVIDER_MAX_OUTPUT_TOKENS,
@@ -231,6 +232,8 @@ async function getModelCapabilities(options = {}) {
       max_input_tokens: merged.max_input_tokens,
       max_output_tokens: merged.max_output_tokens,
       supports_prompt_caching: merged.supports_prompt_caching,
+      reasoning_effort_supported: PROVIDER_NATIVE_REASONING_EFFORT,
+      reasoning_effort_levels: PROVIDER_NATIVE_REASONING_EFFORT ? ['low', 'medium', 'high', 'xhigh', 'max'] : [],
       field_sources: merged.field_sources,
       checked_at: new Date().toISOString()
     };

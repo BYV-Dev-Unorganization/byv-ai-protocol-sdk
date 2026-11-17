@@ -216,6 +216,7 @@ async function requestCompletion(messages, body, signal, provider = {}, capabili
     top_p: body.top_p,
     stop_sequences: body.stop_sequences,
     reasoning_effort: body.output_config && body.output_config.effort,
+    onTextDelta: nativeToolCalling && typeof diagnostic.onTextDelta === 'function' ? diagnostic.onTextDelta : undefined,
     nativeToolCalling,
     // Native tool schemas never cross the provider boundary in DSML text mode.
     tools: nativeToolCalling && !gatewayToolChoiceNone ? body.tools : [],
@@ -561,7 +562,8 @@ async function handleMessages(body, options = {}) {
           requestIntent: options.requestIntent || (compactionRequest ? 'claude_code_compaction' : 'normal'),
           compactionMaxInputTokens: compactionBudgets ? compactionBudgets.maxInputTokens : null,
           compactionMaxOutputTokens: compactionBudgets ? compactionBudgets.maxOutputTokens : null,
-          anthropicVersion: options.anthropicVersion
+          anthropicVersion: options.anthropicVersion,
+          onTextDelta: options.onTextDelta
         });
       } catch (error) {
         const code = String(error && error.code || '');
